@@ -34,6 +34,7 @@ struct GridHashFunc {
 		return h1 ^ (h2 << 1) ^ (h3 << 2);
 	}
 };
+
 //struct GridHashFunc {
 //	std::size_t operator()(const std::array<int, 3>& arr) const {
 //		std::size_t seed = 0;

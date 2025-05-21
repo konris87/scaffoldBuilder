@@ -8,6 +8,66 @@
 #include <vtkSmartPointer.h>
 #include <vtkPolyData.h>
 #include <Eigen/Dense>
+#include <unordered_map>
+#include <unordered_set>
+
+// hash function to compute hash from key
+struct GlobalVertexKey {
+	
+	std::size_t operator()(const std::array<double, 3>& coords) const {
+		const double scale = 1e6;
+
+		// scale the coordinates to convert to integers
+		// for example 0.3456778 -> 345677
+		std::size_t h1 = std::hash<int>{}(static_cast<int>(coords[0] * scale));
+		std::size_t h2 = std::hash<int>{}(static_cast<int>(coords[1] * scale));
+		std::size_t h3 = std::hash<int>{}(static_cast<int>(coords[2] * scale));
+
+		// create the key by combining hashes
+		std::size_t seed = h1;
+		
+		seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+		seed ^= h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+
+		return seed;
+	};
+};
+
+// function to compare keys for the vertex map
+struct GlobalVertexInside {
+
+	const double precision = 1e-6;
+
+	bool operator()(const std::array<double, 3>& a1, const std::array<double, 3>& a2) const {
+
+		return
+			std::fabs(a1[0] - a2[0]) < precision &&
+			std::fabs(a1[1] - a2[1]) < precision &&
+			std::fabs(a1[2] - a2[2]) < precision;
+	};
+};
+
+// Map for global faces
+
+// function to create the key
+struct GlobalFaceKey {
+	std::size_t operator()(const std::vector<int>& face) const {
+		std::size_t seed = face.size();
+		for (int i : face) {
+			seed ^= std::hash<int>{}(i)+0x9e3779b9 + (seed << 6) + (seed >> 2);
+		}
+		return seed;
+	}
+};
+
+struct GlobalFaceInside {
+
+	bool operator()(const std::vector<int>& face1, const std::vector<int>& face2) const {
+		return face1 == face2;
+	};
+
+};
+
 
 class ScaffoldGenerator{
 public:
@@ -153,6 +213,37 @@ private:
 	void _process_triangles();
 };
 
+//---------------------------------------------------------------------
+// Scaffold Generator using face editing
 
+class ScaffoldGeneratorFaceBox : public ScaffoldGenerator {
+
+public:
+
+	// constructor using range of hole radius and interpolation for edge size
+	ScaffoldGeneratorFaceBox(
+		std::vector<std::array<double, 3>>& seeds,
+		const std::array<float, 6>& bounds,
+		const std::array<int, 3>& blockDim,
+		double minRad, double maxRad, double edgeSize);
+
+	~ScaffoldGeneratorFaceBox() override {};
+	void generate_voro(const int regSteps) override {};
+	void generate_voro();
+
+protected:
+
+	double minHoleRadius{ 0.0 };
+	double maxHoleRadius{ 0.0 };
+	double edgeSize{ 0.0 };
+
+private: 
+	std::vector<int> globalIndices;
+	std::vector<std::array<double, 3>> globalVertices;
+	std::vector<std::vector<int>> globalFaces;
+	int globalIndex{ 0 };
+	std::unordered_map<std::array<double, 3>, int, GlobalVertexKey, GlobalVertexInside> globalVertexMap;
+	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
+};
 
 #endif

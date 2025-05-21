@@ -138,8 +138,8 @@ ScaffoldGeneratorBox::ScaffoldGeneratorBox(
 	const std::array<float, 6>& bounds,
 	const std::array<int, 3>& blockDim) : ScaffoldGenerator(seeds, bounds, blockDim) {
 
-	std::cout << blockDim[0] << blockDim[1] << blockDim[2] << std::endl;
-	std::cout << bounds[0] << bounds[1] << bounds[2] << std::endl;
+	//std::cout << blockDim[0] << blockDim[1] << blockDim[2] << std::endl;
+	//std::cout << bounds[0] << bounds[1] << bounds[2] << std::endl;
 
 };
 
@@ -462,7 +462,7 @@ void ScaffoldGeneratorWall::_process_triangles() {
 };
 
 
-// ---------------------------------------------------------
+// ------------------------------------------------------------------
 // Volume Optimization
 
 VolOpt::VolOpt(
@@ -977,3 +977,193 @@ void VolOptWall::generate_mesh(
 	stlWriter->SetInputConnection(norms->GetOutputPort());
 	stlWriter->Write();
 };
+
+// -----------------------------------------------------------------
+// Scaffold Face Builder
+
+// constructor
+ScaffoldGeneratorFaceBox::ScaffoldGeneratorFaceBox(
+	std::vector<std::array<double, 3>>& seeds,
+	const std::array<float, 6>& bounds,
+	const std::array<int, 3>& blockDim,
+	double minRad, double maxRad, double edgeSize
+) : minHoleRadius(minRad), maxHoleRadius(maxRad), edgeSize(edgeSize), ScaffoldGenerator(seeds, bounds, blockDim) {};
+
+// generate voronoi 
+
+void ScaffoldGeneratorFaceBox::generate_voro() {
+
+	con = new voro::container(
+		bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5],
+		blockDim[0], blockDim[1], blockDim[2], false, false, false, 16
+	);
+
+	std::vector<vtkSmartPointer<vtkPolyData>> polys;
+
+	// clear previous container
+	con->clear();
+
+	for (int i{ 0 }; i < seeds.size(); i++) {
+		con->put(i, seeds[i][0], seeds[i][1], seeds[i][2]);
+	}
+
+	voro::c_loop_all cla(*con);
+	voro::voronoicell_neighbor cell;
+
+	if (cla.start()) do if (con->compute_cell(cell, cla)) {
+
+		// vector to store the cell vertexes in global coordinates, cell neighbors and face vertices
+		std::vector<double> cellVertices;
+		std::vector<int> faceIndices;
+		std::vector<int> cellNeighs;
+
+		int seedId = cla.pid();
+
+		// get position of seed and store it to an array
+		double px = 0.0, py = 0.0, pz = 0.0;
+
+		cla.pos(px, py, pz);
+
+		//-------------------------------
+
+		// cell vertices in global system
+		cell.vertices(px, py, pz, cellVertices);
+
+		// create also a mapping from local to global
+		std::unordered_map <int, int> localToGlobal;
+
+		for (int i{ 0 }; i < cellVertices.size(); i++) {
+
+			std::array<double, 3> key = {
+				cellVertices[i],
+				cellVertices[i + 1],
+				cellVertices[i + 2] };
+			
+			// check if the vertex is not inside
+			if (globalVertexMap.find(key) == globalVertexMap.end()) {
+				
+				// get the global Idx 
+				int globalIdx = globalVertices.size();
+
+				// add to the map
+				globalVertexMap[key] = globalIdx;
+
+				// push it back to the global Indices
+				globalIndices.push_back(globalIdx);
+
+				// add the local to global
+				localToGlobal[i] = globalIdx;
+			};
+		}
+
+		// get cell faces and neighbors
+		cell.face_vertices(faceIndices); 
+		cell.neighbors(cellNeighs);
+
+		//std::cout << "Neighbors: " << cellNeighs.size() << std::endl;
+		std::vector<std::vector<int>> cellFaces;
+
+		// loop in faces 
+		int idx{ 0 };
+		for (int i = 0; i < cellNeighs.size(); i++) {
+
+			int order = faceIndices[idx];
+
+			std::vector<int> localFace;
+			std::vector<int> globalFace;
+
+			for (int j = idx + 1; j < order + idx + 1; j++) {
+
+				int localVertIdx = faceIndices[j];
+				int globalVertIdx = localToGlobal[localVertIdx];
+
+				localFace.push_back(localVertIdx);
+
+				globalFace.push_back(globalVertIdx);
+
+			}
+
+			idx += order + 1;
+
+			// check if the face is inside the global faces, that means that is already processed
+			// TODO: also check if the neighbor is negative to avoid processing of outer faces
+			// sort the face list
+			std::vector<int> globalFaceOrdered = globalFace;
+			std::sort(globalFaceOrdered.begin(), globalFaceOrdered.end());
+
+			// if not inside
+			if (globalFaceMap.find(globalFaceOrdered) == globalFaceMap.end()) {
+
+				globalFaceMap.insert(globalFaceOrdered);
+				globalFaces.push_back(globalFace);
+				
+				// continue with processing of each face
+				// 1. get the face vertices
+
+				std::vector<double> faceVertices;
+
+				for (const auto vIdx : localFace){
+					faceVertices.push_back(cellVertices[3 * vIdx]);
+					faceVertices.push_back(cellVertices[3 * vIdx + 1]);
+					faceVertices.push_back(cellVertices[3 * vIdx + 2]);
+				}
+
+				// 1. project face vertices to 2d (more convenient) keep also track of the reference system
+				Eigen::MatrixXd verts2D;
+				Eigen::Vector3d u;
+				Eigen::Vector3d v;
+				
+				project_vertices_on_plane(faceVertices, u, v, verts2D);
+
+				// 2. ensure that the vertices are in the counter cw order
+				ensure_ccw(localFace, verts2D);
+
+				std::cout << "\n----------------------" << std::endl;
+
+				// 3. Now that we have the faces in ccw we can proceed 
+				// with sampling the face and determining the hole radius and center
+				// TODO add an ellipse support - using major radius as radius1 and a
+				// smaller radius than that as the minor axis radius and some random rotation maybe?
+				Eigen::Vector2d holeCenter;
+				double radius1{ 0.0 };
+				int resolution{ 50 };
+				int holePtNr{ 12 };
+
+				sample_face_polygon(verts2D,holeCenter, radius1, resolution);
+
+				// 4. We have the center and the radius, we can interpolate each edge to 
+				// assist ear clipping triangulation
+				Eigen::MatrixXd interpolatedVerts;
+				interpolate_edges(verts2D, interpolatedVerts, 1.0);
+
+				std::cout << " -- Original Vertices -- " << std::endl;
+
+				for (int vIdx{ 0 }; vIdx < verts2D.rows(); vIdx++) {
+
+					std::cout << verts2D.row(vIdx) << std::endl;
+
+				}
+
+				std::cout << " -- Interpolated Vertices -- " << std::endl;
+				for (int vIdx{ 0 }; vIdx < interpolatedVerts.rows(); vIdx++) {
+
+					std::cout << interpolatedVerts.row(vIdx) << std::endl;
+
+				}
+
+				// 5. now that we have the interpolated vertices we can also create the hole indices
+				Eigen::MatrixXd holeVertices;
+				hole_points(radius1, holeCenter, holePtNr, holeVertices);
+
+			}
+
+			// if inside proceed with next face
+			else {
+				continue;
+			}
+		};
+
+	} while (cla.inc());
+
+};
+
