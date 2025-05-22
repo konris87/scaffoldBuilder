@@ -71,31 +71,45 @@ int main(){
     //}
 
     // create some seeds
-    double rMin = 1;
+    double rMin = 2;
     
-    std::array<double, 3> root{ 0.0, 0.0, 0.0 };
+    std::array<double, 3> root{ 5.0, 5.0, 5.0 };
 
     std::array<float, 6> bounds{ 0.0, 10.0, 0.0, 10.0, 0.0, 10.0 };
 
-    //Poisson3D sg = Poisson3D(rMin, rMin, root, bounds);
+    Poisson3D sg = Poisson3D(rMin, rMin, root, bounds);
 
-    //sg.generate_seeds();
+    std::vector<std::array<double, 3>> test;
+    sg.generate_seeds();
+    sg.get_seeds(test);
+    std::cout << test.size() << std::endl;
+
 
     std::vector<std::array<double, 3>> seeds = {
         
         {0.0, 0.1, 2.0},
-        {3.0, 2.0 , 1.0},
-        {1.23, 4.5, 3.1}
+        //{4.0, 1.1, 2.0},
+        //{3.0, 2.0 , 1.0},
+        //{1.23, 4.5, 3.1},
+        //{3.0, 3.0, 3.8},
+        //{2.1, 1.96, 7.8},
+        //{4.1, 3.8, 8.1},
+        //{ 8.1, 3.8, 7.1},
+        //{9.1, 1.8, 2.1},
+        //{6.1, 4.8, 5.1}
     
     };
     
     // get the seeds
+    //std::vector<std::array<double, 3>> seeds;
     //sg.get_seeds(seeds);
-    
+
+    std::cout << seeds.size() << std::endl;
+        
     // create voronoi
     std::array<int, 3> blockDim{ 100, 100, 100 };
 
-    ScaffoldGeneratorFaceBox sgfb = ScaffoldGeneratorFaceBox(seeds, bounds, blockDim, 0.3, 0.5, 1.0);
+    ScaffoldGeneratorFaceBox sgfb = ScaffoldGeneratorFaceBox(test, bounds, blockDim, 4, 4, 1.0);
 
     sgfb.generate_voro();
 

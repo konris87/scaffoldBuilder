@@ -1,4 +1,5 @@
 #include "Utils.h"
+#include "Visualize/visualize.h"
 #include <Eigen/Dense>
 #include <vtkTriangle.h>
 #include <vtkSphereSource.h>
@@ -394,39 +395,36 @@ void ensure_ccw(
 	std::vector<int>& faceIdxs,
 	Eigen::MatrixXd& vertices) {
 
-	// 1. get the centroid of the face
+	// 1. Get the centroid of the face
 	Eigen::Vector3d center = vertices.colwise().mean();
 
-	// 3. estimate the arctan2 between the columns of the projected and centered vertices
-
+	// 2. Compute angles for sorting
 	std::vector<double> angles;
 	for (int i = 0; i < vertices.rows(); ++i) {
 		double dx = vertices(i, 0) - center(0);
 		double dy = vertices(i, 1) - center(1);
-		angles.push_back(std::atan2(dy, dx));
+		angles.push_back(std::atan2(dy, dx)); // 2D angle
 	}
 
-	// 4. sort the based on the atan2 value
-	auto sortedIdxs = sort_indices<double>(angles);
+	// 3. Sort indices by angle
+	std::vector<size_t> sortedIdxs = sort_indices(angles);
 
+	// 4. Reorder both faceIdxs and vertices consistently
 	std::vector<int> sortedFace(faceIdxs.size());
-	for (int i{ 0 }; i < faceIdxs.size(); i++) {
+	Eigen::MatrixXd orderedVertices(vertices.rows(), vertices.cols());
+
+	for (int i = 0; i < sortedIdxs.size(); ++i) {
 		sortedFace[i] = faceIdxs[sortedIdxs[i]];
+		orderedVertices.row(i) = vertices.row(sortedIdxs[i]);
 	}
 
 	faceIdxs = sortedFace;
-
-	// 5. Sort the 2D projected vertices accordingly
-	Eigen::MatrixXd orderedVertices(vertices.rows(), vertices.cols());
-	for (int i = 0; i < vertices.rows(); ++i) {
-		orderedVertices.row(i) = vertices.row(sortedFace[i]);
-	}
 	vertices = orderedVertices;
 };
 
-
 void project_vertices_on_plane(
 	const std::vector<double>& vertices,
+	Eigen::Vector3d& origin,
 	Eigen::Vector3d& u,
 	Eigen::Vector3d& v,
 	Eigen::MatrixXd& vertices2D
@@ -444,6 +442,8 @@ void project_vertices_on_plane(
 			vertices[3 * i + 2]
 		};
 	}	
+
+	//render_vtk_points(verts, "Initial");
 
 	// create a local reference frame using two edges and the normal
 	Eigen::Vector3d edge1 = verts.row(1) - verts.row(0);
@@ -465,24 +465,37 @@ void project_vertices_on_plane(
 
 	// use the centroid as center
 	Eigen::Vector3d center = verts.colwise().mean();
+	origin = center;
 
 	// use the center as origin
 	Eigen::MatrixXd centeredVertices = verts.rowwise() - center.transpose();
 
 	// create a matrix with columns the unit vector
-	Eigen::MatrixXd unitVecs(3, 2);
+	Eigen::MatrixXd unitVecs(2, 3);
 
-	unitVecs.col(0) = ue;
-	unitVecs.col(1) = ve;
+	unitVecs.row(0) = ue.transpose();
+	unitVecs.row(1) = ve.transpose();
 
-	vertices2D = centeredVertices * unitVecs;
+	vertices2D = (unitVecs * centeredVertices.transpose()).transpose();
+};
+
+void back_to_3d(Eigen::MatrixXd& vertices3d, const Eigen::MatrixXd& vertices2d, const Eigen::Vector3d& center, const Eigen::Vector3d& u, const Eigen::Vector3d& v) {
+
+	vertices3d.resize(vertices2d.rows(), 3);
+
+	for (int i = 0; i < vertices2d.rows(); ++i) {
+		Eigen::Vector3d row = center + u * vertices2d(i, 0) + v * vertices2d(i, 1);
+		vertices3d.row(i) = row.transpose();
+	}
+
 };
 
 void sample_face_polygon(
 	const Eigen::MatrixXd& verts2D,
 	Eigen::Vector2d& center,
 	double& radius1, 
-	int resolution) {
+	int resolution,
+	double scale) {
 
 	// 1. find the min and max for the x and y coordinates of the vertices
 	double xMin = verts2D.col(0).minCoeff();
@@ -507,7 +520,7 @@ void sample_face_polygon(
 
 				// 5. find distance from edges, the minimum corresponds to the radius
 				// we also use a scale factor to have some space between the hole and the face edges
-				double distance = 0.9 * distance_from_edges(pt, verts2D);
+				double distance = scale * distance_from_edges(pt, verts2D);
 
 				// 6. if the distance is larger than maxDist then this point is the center
 				// of the largest circle
@@ -525,6 +538,7 @@ void sample_face_polygon(
 bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices) {
 
 	bool isInside = false;
+	const double eps = 1e-10;
 
 	// 1. loop for each edge
 	for (int i{ 0 }; i < vertices.rows(); i++) {
@@ -534,7 +548,7 @@ bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertice
 		Eigen::VectorXd p2 = vertices.row((i + 1) % vertices.rows());
 
 		// 3. first check if the point is one of the edge vertices
-		if (pt == p1 || pt == p2) {
+		if ((pt - p1).norm() < eps || (pt - p2).norm() < eps) {
 			return false;
 		}
 
@@ -543,7 +557,7 @@ bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertice
 		Eigen::Vector2d toPt = pt - p1;
 		double cross = edge.x() * toPt.y() - edge.y() * toPt.x();
 
-		if (std::abs(cross) < 1e-10 &&
+		if (std::abs(cross) < eps &&
 			pt.x() >= std::min(p1.x(), p2.x()) &&
 			pt.x() <= std::max(p1.x(), p2.x()) &&
 			pt.y() >= std::min(p1.y(), p2.y()) &&
@@ -552,17 +566,47 @@ bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertice
 		}
 
 		// 4. then check if the point is  between ymin and ymax of the edge
-		if ((p1.y() > pt.y()) != (p2.x() > pt.y())) {
+		if ((p1.y() > pt.y()) != (p2.y() > pt.y())) {
 
 			// 5. estimate the x intersect. if the point has a smaller x then we have an intersection
-			double xIntersect = p1.x() + (pt.y() - p1.y()) * (p2.x() - p1.x()) / (p2.y() - p1.y());
-			if (pt.x() < xIntersect) {
-				isInside = !isInside;
+			if ((p1.y() > pt.y()) != (p2.y() > pt.y())) {
+				double xIntersect = p1.x() + (pt.y() - p1.y()) * (p2.x() - p1.x()) / (p2.y() - p1.y());
+				if (pt.x() < xIntersect)
+					isInside = !isInside;
 			}
+
 		}
 	}
 	return isInside;
 };
+
+bool is_inside_triangle(const Eigen::Vector2d& vPrev, const Eigen::Vector2d& vCurr, const Eigen::Vector2d& vNext, const Eigen::Vector2d& vTest) {
+
+	Eigen::Vector2d v0 = vNext - vPrev;
+	Eigen::Vector2d v1 = vCurr - vPrev;
+	Eigen::Vector2d v2 = vTest - vPrev;
+
+	// dot products
+	double dot00 = v0.dot(v0);
+	double dot01 = v0.dot(v1);
+	double dot02 = v0.dot(v2);
+	double dot11 = v1.dot(v1);
+	double dot12 = v1.dot(v2);
+
+	// barycentric coordinates
+	double denom = (dot00 * dot11 - dot01 * dot01);
+
+	if (std::abs(denom) - 1e-20) {
+		return true;
+	}
+	
+	double invDenom = 1.0 / denom;
+
+	//u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+	//v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+
+};
+
 
 double distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices) {
 
@@ -601,51 +645,62 @@ double distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& ver
 
 };
 
-void interpolate_edges(const Eigen::MatrixXd& vertices, Eigen::MatrixXd& interpolatedVertices, const double& edgeSize) {
+void interpolate_edges(
+	const Eigen::MatrixXd& vertices,
+	Eigen::MatrixXd& interpolatedVertices,
+	std::vector<int>& newLocalFace,
+	const double& edgeSize) {
 
 	// vector to store temp coords
 	std::vector<Eigen::Vector2d> tempPoints;
 
-	// push the first point of the first edge
-	tempPoints.push_back(vertices.row(0));
+	// add all the vertices to the tempPoints
+	
+	for (int i = 0; i < vertices.rows(); ++i) {
+		tempPoints.push_back(vertices.row(i));
+	}
+	
+	int vIdx = vertices.rows();
 
+	//newLocalFace.push_back(vIdx);
 	// 1. loop for each edge
 	for (int i{ 0 }; i < vertices.rows(); i++) {
-
+		
 		// 2. get the two points of the edge
-		Eigen::VectorXd p1 = vertices.row(i);
-		Eigen::VectorXd p2 = vertices.row((i + 1) % vertices.rows());
+		int idx1 = i;
+		int idx2 = (i + 1) % vertices.rows();
+
+		std::cout << idx1 << " " << idx2 << std::endl;
+
+		Eigen::Vector2d p1 = vertices.row(idx1);
+		Eigen::Vector2d p2 = vertices.row(idx2);
 
 		// 3. find the interpolation point number
 		int nr = static_cast<int>(std::ceil((p2 - p1).norm() / edgeSize));
+		nr = std::max(nr, 2);
 
 		// 4. get the alpha values
 		Eigen::VectorXd t = Eigen::VectorXd::LinSpaced(nr, 0.0, 1.0);
 
-		// 5. Estimate the interpolated values
-		//for (int j{ 0 }; j < t.size(); j++) {
+		//std::cout << idx1 << " " << std::endl;
+		newLocalFace.push_back(idx1);
+		for (int newIdx{ 0 }; newIdx < t.size() - 2; newIdx++) {
+			//std::cout << vIdx << " " << std::endl;
+			newLocalFace.push_back(vIdx);
+			vIdx++;
+		}
 
-		//	double alpha = t[j];
-
-		//	// get the interpolated value
-		//	Eigen::Vector2d interp = p1 * (1 - alpha) + p2 * alpha;
-
-		//	tempPoints.push_back(interp);
-		//}
-
-		for (int j{ 1 }; j < t.size(); j++) {
+		for (int j{ 1 }; j < t.size() - 1; j++) {
 			double alpha = t[j];
 			// get the interpolated value
 			Eigen::Vector2d interp = p1 * (1 - alpha) + p2 * alpha;
 			tempPoints.push_back(interp);
 		}
-
 	}
-	// add also the last point
-	tempPoints.push_back(vertices.row(-1));
 
 	// 6. update the interpolated vertices
 	interpolatedVertices.resize(tempPoints.size(), 2);
+
 	for (int  i= 0; i < tempPoints.size(); ++i) {
 		interpolatedVertices.row(i) = tempPoints[i];
 	}
@@ -660,12 +715,108 @@ void hole_points(const double& radius, const Eigen::Vector2d& center, const int&
 
 		double theta = i * 2 *  M_PI / ptNr;
 
-		Eigen::Vector2d pt = { radius * std::cos(theta), radius * std::sin(theta) };
+		Eigen::Vector2d pt = { radius * std::cos(theta), -radius * std::sin(theta) };
 
-		vertices.row(i) = pt + center;
+		vertices(i, 0) = pt(0) + center(0);
+		vertices(i, 1) = pt(1) + center(1);
 	}
 };
 
-// implementation of circular double linked list
+bool vertex_locally_convex(const Eigen::Vector2d& v1, const Eigen::Vector2d& v2, const Eigen::Vector2d& v3) {
+
+	Eigen::Vector2d edge1 = v2 - v1;
+	Eigen::Vector2d edge2 = v3 - v1;
+
+	// estimate the angle
+	double dot = edge1.dot(edge2);
+	double det = edge1(0) * edge2(1) - edge1(1) * edge2(0);
+
+	double angle = std::atan2(det, dot);
+
+	if (angle < 0.0) {
+		angle = 2.0 * M_PI + angle;
+	}
+
+	return angle < M_PI;
+};
+
+void ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells) {
+
+	// 1. create dll for the indices
+	Cdll cdll;
+
+	for (auto idx : idxs) {
+		cdll.append(idx);
+	}
+
+	cdll.display();
+
+	Node* node = cdll.head;
+
+	while (cdll.length > 2) {
+
+		//std::cout << "..." << std::endl;
+		// 2. get the triad indices
+		int i{ node->prev->data };
+		int j{ node->data };
+		int k{ node->next->data };
+
+		// 3. get the correspondin vertices
+		Eigen::Vector2d vPrev = vertices.row(i);
+		Eigen::Vector2d vCurr = vertices.row(j);
+		Eigen::Vector2d vNext = vertices.row(k);
+
+		// 4. check if the current vertex is convex
+		bool isConvex = vertex_locally_convex(vPrev, vCurr, vNext);
+
+		// 5. variable to check if cuurent vertex is an ear
+		bool isEar{ true };
+		
+		// 6. if it is convex continue
+		if (isConvex) {
+
+			// now we have to check if the other nodes are inside the triangle
+			Node* testNode = node->next->next;
+
+			while (testNode != node->prev && isEar) {
+
+				if ((testNode->data != i) && (testNode->data != j) && (testNode->data != k)) {
+
+					// get the vertex
+					Eigen::Vector2d vTest = vertices.row(testNode->data);
+
+					Eigen::MatrixXd otherVerts (3, 2);
+
+					otherVerts.row(0) = vPrev;
+					otherVerts.row(1) = vCurr;
+					otherVerts.row(2) = vNext;
+
+					bool isInside = is_inside_polygon(vTest, otherVerts);
+
+					if (isInside) {
+						isEar = false;
+					}
+					//else {
+					//	std::cout << "outside triangle" << std::endl;
+					//}
+				}
+				testNode = testNode->next;
+
+			}
+		}
+		else {
+			isEar = false;
+		}
+
+		if (isEar) {
+			//std::cout << "Adding triangle: " << i << " - " << j << " - " << k << std::endl;
+			cells.push_back({ i, j, k });
+			cdll.remove(node);
+		}
+		node = node->next;
+	}
+	std::cout << "..." << std::endl;
+};
+
 
 

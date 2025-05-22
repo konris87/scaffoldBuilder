@@ -18,11 +18,13 @@ find_package(VTK COMPONENTS
   FiltersHybrid
   IOGeometry
   InteractionStyle
+  RenderingAnnotation
   RenderingContextOpenGL2
   RenderingCore
   RenderingFreeType
   RenderingGL2PSOpenGL2
   RenderingOpenGL2
+  RenderingLabel
   IOXML
 )
 

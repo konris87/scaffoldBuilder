@@ -1010,7 +1010,14 @@ void ScaffoldGeneratorFaceBox::generate_voro() {
 	voro::c_loop_all cla(*con);
 	voro::voronoicell_neighbor cell;
 
+	int cellNr{ 1 };
+
 	if (cla.start()) do if (con->compute_cell(cell, cla)) {
+
+		std::cout << " --------------- " << std::endl;
+		
+		std::cout << " Processing cell: " << cellNr << std::endl;
+		cellNr += 1;
 
 		// vector to store the cell vertexes in global coordinates, cell neighbors and face vertices
 		std::vector<double> cellVertices;
@@ -1029,45 +1036,41 @@ void ScaffoldGeneratorFaceBox::generate_voro() {
 		// cell vertices in global system
 		cell.vertices(px, py, pz, cellVertices);
 
+		// nr of cell vertices
+		int cellVertexNr = cellVertices.size() / 3;
+
 		// create also a mapping from local to global
 		std::unordered_map <int, int> localToGlobal;
 
-		for (int i{ 0 }; i < cellVertices.size(); i++) {
-
-			std::array<double, 3> key = {
-				cellVertices[i],
-				cellVertices[i + 1],
-				cellVertices[i + 2] };
-			
-			// check if the vertex is not inside
-			if (globalVertexMap.find(key) == globalVertexMap.end()) {
-				
-				// get the global Idx 
-				int globalIdx = globalVertices.size();
-
-				// add to the map
-				globalVertexMap[key] = globalIdx;
-
-				// push it back to the global Indices
-				globalIndices.push_back(globalIdx);
-
-				// add the local to global
-				localToGlobal[i] = globalIdx;
-			};
-		}
-
 		// get cell faces and neighbors
-		cell.face_vertices(faceIndices); 
+		cell.face_vertices(faceIndices);
 		cell.neighbors(cellNeighs);
-
-		//std::cout << "Neighbors: " << cellNeighs.size() << std::endl;
-		std::vector<std::vector<int>> cellFaces;
-
+		
+		// start processing faces 
 		// loop in faces 
 		int idx{ 0 };
+
 		for (int i = 0; i < cellNeighs.size(); i++) {
 
+			std::cout << " ------------------- " << std::endl;
+			std::cout << " Processing Face: " << i << std::endl;
+			std::cout << " Neighbour Id: " << cellNeighs[i] << std::endl;
+
+			bool faceProcessed = false;
+
+			// create a vector to store face vertices
+			std::vector<double> faceVertices;
+
+			// each face is a vector of values where the first value denotes the number of vertices in the faces
 			int order = faceIndices[idx];
+
+			if (cellNeighs[i] < 0) {
+				idx += order + 1;
+
+				continue;
+			}
+
+			std::cout << "nr of verts: " << order << std::endl;
 
 			std::vector<int> localFace;
 			std::vector<int> globalFace;
@@ -1075,95 +1078,394 @@ void ScaffoldGeneratorFaceBox::generate_voro() {
 			for (int j = idx + 1; j < order + idx + 1; j++) {
 
 				int localVertIdx = faceIndices[j];
-				int globalVertIdx = localToGlobal[localVertIdx];
-
 				localFace.push_back(localVertIdx);
 
-				globalFace.push_back(globalVertIdx);
+			};
+			idx += order + 1;
+
+			// get the face vertices
+			for (const auto vIdx : localFace){
+				faceVertices.push_back(cellVertices[3 * vIdx]);
+				faceVertices.push_back(cellVertices[3 * vIdx + 1]);
+				faceVertices.push_back(cellVertices[3 * vIdx + 2]);
+				//std::cout << "local v " << vIdx << " : " << cellVertices[3 * vIdx] << " " << cellVertices[3 * vIdx + 1] << " " << cellVertices[3 * vIdx + 2] << std::endl;
 
 			}
 
-			idx += order + 1;
+			Eigen::MatrixXd verts2D;
+			Eigen::Vector3d u;
+			Eigen::Vector3d v;
+			Eigen::Vector3d origin;
 
-			// check if the face is inside the global faces, that means that is already processed
-			// TODO: also check if the neighbor is negative to avoid processing of outer faces
-			// sort the face list
+			// first project the vertices
+			project_vertices_on_plane(faceVertices, origin, u, v, verts2D);
+
+			// ensure clockwise order
+			ensure_ccw(localFace, verts2D);
+
+			// now that we have clockwise order we can check if the vertices are already added
+			Eigen::MatrixXd tempVerts(verts2D.rows(), 3);
+			back_to_3d(tempVerts, verts2D, origin, u, v);
+
+			//// for each vertex check if is inside the global hash map
+			for (int rowIdx{ 0 }; rowIdx < tempVerts.rows(); rowIdx++) {
+
+				//std::cout << tempVerts(rowIdx, 0) << " " << tempVerts(rowIdx, 1) << " " << tempVerts(rowIdx, 2) << std::endl;
+
+				std::array<double, 3> coords = { tempVerts(rowIdx, 0), tempVerts(rowIdx, 1), tempVerts(rowIdx, 2) };
+
+				GlobalVertex key(coords);
+
+				auto it = globalVertexMap.find(key);
+
+				if (it == globalVertexMap.end()) {
+					//std::cout << "vertex is not inside " << std::endl;
+					//std::cout << "Adding vertex " << globalIndex << " with global vertex coords: " << key.coords[0] << " " << key.coords[1] << " " << key.coords[2] << std::endl;
+
+					// add to the map
+					globalVertexMap[key] = globalIndex;
+
+					localToGlobal[rowIdx] = globalIndex;
+					
+					globalFace.push_back(globalIndex);
+
+					globalVertices.push_back({ coords[0], coords[1], coords[2] });
+
+					globalIndex++;
+
+				}
+				else {
+					// the vertex is already 
+					//std::cout << "Found vertex with global vertex coords: " << key.coords[0] << " " << key.coords[1] << " " << key.coords[2] << " at index: " << it->second << std::endl;
+					localToGlobal[rowIdx] = it->second;
+					globalFace.push_back(it->second);
+				}
+			}
+
+			//// print the local and global faces
+			//std::cout << " local face: " << std::endl;
+			//for (int vIdx{ 0 }; vIdx < localFace.size(); vIdx++) {
+
+			//		std::cout << localFace[vIdx] << " ";
+
+			//}
+			//std::cout << "\n global face: " << std::endl;
+			//for (int vIdx{ 0 }; vIdx < globalFace.size(); vIdx++) {
+
+			//	std::cout << globalFace[vIdx] << " ";
+
+			//}		
+
+			// using the face with global idxs check if the face has already been checked
 			std::vector<int> globalFaceOrdered = globalFace;
 			std::sort(globalFaceOrdered.begin(), globalFaceOrdered.end());
 
-			// if not inside
+			//------------------------------------------------------------------------------------------------
+			// if not inside continue with the face
 			if (globalFaceMap.find(globalFaceOrdered) == globalFaceMap.end()) {
-
+				
 				globalFaceMap.insert(globalFaceOrdered);
-				globalFaces.push_back(globalFace);
-				
-				// continue with processing of each face
-				// 1. get the face vertices
+				//std::cout << "Added Face" << std::endl;
 
-				std::vector<double> faceVertices;
-
-				for (const auto vIdx : localFace){
-					faceVertices.push_back(cellVertices[3 * vIdx]);
-					faceVertices.push_back(cellVertices[3 * vIdx + 1]);
-					faceVertices.push_back(cellVertices[3 * vIdx + 2]);
-				}
-
-				// 1. project face vertices to 2d (more convenient) keep also track of the reference system
-				Eigen::MatrixXd verts2D;
-				Eigen::Vector3d u;
-				Eigen::Vector3d v;
-				
-				project_vertices_on_plane(faceVertices, u, v, verts2D);
-
-				// 2. ensure that the vertices are in the counter cw order
-				ensure_ccw(localFace, verts2D);
-
-				std::cout << "\n----------------------" << std::endl;
-
-				// 3. Now that we have the faces in ccw we can proceed 
-				// with sampling the face and determining the hole radius and center
-				// TODO add an ellipse support - using major radius as radius1 and a
-				// smaller radius than that as the minor axis radius and some random rotation maybe?
 				Eigen::Vector2d holeCenter;
 				double radius1{ 0.0 };
 				int resolution{ 50 };
 				int holePtNr{ 12 };
 
-				sample_face_polygon(verts2D,holeCenter, radius1, resolution);
+				//render_vtk_points(verts2D, "Before Sampling");
+
+				sample_face_polygon(verts2D, holeCenter, radius1, 50, 0.5);
 
 				// 4. We have the center and the radius, we can interpolate each edge to 
 				// assist ear clipping triangulation
 				Eigen::MatrixXd interpolatedVerts;
-				interpolate_edges(verts2D, interpolatedVerts, 1.0);
+				std::vector<int> newLocalFace;
 
-				std::cout << " -- Original Vertices -- " << std::endl;
+				interpolate_edges(verts2D, interpolatedVerts, newLocalFace, edgeSize);
+			
+				//render_vtk_points(interpolatedVerts, "After Sampling");
+				//for (auto trIdx : newLocalFace) {
+				//	std::cout << trIdx << " " << std::endl;
+				//}
 
-				for (int vIdx{ 0 }; vIdx < verts2D.rows(); vIdx++) {
+				//render_vtk_points(interpolatedVerts, "Interpolated");
 
-					std::cout << verts2D.row(vIdx) << std::endl;
-
-				}
-
-				std::cout << " -- Interpolated Vertices -- " << std::endl;
-				for (int vIdx{ 0 }; vIdx < interpolatedVerts.rows(); vIdx++) {
-
-					std::cout << interpolatedVerts.row(vIdx) << std::endl;
-
-				}
-
-				// 5. now that we have the interpolated vertices we can also create the hole indices
+				// now we can create the hole
 				Eigen::MatrixXd holeVertices;
 				hole_points(radius1, holeCenter, holePtNr, holeVertices);
 
-			}
+				Eigen::Vector2d pair = {0, interpolatedVerts.rows()};
 
-			// if inside proceed with next face
+				double minDist = (interpolatedVerts.row(0) - holeVertices.row(0)).norm();
+
+				// 6. Find the connector pair this is the pair between 
+				for (int polyIdx{ 0 }; polyIdx < interpolatedVerts.rows(); polyIdx++) {
+					for (int holeIdx{0}; holeIdx < holeVertices.rows();	holeIdx++) {
+						double dist = (holeVertices.row(holeIdx) - interpolatedVerts.row(polyIdx)).norm();
+						if (dist < minDist) {
+							pair = {polyIdx, holeIdx + interpolatedVerts.rows()};
+							minDist = dist;
+						}
+					}
+				}
+
+				Eigen::MatrixXd finalVerts(interpolatedVerts.rows() + holeVertices.rows(), 2);
+
+				// Copy verts2D
+				for (int cIdx = 0; cIdx < interpolatedVerts.rows(); ++cIdx) {
+					finalVerts.row(cIdx) = interpolatedVerts.row(cIdx);
+				}
+
+				// Copy holeVertices
+				for (int cIdx = 0; cIdx < holeVertices.rows(); ++cIdx) {
+					finalVerts.row(interpolatedVerts.rows() + cIdx) = holeVertices.row(cIdx);
+				}
+				
+				//std::cout << "Connector: " << pair[0] << " " << pair[1] << std::endl;
+
+				//render_vtk_points(finalVerts, "final vertices");
+
+				// 6. Create a dll
+				Cdll holeDll;
+
+				// hold the nodes
+				std::vector<Node*> nodes;
+
+				for (int vIdx{ 0 }; vIdx < holeVertices.rows(); vIdx++) {
+					Node* ni = holeDll.append(vIdx + interpolatedVerts.rows());
+					nodes.push_back(ni);
+				}
+
+				// rotate it to start from connector pair[1]
+				holeDll.rotate(pair[1] - interpolatedVerts.rows());
+
+				// retrieve the data
+				std::vector<int> holeIdxs;
+				holeDll.get_data(holeIdxs);
+
+				// print the length
+				int length{ 0 };
+				holeDll.get_length(length);
+
+				// now create the correct row of indices to pass to the ear clipping algorithm
+				std::vector<int> triIdxs;
+
+				//for (auto hIdx : newLocalFace) {
+				//		std::cout << hIdx << std::endl;
+				//}
+
+				std::cout << " - " << std::endl;
+
+				// first add the indices up to the first point of the pair  
+				auto it = std::find(newLocalFace.begin(), newLocalFace.end(), pair[0]);
+
+				int pIdx1 = it - newLocalFace.begin();
+				
+				for (int cIdx{ 0 }; cIdx < pIdx1 + 1; cIdx++) {
+					triIdxs.push_back(newLocalFace[cIdx]);
+				}
+
+				// then add the indices of the rotated hole dll
+				for (auto hIdx : holeIdxs) {
+					triIdxs.push_back(hIdx);
+				}
+
+				// then add the next idxs of the face
+				for (int cIdx{pIdx1}; cIdx < interpolatedVerts.rows(); cIdx++) {
+					//std::cout << cIdx << std::endl;
+					triIdxs.push_back(newLocalFace[cIdx]);
+				}
+
+				//for (auto trIdx : triIdxs) {
+				//	std::cout << trIdx << " " << std::endl;
+				//}
+
+				// ear clipping triangulation
+				std::vector<std::vector<int>> faceCells;
+				ear_clipping(finalVerts, triIdxs, faceCells);
+
+				//render_vtk_face(finalVerts, faceCells, "Face");
+
+				// bring the vertices of the face back to 3d
+				Eigen::MatrixXd finalVerts3d(finalVerts.rows(), 3);
+				back_to_3d(finalVerts3d, finalVerts, origin, u, v);
+
+				std::unordered_map<int, int> newLocalToGlobal;
+
+				// add the finalVerts to the global list
+
+				for (int rowIdx{ 0 }; rowIdx < finalVerts3d.rows(); rowIdx++) {
+					
+					std::array<double, 3> coords = {
+						finalVerts3d(rowIdx, 0),
+						finalVerts3d(rowIdx, 1),
+						finalVerts3d(rowIdx, 2),
+					};
+
+					GlobalVertex key(coords);
+
+					auto it = globalVertexMap.find(key);
+
+					//std::cout << "Looking for local vertex " << rowIdx << " " << key.coords[0] << " " << key.coords[1] << " " << key.coords[2] << std::endl;
+
+					if (it == globalVertexMap.end()) {
+						//std::cout << "vertex is not inside " << std::endl;
+						//std::cout << "Adding vertex " << globalIndex << " with global vertex coords: " << key.coords[0] << " " << key.coords[1] << " " << key.coords[2] << std::endl;
+						// add to the map
+						globalVertexMap[key] = globalIndex;
+						localToGlobal[rowIdx] = globalIndex;
+
+						globalVertices.push_back({ coords[0], coords[1], coords[2] });
+						globalIndex++;
+					}
+					else {
+						// the vertex is already 
+						//std::cout << "Found vertex with global vertex coords: " << key.coords[0] << " " << key.coords[1] << " " << key.coords[2] << " at index: " << it->second << std::endl;
+						localToGlobal[rowIdx] = it->second;
+					}
+				}
+				// add the global faces
+				for (auto face : faceCells) {
+					std::vector<int> gIdxs;
+					for (auto vIdx : face) {
+						gIdxs.push_back(localToGlobal[vIdx]);
+					}
+					globalFaces.push_back(gIdxs);
+				}
+
+			}
 			else {
+				//std::cout << "Skipped Face " << std::endl;
 				continue;
-			}
-		};
+			}			
+		}
 
+		//render_vtk_triangular_cell(facePolys);
+
+		//std::cout << "Polys Size: " << facePolys.size() << std::endl;
+		//vtkNew<vtkAppendPolyData> appendFilter;
+		//for (int pp = 0; pp < facePolys.size(); pp++) {
+		//	appendFilter->AddInputData(facePolys[pp]);
+		//}
+		//appendFilter->Update();
+
+		//polys.push_back(appendFilter->GetOutput());
+		
 	} while (cla.inc());
 
+	//std::cout << 
+
+	//render_vtk_face(globalVertices, globalFaces, "FinalMesh");
+	std::cout << " Creating Mesh " << std::endl;
+
+	Eigen::MatrixXd meshVertices(globalVertices.size(), 3);
+	for (int vrow{ 0 }; vrow < globalVertices.size(); vrow++) {
+		Eigen::Vector3d row = { globalVertices[vrow][0], globalVertices[vrow][1], globalVertices[vrow][2] };
+		meshVertices.row(vrow) = row;
+	}
+
+	vtkNew<vtkNamedColors> colors;
+
+	// Create points
+	vtkNew<vtkPoints> points;
+
+	if (meshVertices.cols() == 3) {
+		for (int i = 0; i < meshVertices.rows(); ++i) {
+			points->InsertNextPoint(meshVertices(i, 0), meshVertices(i, 1), meshVertices(i, 2));
+		}
+	}
+	else if (meshVertices.cols() == 2) {
+		for (int i = 0; i < meshVertices.rows(); ++i) {
+			points->InsertNextPoint(meshVertices(i, 0), meshVertices(i, 1), 0.0);
+		}
+	}
+
+	vtkNew<vtkCellArray> cells;
+	for (int idx{ 0 }; idx < globalFaces.size(); idx++) {
+		cells->InsertNextCell(3);
+		cells->InsertCellPoint(globalFaces[idx][0]);
+		cells->InsertCellPoint(globalFaces[idx][1]);
+		cells->InsertCellPoint(globalFaces[idx][2]);
+	}
+
+	// Create polydata and set points
+	vtkNew<vtkPolyData> polyData;
+	polyData->SetPoints(points);
+	polyData->SetPolys(cells);
+
+	// decide mesh resolution
+	int dim[3] = {};
+	double thickness{ 0.3 };
+
+	if (thickness < 0.3) {
+		dim[0] = 100;
+		dim[1] = 100;
+		dim[2] = 100;
+	}
+	else if (0.3 <= thickness && thickness < 0.5) {
+		dim[0] = 50;
+		dim[1] = 50;
+		dim[2] = 50;
+	}
+	else {
+		dim[0] = 100;
+		dim[1] = 100;
+		dim[2] = 100;
+	}
+
+	// build along line
+	vtkNew<vtkImplicitModeller> implictModeller;
+	implictModeller->AddInputData(polyData);
+	implictModeller->SetMaximumDistance(thickness / 2 * 1.01);
+	implictModeller->SetSampleDimensions(dim[0], dim[1], dim[2]);
+	implictModeller->SetModelBounds(
+		bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]);
+
+	// extract isosurface
+	vtkNew<vtkContourFilter> isoFilter;
+	isoFilter->SetInputConnection(implictModeller->GetOutputPort());
+	isoFilter->SetValue(0, thickness / 2);
+	isoFilter->Update();
+
+	// update normals
+	vtkNew<vtkPolyDataNormals> norms;
+	//vtkPolyDataNormals* norms = vtkPolyDataNormals::New();
+
+	norms->SetInputConnection(isoFilter->GetOutputPort());
+	norms->ComputePointNormalsOff();
+	norms->ComputeCellNormalsOn();
+	norms->ConsistencyOn();
+	norms->AutoOrientNormalsOn();
+	norms->Update();
+
+	// use window sinc filter
+	//vtkNew<vtkWindowedSincPolyDataFilter> sincSmoother;
+	//sincSmoother->SetInputConnection(norms->GetOutputPort());
+	//sincSmoother->SetNumberOfIterations(30);
+	//sincSmoother->BoundarySmoothingOn();
+	//sincSmoother->FeatureEdgeSmoothingOff();
+	//sincSmoother->Update();
+
+	vtkNew<vtkSTLWriter> stlWriter;
+	std::string fileName = "test.stl";
+	stlWriter->SetFileName(fileName.c_str());
+	//stlWriter->SetInputConnection(sincSmoother->GetOutputPort());
+	stlWriter->SetInputConnection(norms->GetOutputPort());
+	stlWriter->Write();
+
+	vtkSmartPointer<vtkPolyData> pd;
+	pd = norms->GetOutput();
+	render_vtk_polydata(pd);
+
+	//for (auto face : globalFaces) {
+	//	std::cout << face[0] << " " << face[1] << " " << face[2] << std::endl;
+	//}
+
+	//render_vtk_points(meshVertices, "FinalPoints");
+	//render_vtk_face(meshVertices, globalFaces, "FinalPoints");
+
+	// create scaffold
+
+	//render_vtk_triangular_cell(polys);
 };
 

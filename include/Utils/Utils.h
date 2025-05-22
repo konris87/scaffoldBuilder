@@ -72,6 +72,7 @@ void ensure_ccw(
 
 void project_vertices_on_plane(
 	const std::vector<double>& vertices,
+	Eigen::Vector3d& origin,
 	Eigen::Vector3d& u,
 	Eigen::Vector3d& v,
 	Eigen::MatrixXd& vertices2D
@@ -100,12 +101,175 @@ std::vector<size_t> sort_indices(const std::vector<T>& v) {
 
 void sample_face_polygon(
 	const Eigen::MatrixXd& verts2D,
-	Eigen::Vector2d& center, double& radius1, int resolution);
+	Eigen::Vector2d& center, double& radius1, int resolution, double scale);
 
 bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices);
 
+bool is_inside_triangle(const Eigen::Vector2d& vPrev, const Eigen::Vector2d& vCurr, const Eigen::Vector2d& vNext, const Eigen::Vector2d& vTest);
+
 double distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices);
 
-void interpolate_edges(const Eigen::MatrixXd& vertices, Eigen::MatrixXd& interpolatedVertices, const double& edgeSize);
+void interpolate_edges(
+	const Eigen::MatrixXd& vertices,
+	Eigen::MatrixXd& interpolatedVertices,
+	std::vector<int>& newLocalFace,
+	const double& edgeSize);
 
 void hole_points(const double& radius, const Eigen::Vector2d& center, const int& ptNr, Eigen::MatrixXd& vertices);
+
+void ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells);
+
+bool vertex_locally_convex(const Eigen::Vector2d& v1, const Eigen::Vector2d& v2, const Eigen::Vector2d& v3);
+
+void back_to_3d(Eigen::MatrixXd& vertices3d, const Eigen::MatrixXd& vertices2d, const Eigen::Vector3d& center, const Eigen::Vector3d& u, const Eigen::Vector3d& v);
+// implementation of circular double linked list
+
+// create a node struct
+class Node {
+
+public:
+
+	~Node() {};
+	Node(int& data, Node* next, Node* prev) : data(data), next(next), prev(prev) {};
+
+	// data of the node
+	int data;
+
+	// pointer to next and prev
+	Node* next;
+	Node* prev;
+};
+
+class Cdll {
+public:
+
+	Cdll() : head(nullptr) {};
+
+	// append at the end of the list
+	Node* append(int data) {
+
+		Node* newNode = new Node(data, nullptr, nullptr);
+
+		length++;
+
+		// check if the dll is empty
+		if (!head) {
+			head = newNode;
+			newNode->prev = newNode;
+			newNode->next = newNode;
+		}
+		else {
+			// get the final node, since we have a circular dll this the previous of the tail
+			Node* temp = head->prev;
+			temp->next = newNode;
+			newNode->prev = temp;
+			newNode->next = head;
+			head->prev = newNode;
+		}
+
+		return newNode;
+	};
+
+	// a function to display the elements
+	void display() {
+
+		Node* node = head;
+
+		while (node->next != head) {
+
+			std::cout << node->data << " -- ";
+
+			node = node->next;
+
+		}
+
+		// print also the last
+		std::cout << node->data << " < -- > " << std::endl;
+		std::cout << node->next->data << std::endl;
+	};
+
+	// a function to delete an element
+	void remove(Node* node) {
+
+		// first check if we have only a node
+		if (node->next == node) {
+			head = nullptr;
+			head->prev = nullptr;
+		}
+		else {
+			Node* prev = node->prev;
+			Node* next = node->next;
+
+			prev->next = next;
+			next->prev = prev;
+
+			if (node == head) {
+				head = node->next;
+			}
+		}
+		length -= 1;
+
+	};
+
+	// a function to rotate the dll by a position
+	void rotate(int pos) {
+
+		if (head == nullptr) {
+			return;
+		}
+
+		else {
+			Node* current = head;
+
+			for (int i{ 0 }; i < pos; i++) {
+
+				current = current->next;
+
+				head = current;
+				head->prev = current->prev;
+
+			} 
+		}
+
+	}
+
+	// a function to get the data from the nodes
+	void get_data(std::vector<int>& data) {
+
+		Node* node = head;
+
+		while (true){
+
+			data.push_back(node->data);
+			node = node->next;
+			if (node->next == head->next) {
+				break;
+			}
+		}
+		data.push_back(head->data);
+	}
+
+	void get_length(int& length) {
+
+		int len{ 0 };
+
+		Node* node = head;
+
+		while (node->next != head) {
+
+			len++;
+
+			node = node->next;
+
+		}
+
+		// add one to get also the final node
+		length = len + 1;
+	}
+
+	int length{ 0 };
+
+	// an empty first node as a head
+	Node* head;
+};
+

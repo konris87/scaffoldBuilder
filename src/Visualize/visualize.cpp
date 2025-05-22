@@ -9,16 +9,29 @@
 #include <vtkSmartPointer.h>
 #include <vtkDataSetSurfaceFilter.h>
 #include <vtkDelaunay3D.h>
-#include <vtkNamedColors.h>
 #include <vtkAppendFilter.h>
+#include <vtkAppendPolyData.h>
 #include <vtkImplicitModeller.h>
 #include <vtkContourFilter.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkStlWriter.h>
-#include <vtkActor.h>
 #include <vtkProperty.h>
 #include <vtkPolyDataNormals.h>
 #include <vtkReverseSense.h>
+#include <vtkSphereSource.h>
+#include <vtkVertex.h>
+#include <vtkActor.h>
+#include <vtkRenderer.h>
+#include <vtkRenderWindow.h>
+#include <vtkRenderWindowInteractor.h>
+#include <vtkVertexGlyphFilter.h>
+#include <vtkIdFilter.h>
+#include <vtkLabeledDataMapper.h>
+#include <vtkActor2D.h>
+#include <vtkTextProperty.h>
+#include <vtkNamedColors.h>
+#include <vtkGlyph3DMapper.h>
+#include <vtkAxesActor.h>
 
 
 vtkSmartPointer<vtkPolyData> cell_2_vtk(std::vector<int>& cellNeighs, const std::vector<double>& cellVertices, std::vector<int>& faceVertices){
@@ -146,3 +159,271 @@ void create_mesh(
 	//stlWriter->SetInputConnection(reverseFilter->GetOutputPort());
 	stlWriter->Write();
 };
+
+void render_vtk_points(const Eigen::MatrixXd& vertices, const std::string& name) {
+
+	vtkNew<vtkNamedColors> colors;
+
+	// Create points
+	vtkNew<vtkPoints> points;
+
+	if (vertices.cols() == 3) {
+		for (int i = 0; i < vertices.rows(); ++i) {
+			points->InsertNextPoint(vertices(i, 0), vertices(i, 1), vertices(i, 2));
+		}
+	}
+	else if (vertices.cols() == 2) {
+		for (int i = 0; i < vertices.rows(); ++i) {
+			points->InsertNextPoint(vertices(i, 0), vertices(i, 1), 0.0);
+		}
+	}
+
+
+	// Create polydata and set points
+	vtkNew<vtkPolyData> polyData;
+	polyData->SetPoints(points);
+
+	// Create a mapper and actor.
+	vtkNew<vtkPolyDataMapper> pointMapper;
+	pointMapper->SetInputData(polyData);
+
+	vtkNew<vtkActor> pointActor;
+	pointActor->SetMapper(pointMapper);
+	pointActor->GetProperty()->SetPointSize(1);
+	pointActor->GetProperty()->SetColor(colors->GetColor3d("Black").GetData());
+
+	// create actor
+	auto bounds = points->GetBounds();
+	double maxLen = 0;
+	for (int i = 1; i < 3; ++i)
+	{
+		maxLen = std::max(bounds[i + 1] - bounds[i], maxLen);
+	}
+
+	vtkNew<vtkSphereSource> sphereSource;
+	sphereSource->SetRadius(0.01 * maxLen);
+
+	vtkNew<vtkPolyData> pd;
+	pd->SetPoints(points);
+
+	vtkNew<vtkGlyph3DMapper> mapper;
+	mapper->SetInputData(pd);
+	mapper->SetSourceConnection(sphereSource->GetOutputPort());
+	mapper->ScalarVisibilityOff();
+	mapper->ScalingOff();
+
+	vtkNew<vtkActor> actor;
+	actor->SetMapper(mapper);
+	actor->GetProperty()->SetColor(colors->GetColor3d("Gold").GetData());
+
+	vtkNew<vtkLabeledDataMapper> labelMapper;
+	labelMapper->SetInputData(polyData);
+	labelMapper->GetLabelTextProperty()->SetColor(
+		colors->GetColor3d("Magenta").GetData());
+	labelMapper->GetLabelTextProperty()->SetFontSize(20.0);
+
+	vtkNew<vtkActor2D> labelActor;
+	labelActor->SetMapper(labelMapper);
+
+	vtkNew<vtkAxesActor> axes;
+	axes->AxisLabelsOff();
+	axes->SetTotalLength(5, 5, 5);
+
+	// Create a renderer, render window, and interactor.
+	vtkNew<vtkRenderer> renderer;
+	vtkNew<vtkRenderWindow> renderWindow;
+	renderWindow->AddRenderer(renderer);
+	
+	vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
+	renderWindowInteractor->SetRenderWindow(renderWindow);
+
+	// Add the actor to the scene.
+	// renderer->AddActor(pointActor);
+	renderer->AddActor(actor);
+	renderer->AddActor(labelActor);
+	renderer->AddActor(axes);
+
+	renderer->SetBackground(colors->GetColor3d("DarkSlateGray").GetData());
+
+	// Render and interact
+	renderWindow->Render();
+	renderWindow->SetWindowName(name.c_str());
+	renderWindowInteractor->Start();
+
+};
+
+void render_vtk_face(const Eigen::MatrixXd& vertices, const std::vector<std::vector<int>>& indices, const std::string& name) {
+
+	vtkNew<vtkNamedColors> colors;
+
+	// Create points
+	vtkNew<vtkPoints> points;
+
+	if (vertices.cols() == 3) {
+		for (int i = 0; i < vertices.rows(); ++i) {
+			points->InsertNextPoint(vertices(i, 0), vertices(i, 1), vertices(i, 2));
+		}
+	}
+	else if (vertices.cols() == 2) {
+		for (int i = 0; i < vertices.rows(); ++i) {
+			points->InsertNextPoint(vertices(i, 0), vertices(i, 1), 0.0);
+		}
+	}
+
+	vtkNew<vtkCellArray> cells;
+	for (int idx{ 0 }; idx < indices.size(); idx++) {
+		cells->InsertNextCell(3);
+		cells->InsertCellPoint(indices[idx][0]);
+		cells->InsertCellPoint(indices[idx][1]);
+		cells->InsertCellPoint(indices[idx][2]);
+	}
+
+	// Create polydata and set points
+	vtkNew<vtkPolyData> polyData;
+	polyData->SetPoints(points);
+	polyData->SetPolys(cells);
+
+	// Create a mapper and actor.
+	vtkNew<vtkPolyDataMapper> mapper;
+	mapper->SetInputData(polyData);
+
+	vtkNew<vtkActor> actor;
+	actor->SetMapper(mapper);
+	actor->GetProperty()->SetLineWidth(2.0f);
+	actor->GetProperty()->SetColor(
+		colors->GetColor3d("Yellow").GetData()
+	);
+
+	// Wireframe actor (overlay)
+	vtkNew<vtkActor> wireframeActor;
+	wireframeActor->SetMapper(mapper);
+	wireframeActor->GetProperty()->SetRepresentationToWireframe();
+	wireframeActor->GetProperty()->SetColor(colors->GetColor3d("Black").GetData());
+	wireframeActor->GetProperty()->SetLineWidth(2.0f);
+	wireframeActor->GetProperty()->SetOpacity(1.0);
+
+	// Create a renderer, render window, and interactor.
+	vtkNew<vtkRenderer> renderer;
+	renderer->AddActor(actor);
+	renderer->AddActor(wireframeActor);
+	renderer->SetBackground(colors->GetColor3d("MidnightBlue").GetData());
+	
+	vtkNew<vtkRenderWindow> renderWindow;
+	renderWindow->AddRenderer(renderer);
+
+	vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
+	renderWindowInteractor->SetRenderWindow(renderWindow);
+
+	// Render and interact
+	renderWindow->Render();
+	renderWindow->SetWindowName(name.c_str());
+	renderWindowInteractor->Start();
+
+};
+
+void render_vtk_triangular_cell(const std::vector<vtkSmartPointer<vtkPolyData>>& polys) {
+
+	vtkNew<vtkNamedColors> colors;
+
+	// update the polydata filter and render
+
+	std::cout << "Polys Size: " << polys.size() << std::endl;
+	vtkNew<vtkAppendPolyData> appendFilter;
+	for (int i = 0; i < polys.size(); i++) {
+		appendFilter->AddInputData(polys[i]);
+	}
+	appendFilter->Update();
+
+	// Create a mapper and actor.
+	vtkNew<vtkPolyDataMapper> mapper;
+	mapper->SetInputData(appendFilter->GetOutput());
+
+	vtkNew<vtkActor> actor;
+	actor->SetMapper(mapper);
+	actor->GetProperty()->SetLineWidth(2.0f);
+	actor->GetProperty()->SetColor(
+		colors->GetColor3d("Yellow").GetData()
+	);
+
+	// Create a renderer, render window, and interactor.
+	vtkNew<vtkRenderer> renderer;
+	renderer->AddActor(actor);
+
+	vtkNew<vtkRenderWindow> renderWindow;
+	renderWindow->AddRenderer(renderer);
+
+	vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
+	renderWindowInteractor->SetRenderWindow(renderWindow);
+
+	// Render and interact
+	renderWindow->Render();
+	renderWindow->SetWindowName("Triangular Voronoi Cell");
+	renderWindowInteractor->Start();
+
+};
+
+vtkSmartPointer<vtkPolyData> create_face_poly(const Eigen::MatrixXd& vertices, const std::vector<std::vector<int>>& indices) {
+
+	// Create points
+	vtkNew<vtkPoints> points;
+
+	if (vertices.cols() == 3) {
+		for (int i = 0; i < vertices.rows(); ++i) {
+			points->InsertNextPoint(vertices(i, 0), vertices(i, 1), vertices(i, 2));
+		}
+	}
+	else if (vertices.cols() == 2) {
+		for (int i = 0; i < vertices.rows(); ++i) {
+			points->InsertNextPoint(vertices(i, 0), vertices(i, 1), 0.0);
+		}
+	}
+
+	vtkNew<vtkCellArray> cells;
+	for (int idx{ 0 }; idx < indices.size(); idx++) {
+		cells->InsertNextCell(3);
+		cells->InsertCellPoint(indices[idx][0]);
+		cells->InsertCellPoint(indices[idx][1]);
+		cells->InsertCellPoint(indices[idx][2]);
+	}
+
+	// Create polydata and set points
+	vtkNew<vtkPolyData> polyData;
+	polyData->SetPoints(points);
+	polyData->SetPolys(cells);
+
+	return polyData;
+
+};
+
+void render_vtk_polydata(vtkSmartPointer<vtkPolyData>& polyData) {
+
+	vtkNew<vtkNamedColors> colors;
+
+	// Create a mapper and actor.
+	vtkNew<vtkPolyDataMapper> mapper;
+	mapper->SetInputData(polyData);
+
+	vtkNew<vtkActor> actor;
+	actor->SetMapper(mapper);
+	actor->GetProperty()->SetLineWidth(2.0f);
+	actor->GetProperty()->SetColor(
+		colors->GetColor3d("Yellow").GetData()
+	);
+
+	// Create a renderer, render window, and interactor.
+	vtkNew<vtkRenderer> renderer;
+	renderer->AddActor(actor);
+
+	vtkNew<vtkRenderWindow> renderWindow;
+	renderWindow->AddRenderer(renderer);
+
+	vtkNew<vtkRenderWindowInteractor> renderWindowInteractor;
+	renderWindowInteractor->SetRenderWindow(renderWindow);
+
+	// Render and interact
+	renderWindow->Render();
+	renderWindow->SetWindowName("Final Mesh");
+	renderWindowInteractor->Start();
+};
+
+

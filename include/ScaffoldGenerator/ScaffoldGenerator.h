@@ -12,39 +12,35 @@
 #include <unordered_set>
 
 // hash function to compute hash from key
-struct GlobalVertexKey {
+struct GlobalVertex {
+
+	std::array<double, 3> coords;
 	
-	std::size_t operator()(const std::array<double, 3>& coords) const {
-		const double scale = 1e6;
+	GlobalVertex(std::array<double, 3>& key) : coords(key) {};
 
-		// scale the coordinates to convert to integers
-		// for example 0.3456778 -> 345677
-		std::size_t h1 = std::hash<int>{}(static_cast<int>(coords[0] * scale));
-		std::size_t h2 = std::hash<int>{}(static_cast<int>(coords[1] * scale));
-		std::size_t h3 = std::hash<int>{}(static_cast<int>(coords[2] * scale));
+	bool operator==(const GlobalVertex& other) const {
+		const double precision = 1e-6;
 
-		// create the key by combining hashes
-		std::size_t seed = h1;
-		
-		seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-		seed ^= h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-
-		return seed;
+		return std::fabs(coords[0] - other.coords[0]) < precision &&
+			std::fabs(coords[1] - other.coords[1]) < precision &&
+			std::fabs(coords[2] - other.coords[2]) < precision;
 	};
 };
 
 // function to compare keys for the vertex map
-struct GlobalVertexInside {
+struct GlobalVertexHash {
 
-	const double precision = 1e-6;
+	std::size_t operator()(const GlobalVertex& v) const {
+		const double scale = 1e-6;
+		std::size_t h1 = std::hash<int>{}(static_cast<int>(v.coords[0] * scale));
+		std::size_t h2 = std::hash<int>{}(static_cast<int>(v.coords[1] * scale));
+		std::size_t h3 = std::hash<int>{}(static_cast<int>(v.coords[2] * scale));
 
-	bool operator()(const std::array<double, 3>& a1, const std::array<double, 3>& a2) const {
-
-		return
-			std::fabs(a1[0] - a2[0]) < precision &&
-			std::fabs(a1[1] - a2[1]) < precision &&
-			std::fabs(a1[2] - a2[2]) < precision;
-	};
+		std::size_t seed = h1;
+		seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+		seed ^= h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+		return seed;
+	}
 };
 
 // Map for global faces
@@ -241,8 +237,15 @@ private:
 	std::vector<int> globalIndices;
 	std::vector<std::array<double, 3>> globalVertices;
 	std::vector<std::vector<int>> globalFaces;
+	
+	int globalPolyIndex{ 0 };
 	int globalIndex{ 0 };
-	std::unordered_map<std::array<double, 3>, int, GlobalVertexKey, GlobalVertexInside> globalVertexMap;
+	
+	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalVertexMap;
+
+	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalCellVertexMap;
+
+	// this map is only used for the faces that consist of the vertices of voro cells
 	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
 };
 
