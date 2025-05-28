@@ -61,6 +61,7 @@ bool is_inside_mesh(
 bool is_inside_mesh(
 	const vtkSmartPointer<vtkPolyData>& mesh,
 	const Eigen::Vector3d& point) {
+
 	Eigen::Vector3d rayDir(1.0, 0.0, 0.0);
 	int count{ 0 };
 
@@ -93,7 +94,7 @@ bool is_inside_mesh(
 	else { return false; }
 };
 
-bool is_inside_box(const Eigen::VectorXd& pt, const std::array<double, 6>& bounds) {
+bool is_inside_box(const std::array<double, 3>& pt, const std::array<float, 6>& bounds) {
 
 	if (pt[0] < bounds[0] || pt[0] > bounds[1] ||
 		pt[1] < bounds[2] || pt[1] > bounds[3] ||
@@ -105,6 +106,23 @@ bool is_inside_box(const Eigen::VectorXd& pt, const std::array<double, 6>& bound
 	}
 
 }
+
+bool is_inside_cylinder(
+	const std::array<double, 3>& querryPt,
+	const Eigen::Vector3d& basePt,
+	const Eigen::Vector3d& axis,
+	double radius, double height) {
+
+	Eigen::Vector3d p(querryPt[0], querryPt[1], querryPt[2]);
+	Eigen::Vector3d d = p - basePt;
+	double projection = d.dot(axis.normalized());
+	if (projection < 0 || projection > height)
+		return false;
+
+	Eigen::Vector3d radial = d - projection * axis.normalized();
+	return radial.norm() <= radius;
+
+};
 
 bool ray_intersection(
 	const Eigen::Vector3d& p,
@@ -490,6 +508,96 @@ void back_to_3d(Eigen::MatrixXd& vertices3d, const Eigen::MatrixXd& vertices2d, 
 
 };
 
+double catmull_rom_get_t(const Eigen::Vector2d& p1, const Eigen::Vector2d& p2, double t0, double alpha) {
+
+	double x = std::pow(p2.x() - p1.x(), 2);
+	double y = std::pow(p2.y() - p1.y(), 2);
+
+	double ti = std::pow(std::sqrt(x + y), alpha) + t0;
+
+	return ti;
+};
+
+void catmull_rom_interpolation(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, double alpha) {
+
+	std::vector<Eigen::Vector2d> samples;
+	const int sampleNr = 3;
+
+	for (int vIdx{ 0 }; vIdx < currentVerts.rows(); vIdx++) {
+
+		int idx1 = (vIdx - 1 + currentVerts.rows()) % currentVerts.rows();
+		int idx2 = vIdx;
+		int idx3 = (vIdx + 1) % currentVerts.rows();
+		int idx4 = (vIdx + 2) % currentVerts.rows();
+
+		std::cout << idx1 << " " << idx2 << " " << idx3 << " " << idx4 << std::endl;
+
+		Eigen::Vector2d p0 = currentVerts.row(idx1);
+		Eigen::Vector2d p1 = currentVerts.row(idx2);
+		Eigen::Vector2d p2 = currentVerts.row(idx3);
+		Eigen::Vector2d p3 = currentVerts.row(idx4);
+
+		double t0 = 0.0;
+		double t1 = catmull_rom_get_t(p0, p1, t0, alpha);
+		double t2 = catmull_rom_get_t(p1, p2, t1, alpha);
+		double t3 = catmull_rom_get_t(p2, p3, t2, alpha);
+
+
+		for (int i{ 0 }; i < sampleNr - 1; i ++) {
+
+			double ti = t1 + (t2 - t1) * (double(i) / (sampleNr - 1));
+
+			Eigen::VectorXd a1 = ((t1 - ti) / (t1 - t0)) * p0 + ((ti - t0) * (t1 - t0)) * p1;
+			Eigen::VectorXd a2 = ((t2 - ti) / (t2 - t1)) * p1 + ((ti - t1) * (t2 - t1)) * p2;
+			Eigen::VectorXd a3 = ((t3 - ti) / (t3 - t2)) * p2 + ((ti - t2) * (t3 - t2)) * p3;
+
+			Eigen::VectorXd b1 = ((t2 - ti) / (t2 - t0)) * a1 + ((ti - t0) / (t2 - t0)) * a2;
+			Eigen::VectorXd b2 = ((t3 - ti) / (t3 - t1)) * a2 + ((ti - t1) / (t3 - t1)) * a3;
+
+			// this is the interpolation point
+			Eigen::VectorXd c = ((t2 - ti) / (t2 - t1)) * b1 + ((ti - t1) / (t2 - t1)) * b2;
+
+			//if (i < sampleNr - 1) {
+			//	samples.push_back(c);
+			//}
+			samples.push_back(c);
+		}
+	}
+
+	// Convert to Eigen::MatrixXd
+	interpolatedVerts.resize(samples.size(), 2);
+	for (int i = 0; i < samples.size(); ++i) {
+		interpolatedVerts.row(i) = samples[i];
+	}
+};
+
+void chaikin_subdivision(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, int num) {
+
+	std::vector<Eigen::Vector2d> samples;
+
+	for (int i{ 0 }; i < currentVerts.rows(); i++) {
+
+		int idx1 = i;
+		int idx2 = (i + 1) % currentVerts.rows();
+
+		Eigen::Vector2d p0 = currentVerts.row(idx1);
+		Eigen::Vector2d p1 = currentVerts.row(idx2);
+
+		//double norm = (p0 - p1).norm();
+		//if (norm < 0.1) {
+		//	continue;
+		//}
+
+		samples.push_back(0.75 * p0 + 0.25 * p1);
+		samples.push_back(0.25 * p0 + 0.75 * p1);
+	}
+	interpolatedVerts.resize(samples.size(), 2);
+	for (int i{ 0 }; i < samples.size(); i++) {
+		interpolatedVerts.row(i) = samples[i];
+	}
+}
+
+
 void sample_face_polygon(
 	const Eigen::MatrixXd& verts2D,
 	Eigen::Vector2d& center,
@@ -670,8 +778,6 @@ void interpolate_edges(
 		int idx1 = i;
 		int idx2 = (i + 1) % vertices.rows();
 
-		std::cout << idx1 << " " << idx2 << std::endl;
-
 		Eigen::Vector2d p1 = vertices.row(idx1);
 		Eigen::Vector2d p2 = vertices.row(idx2);
 
@@ -740,7 +846,7 @@ bool vertex_locally_convex(const Eigen::Vector2d& v1, const Eigen::Vector2d& v2,
 	return angle < M_PI;
 };
 
-void ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells) {
+bool ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells) {
 
 	// 1. create dll for the indices
 	Cdll cdll;
@@ -749,11 +855,19 @@ void ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs,
 		cdll.append(idx);
 	}
 
-	cdll.display();
+	//cdll.display();
+
+	int iterNr = 1;
 
 	Node* node = cdll.head;
 
 	while (cdll.length > 2) {
+
+		iterNr += 1;
+		if (iterNr > 200) {
+			//render_vtk_points(vertices, "Face with issue");
+			return false;
+		}
 
 		//std::cout << "..." << std::endl;
 		// 2. get the triad indices
@@ -815,7 +929,9 @@ void ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs,
 		}
 		node = node->next;
 	}
-	std::cout << "..." << std::endl;
+
+	return true;
+	//std::cout << "..." << std::endl;
 };
 
 

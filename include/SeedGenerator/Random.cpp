@@ -25,6 +25,52 @@ void RandomGenerator::generate_seeds() {
 	}
 };
 
+void RandomGenerator::generate_seeds(
+	const std::array<float, 3>& cylinderPt, const std::array<float, 3>& cylinderAxis, double cylinderRadius) {
+
+	std::vector<Eigen::Vector3d> points;
+	points.reserve(seedNr);
+
+	double height = std::abs(bounds[5] - bounds[4]);
+
+	// ensure the axis is normalized
+	Eigen::Vector3d axis = { cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] };
+	axis = axis.normalized();
+
+	// Create orthonormal basis
+	Eigen::Vector3d x;
+	if (std::abs(axis.x()) < 0.99)
+		x = axis.cross(Eigen::Vector3d::UnitX()).normalized();
+	else
+		x = axis.cross(Eigen::Vector3d::UnitY()).normalized();
+
+	Eigen::Vector3d y = axis.cross(x);
+
+		std::mt19937 gen(std::random_device{}());
+	std::uniform_real_distribution<double> distAngle(0, 2 * M_PI);
+	std::uniform_real_distribution<double> distHeight(0, height);
+	std::uniform_real_distribution<double> distRadius(0, 1);
+
+	Eigen::Vector3d startPoint = { cylinderPt[0], cylinderPt[1], cylinderPt[2] };
+
+	for (int i = 0; i < seedNr; ++i) {
+		double theta = distAngle(gen);
+		double u = distRadius(gen);
+		double r_prime = std::sqrt(u) * cylinderRadius;
+		double h = distHeight(gen);
+
+		Eigen::Vector3d localPoint =
+			r_prime * std::cos(theta) * x +
+			r_prime * std::sin(theta) * y +
+			h * axis;
+
+		Eigen::Vector3d finalPt = startPoint + localPoint;
+		seeds.push_back({ finalPt.x(), finalPt.y(), finalPt.z()});
+	}
+
+};
+
+
 // --------------------------------------------------------------------------------------------------
 // Simple Random Generator Inside Mesh
 RandomGeneratorWall::RandomGeneratorWall(

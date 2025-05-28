@@ -141,7 +141,8 @@ Poisson3D::Poisson3D(
 	const float& rMinVal,
 	const float& rMaxVal,
 	const std::array<double, 3>& rootVal,
-	const std::array<float, 6>& bounds) : Poisson3DSampler(rMinVal, rMaxVal, rootVal) {
+	const std::array<float, 6>& bounds,
+	std::function<bool(const std::array<double, 3>&)> is_inside) : is_inside(is_inside), Poisson3DSampler(rMinVal, rMaxVal, rootVal) {
 
 	xMin = bounds[0];
 	xMax = bounds[1];
@@ -233,10 +234,8 @@ void Poisson3D::generate_seeds() {
 				// get the index of the point under consideration
 				std::array<int, 3> ptIdx = getGridIndex(pt, cellSize);
 
-				// check if inside
-				if (pt[0] < xMin || pt[0] > xMax ||
-					pt[1] < yMin || pt[1] > yMax ||
-					pt[2] < zMin || pt[2] > zMax) {
+				// check if inside the domain
+				if (!is_inside(pt)) {
 					continue;
 				}
 
@@ -460,11 +459,14 @@ Poisson3DWall::Poisson3DWall(
 	const float& rMinVal,
 	const float& rMaxVal,
 	const int& neighbors,
-	const int& nXval, const int& nYval, const int& nZval
-	) : neighbors(neighbors){
+	const std::array<int, 3>& blockDim,
+	const double wallResolution) : neighbors(neighbors), wallResolution(wallResolution) {
 
 	container = vtkSmartPointer<vtkPolyData > ::New();
 	container = containerMesh;
+
+	distanceCalculator = vtkSmartPointer<vtkImplicitPolyDataDistance>::New();
+	distanceCalculator->SetInput(containerMesh);
 
 	// get bounds
 	double bounds[6];
@@ -476,9 +478,9 @@ Poisson3DWall::Poisson3DWall(
 	zMin = bounds[4];
 	zMax = bounds[5];
 
-	nX = nXval;
-	nY = nYval;
-	nZ = nZval;
+	nX = blockDim[0];
+	nY = blockDim[1];
+	nZ = blockDim[2];
 
 	rMin = rMinVal;
 	rMax = rMaxVal;
@@ -495,8 +497,6 @@ Poisson3DWall::Poisson3DWall(
 	cellSize = rMin / sqrt(3);
 
 	//_populate_with_barycenters();
-	
-	std::cout << "seed Nr: " << seeds.size();
 };
 
 void Poisson3DWall::generate_seeds() {
@@ -587,6 +587,15 @@ void Poisson3DWall::generate_seeds() {
 					//std::cout << "Already contains a point" << std::endl;
 					continue;
 					//std::cout << "Point inside Mesh!" << std::endl;
+				}
+
+				// finally check if the distance from the surface of the container is smaller that rMin
+				double dist = distanceCalculator->EvaluateFunction(pt[0], pt[1], pt[2]);
+
+				if (std::abs(dist) < rMin) {
+					
+					std::cout << "distance" << dist << "smaller that rmin" << std::endl;
+					continue;
 				}
 
 				// loop through the cellIdxs of the cell
@@ -732,6 +741,12 @@ void Poisson3DWall::generate_seeds(DistanceEstimator& distEstimator, RadiusFunct
 				}
 
 				double dFromSurf = distEstimator.compute_distance({ pt[0], pt[1], pt[2] });
+
+				if (std::abs(dFromSurf) < rMin) {
+					std::cout << "distance from surf: " << dFromSurf << " min Rad " << rMin << std::endl;
+					continue;
+				}
+
 				double ryi = radFunc.estimate_radius(dFromSurf, rMin, rMax);
 
 				// loop through the cellIdxs of the cell
@@ -783,6 +798,10 @@ void Poisson3DWall::generate_seeds(DistanceEstimator& distEstimator, RadiusFunct
 
 void Poisson3DWall::_populate_with_barycenters() {
 
+	// create two temporal vector to store centers, and normals
+	std::vector<std::array<double, 3>> tempCenters;
+	std::vector<std::array<double, 3>> tempNormals;
+
 	for (vtkIdType i = 0; i < container->GetNumberOfCells(); ++i) {
 		vtkTriangle* triangle = dynamic_cast<vtkTriangle*>(container->GetCell(i));
 		if (!triangle) continue;
@@ -804,14 +823,32 @@ void Poisson3DWall::_populate_with_barycenters() {
 		double bc2 = (p1[1] + p2[1] + p3[1]) / 3;
 		double bc3 = (p1[2] + p2[2] + p3[2]) / 3;
 		std::array<double, 3> bc = { bc1, bc2, bc3 };
-		//Eigen::Vector3d bc{ bc1, bc2, bc3 };
-		bCenters.push_back(bc);
-		seeds.push_back(bc);
 
+		tempCenters.push_back(bc);
+		
 		Eigen::Vector3d normal = (pe2 - pe1).cross(pe3 - pe1);
 		normal.normalize();
-		normals.push_back({ normal[0], normal[1], normal[2] });
+		tempNormals.push_back({ normal[0], normal[1], normal[2] });
 	}
+
+	// Filtering step
+	for (size_t i = 0; i < tempCenters.size(); i++) {
+		bool keep = true;
+		for (size_t j = 0; j < bCenters.size(); j++) {
+			if (distance(tempCenters[i], bCenters[j]) < wallResolution) {
+				keep = false;
+				break;
+			}
+		}
+		if (keep) {
+			bCenters.push_back(tempCenters[i]);
+			//seeds.push_back(tempCenters[i]);
+			normals.push_back(tempNormals[i]);
+		}
+	}
+	std::cout << "Before filtering: " << tempCenters.size() << std::endl;
+	std::cout << "After filtering: " << bCenters.size() << std::endl;
+
 
 };
 

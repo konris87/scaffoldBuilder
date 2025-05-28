@@ -21,7 +21,7 @@ void loadStlMesh(
 	reader->SetFileName(modelFile.c_str());
 	reader->Update();
 
-	std::cout << "Read Data" << std::endl;
+	//std::cout << "Read Data" << std::endl;
 
 	// get polydata
 	vtkSmartPointer<vtkPolyData> polydata = reader->GetOutput();

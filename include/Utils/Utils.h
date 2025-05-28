@@ -44,7 +44,16 @@ bool is_inside_mesh(
 	Eigen::Vector3d& intersection);
 
 bool is_inside_box(
-	const std::array<double, 6> bounds);
+	const std::array<double, 3>& pt,
+	const std::array<float, 6>& bounds);
+
+bool is_inside_cylinder(
+
+	const std::array<double, 3>& querryPt,
+	const Eigen::Vector3d& basePt,
+	const Eigen::Vector3d& axis,
+	double radius, double height
+);
 
 vtkSmartPointer<vtkActor> render_points(
 	const int& particles,
@@ -117,12 +126,18 @@ void interpolate_edges(
 
 void hole_points(const double& radius, const Eigen::Vector2d& center, const int& ptNr, Eigen::MatrixXd& vertices);
 
-void ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells);
+bool ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells);
 
 bool vertex_locally_convex(const Eigen::Vector2d& v1, const Eigen::Vector2d& v2, const Eigen::Vector2d& v3);
 
 void back_to_3d(Eigen::MatrixXd& vertices3d, const Eigen::MatrixXd& vertices2d, const Eigen::Vector3d& center, const Eigen::Vector3d& u, const Eigen::Vector3d& v);
 // implementation of circular double linked list
+
+void catmull_rom_interpolation(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, double alpha=0.5);
+
+double catmull_rom_get_t(const Eigen::Vector2d& p1, const Eigen::Vector2d& p2, double t0, double alpha = 0.5);
+
+void chaikin_subdivision(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, int num = 5);
 
 // create a node struct
 class Node {

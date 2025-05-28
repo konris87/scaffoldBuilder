@@ -147,11 +147,15 @@ public:
 		const float& rMinVal,
 		const float& rMaxVal,
 		const std::array<double, 3>& rootVal,
-		const std::array<float, 6>& bounds);
+		const std::array<float, 6>& bounds,
+		std::function<bool(const std::array<double, 3>&)> is_inside
+	);
 
 	void generate_seeds(DistanceEstimator& distEstimator, RadiusFunction& radFunc) override;
 	void generate_seeds();
 
+	// create a function pointer
+	std::function<bool(const std::array<double, 3>&)> is_inside;
 };
 
 
@@ -165,14 +169,17 @@ public:
 		const float& rMinVal,
 		const float& rMaxval,
 		const int& neighbors,
-		const int& nXval, const int& nYval, const int& nZval);
+		const std::array<int, 3>& blockDim, 
+		const double wallResolution);
 	void generate_seeds(DistanceEstimator& distEstimator, RadiusFunction& radFunc) override;
 	void generate_seeds();
 	void generate_voro();
 
 private:
 	vtkSmartPointer<vtkPolyData> container;
+	vtkSmartPointer<vtkImplicitPolyDataDistance> distanceCalculator;
 	int neighbors{ 1 };
+	double wallResolution{ 1.0 };
 	std::vector<std::array<double, 3>> bCenters;
 	std::vector<std::array<double, 3>> normals;
 	void _populate_with_barycenters();

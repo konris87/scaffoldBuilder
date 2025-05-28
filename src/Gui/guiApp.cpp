@@ -424,7 +424,7 @@ void myGUI::run() {
 				uniManager.setUniform(bboxShader, "model", model);
 				box->draw();
 			}
-			else if (conOption == 1) {
+			else if (conOption == 2) {
 				containerShader.use();
 				uniManager.setUniform(containerShader, "projection", projection);
 				uniManager.setUniform(containerShader, "view", view);
@@ -947,38 +947,6 @@ void myGUI::render_settings() {
 
 	ImGui::Indent(20.0f);
 
-	//if (ImGui::TreeNode("Random Seed Generator", ))
-
-	//if (e == 0) {
-	//	//ImGui::SeparatorText("Settings");
-	//	generateOption = "generate";
-	//	ImGui::InputInt("Seeds", &seedNr, 1, 1000);
-	//	wInit.resize(seedNr);
-	//	wInit.setZero();
-	//	targetVols.resize(seedNr);
-
-	//	double domVol = xDim * yDim * zDim;
-
-	//	for (int i = 0; i < seedNr; i++) {
-	//		targetVols[i] = domVol / seedNr;
-	//	}
-	//	ImGui::Separator();
-	//}
-
-	//if (ImGui::Button("Generate Seeds")) {
-
-	//	// ensure that seeds are empty
-	//	seeds.clear();
-
-	//	// decide boundaries and center of domain
-	//	_update_bounds_center(conOption);
-
-	//	// generate seeds inside the rectangular box
-	//	if (conOption == 0) {
-
-	//	}
-	//}
-
 	ImGui::SeparatorText("Adjust Voronoi Cell Volume");
 
 	static bool addVolumeOpt = false;
@@ -1042,6 +1010,9 @@ void myGUI::render_settings() {
 	ImGui::InputFloat("Thickness", &thickness, 0.1f, 1.0f, "%.3f");
 	ImGui::SameLine(); help_marker("Thickness of Scaffold");
 
+	ImGui::InputDouble("Hole Scale Factor", &scaleFactor, 0.1, 0.99, "%.3f");
+	ImGui::SameLine(); help_marker("To create holes to each face we estimate the maximum inscribed circle, this factor scales its radius. Default value is 0.5");
+
 	ImGui::Separator();
 
 	if (ImGui::Button("Generate Seeds")) {
@@ -1081,15 +1052,25 @@ void myGUI::render_settings() {
 			if (conOption == 0) {
 
 				add_log(LogPriority::INFO, "Generating Random Seeds Inside Box.");
-
 				RandomGenerator rg(
-					{xMin, xMax, yMin, yMax, zMin, zMax}, seedNr
+					{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
 				);
-
 				rg.generate_seeds();
 				_update_cameras();
 				rg.get_seeds(seeds);
-				
+			}
+			else if (conOption == 1) {
+
+				add_log(LogPriority::INFO, "Generating Random Seeds Inside Cylinder.");
+				RandomGenerator rg(
+					{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
+				);
+				rg.generate_seeds(
+					{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
+					{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
+					cylinderRadius);
+				_update_cameras();
+				rg.get_seeds(seeds);
 			}
 			else {
 
@@ -1105,42 +1086,69 @@ void myGUI::render_settings() {
 		// Poisson 3D seed generation
 		else if (generateOption == 1) {
 
-			if (conOption == 0) {
+			if (conOption == 0 || conOption == 1){
+				// determine function to check if a point is inside a container
+				std::function<bool(const std::array<double, 3>&)> inside_check;
+
+				// a string to print messages
+				std::string suffix{ "" };
+
+				if (conOption == 0) {
+
+					suffix += " inside a Box.";
+
+					inside_check = [&](const std::array<double, 3>& pt) {
+						return is_inside_box(pt, { xMin, xMax, yMin, yMax, zMin, zMax });
+					};
+
+				}
+				else if (conOption == 1) {
+
+					suffix += " inside a Cylinder.";
+
+					std::cout << cylinderPt[0] << " " << cylinderPt[1] << " " << cylinderPt[2] << std::endl;
+
+					inside_check = [&](const std::array<double, 3>& pt) {
+						return is_inside_cylinder(
+							pt,
+							{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
+							{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
+							cylinderRadius, zDim);
+					};
+
+				}
+
+				std::cout << containerCenter[0] << " " << containerCenter[1] << " " << containerCenter[2] << std::endl;
+				std::cout << 0.0 << " " << xDim << " " << 0.0 << " " << yDim << " " << 0.0 << " " << zDim << std::endl;
 				Poisson3D sg(
 					rMin, rMax,
 					{ containerCenter[0], containerCenter[1], containerCenter[2] },
-					{ 0, xDim, 0.0, yDim, 0.0, zDim }
+					{ 0, xDim, 0.0, yDim, 0.0, zDim },
+					inside_check
 				);
+
 				if (radiusOpt == 0) {
-
-					add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D Inside Box");
-
+					add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D " + suffix);
 					sg.generate_seeds();
 				}
 				else if (radiusOpt == 1 && distFunc == 0) {
-
 					//std::cout << "generating with Poisson 3D and dist from plane" << std::endl;
-					add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Box. Distance is measured from plane.");
-
+					std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from plane.";
+					add_log(LogPriority::INFO, tag);
 					sg.generate_seeds(planeDistance, linearFunc);
 				}
 				else if (radiusOpt == 1 && distFunc == 1) {
-					//std::cout << "generating with Poisson 3D and dist from container" << std::endl;
-
-					add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Box. Distance is measured from mesh outer face.");
-
+					std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from mesh outer face.";
+					add_log(LogPriority::INFO, tag);
 					sg.generate_seeds(boxDistance, linearFunc);
 				}
 				_update_cameras();
 				sg.get_seeds(seeds);
-				//std::cout << "Seeds: " << seeds.size() << std::endl;
-				//sg.generate_voro();
-				//sg.generate_mesh(thickness, scaffoldFileName);
-				
 			}
+
 			// Poisson 3d inside a container
-			if (conOption == 1) {
-				Poisson3DWall sg(containerMesh, rMin, rMax, neighbors, 10, 10, 10);
+			if (conOption == 2) {
+				Poisson3DWall sg(containerMesh, rMin, rMax, neighbors, { 10, 10, 10 }, wallResolution);
 				if (radiusOpt == 0) {
 					add_log(LogPriority::INFO, "Generating seeds using Uniform Poisson 3D inside Mesh Container");
 					sg.generate_seeds();
@@ -1156,13 +1164,7 @@ void myGUI::render_settings() {
 				}
 				_update_cameras();
 				sg.get_radii(radii);
-				sg.get_seeds(seeds);
-				std::cout << "Seeds: " << seeds.size() << std::endl;
-				//std::cout << "Generating Voronoi: " << std::endl;
-				//sg.generate_voro();
-				//std::cout << "Generating Mesh: " << std::endl;
-				//sg.generate_mesh(thickness, scaffoldFileName);
-				
+				sg.get_seeds(seeds);				
 			}
 		}
 
@@ -1171,7 +1173,7 @@ void myGUI::render_settings() {
 		box = std::make_unique<BBox>(xMin, xMax, yMin, yMax, zMin, zMax);
 
 		// create the container if it is a mesh
-		if (conOption == 1) {
+		if (conOption == 2) {
 			//containerModel = new Model(containerFile);
 			containerModel = std::make_unique<Model>(containerFile);
 		}
@@ -1202,9 +1204,22 @@ void myGUI::render_settings() {
 		scaffoldFileName = std::string(version) + ".stl";
 
 		if (!addVolumeOpt) {
-			if (conOption == 0) {
+			if (conOption == 0 || conOption == 1) {
 				std::cout << "Generating Random Seeds Mesh inside rectangular" << std::endl;
-				ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ });
+				ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ }, edgeSize, scaleFactor);
+
+				if (conOption == 1) {
+					sgb.add_cylindrical_wall(
+						static_cast<double>(cylinderPt[0]),
+						static_cast<double>(cylinderPt[1]),
+						static_cast<double>(cylinderPt[2]),
+						static_cast<double>(cylinderAxis[0]),
+						static_cast<double>(cylinderAxis[1]),
+						static_cast<double>(cylinderAxis[2]),
+						cylinderRadius
+					);
+				}
+
 				sgb.generate_voro(regSteps);
 				sgb.get_seeds(seeds);
 				//sgb.generate_mesh(thickness, scaffoldFilePath);
@@ -1217,12 +1232,12 @@ void myGUI::render_settings() {
 				_update_cameras();
 			}
 
-			else if (conOption == 1) {
+			else if (conOption == 2) {
 				std::cout << "Generating Random Seeds Mesh inside Container" << std::endl;
-				ScaffoldGeneratorWall sgb(seeds, containerMesh, {nX, nY, nZ}, 1, rMin/2.0f);
+				//wallResolution = rMin / 2.0f;
+				ScaffoldGeneratorWall sgb(seeds, containerMesh, {nX, nY, nZ}, neighbors, wallResolution, edgeSize, scaleFactor);
 				sgb.generate_voro(regSteps);
 				sgb.get_seeds(seeds);
-				std::cout << "Seed Nr: " << seeds.size() << std::endl;
 				//sgb.generate_mesh(thickness, scaffoldFilePath);
 				if (customResolutionFlag) {
 					sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
@@ -1306,7 +1321,7 @@ void myGUI::render_settings() {
 			}
 
 			// volume optimization inside a mesh wall
-			else if (conOption == 1) {
+			else if (conOption == 2) {
 				
 				std::cout << "Vol Opt inside Mesh" << std::endl;
 
@@ -1507,10 +1522,41 @@ void myGUI::render_container_options(int& conOption) {
 		ImGui::SameLine(); help_marker("Dimension of Scaffold Along Z.");
 	}
 
-	ImGui::RadioButton("STL Mesh", &conOption, 1);
-	ImGui::SameLine(); help_marker("A custom container geometry. In this case the bounding box of the mesh is used for the voro++ container and the scaffold is built inside the mesh domain");
+	ImGui::RadioButton("Cylindrical Container", &conOption, 1);
+	ImGui::SameLine(); help_marker("A cylindrical container, starting from (0, 0, 0). Select Axis, Radius. The Height depends on the Bounds");
 
 	if (conOption == 1) {
+		ImGui::RadioButton("X", &cylinderDir, 0);
+		ImGui::SameLine(); ImGui::RadioButton("Y", &cylinderDir, 1);
+		ImGui::SameLine(); ImGui::RadioButton("Z", &cylinderDir, 2);
+
+		if (cylinderDir == 0) {
+			cylinderAxis[0] = 1.0;
+			cylinderAxis[1] = 0.0;
+			cylinderAxis[2] = 0.0;
+			cylinderHeight = std::abs(xMax - xMin);
+		}
+		else if (cylinderDir == 1) {
+			cylinderAxis[0] = 0.0;
+			cylinderAxis[1] = 1.0;
+			cylinderAxis[2] = 0.0;
+			cylinderHeight = std::abs(yMax - yMin);
+		}
+		else if (cylinderDir == 2) {
+			cylinderAxis[0] = 0.0;
+			cylinderAxis[1] = 0.0;
+			cylinderAxis[2] = 1.0;
+			cylinderHeight = std::abs(zMax - zMin);
+		}
+
+		ImGui::InputDouble("Cylinder Radius", &cylinderRadius, 0.1, 0.0, "%.3f");
+		ImGui::SameLine(); help_marker("The radius of the cylinder.");
+	}
+
+	ImGui::RadioButton("STL Mesh", &conOption, 2);
+	ImGui::SameLine(); help_marker("A custom container geometry. In this case the bounding box of the mesh is used for the voro++ container and the scaffold is built inside the mesh domain");
+
+	if (conOption == 2) {
 
 		if (ImGuiFileDialog::Instance()->Display("Select STL Container")) {
 			if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
@@ -1546,6 +1592,7 @@ void myGUI::render_container_options(int& conOption) {
 		}
 		selectFileButton("Select Geometry File", "../data/", "Select STL Container", ".stl");
 		ImGui::InputInt("Neighbors", &neighbors, 1, 100);
+		ImGui::InputFloat("Wall Resolution", &wallResolution, 0.1f, 5.0f);
 	}
 };
 
@@ -1568,7 +1615,7 @@ void myGUI::_update_cameras() {
 
 void myGUI::_update_bounds_center(int& conOption) {
 
-	if (conOption == 0) {
+	if (conOption == 0 ) {
 		xMin = 0.0;
 		xMax = xDim;
 		yMin = 0.0;
@@ -1581,7 +1628,51 @@ void myGUI::_update_bounds_center(int& conOption) {
 		containerCenter[2] = zDim / 2.0f;
 	}
 
-	else if(conOption == 1) {
+	else if (conOption == 1) {
+
+		// if the cylinder is along the x axis
+		if (cylinderDir == 0) {
+
+			xMin = 0.0;
+			xMax = xDim;
+			yMin = -cylinderRadius;
+			yMax = cylinderRadius;
+			zMin = -cylinderRadius;
+			zMax = cylinderRadius;
+
+			containerCenter[0] = xDim * 0.5;
+			containerCenter[1] = 0.0;
+			containerCenter[2] = 0.0;
+		}
+		else if (cylinderDir == 1) {
+
+			xMin = -cylinderRadius;
+			xMax = cylinderRadius;
+			yMin = 0.0;
+			yMax = yDim;
+			zMin = -cylinderRadius;
+			zMax = cylinderRadius;
+
+			containerCenter[0] = 0.0;
+			containerCenter[1] = yDim * 0.5;
+			containerCenter[2] = 0.0;
+		}
+		else if (cylinderDir == 2) {
+
+			xMin = -cylinderRadius;
+			xMax = cylinderRadius;
+			yMin = -cylinderRadius;
+			yMax = cylinderRadius;
+			zMin = 0.0;
+			zMax = zDim;
+
+			containerCenter[0] = 0.0;
+			containerCenter[1] = 0.0;
+			containerCenter[2] = zDim * 0.5;
+		}
+	}
+
+	else if(conOption == 2) {
 
 		double bounds[6];
 		containerMesh->GetBounds(bounds);

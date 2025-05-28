@@ -155,6 +155,10 @@ private:
 	float pointSize = 1.0f;
 	float split{ 0.3 };
 
+	// interpolation size
+	double edgeSize{ 2.0 };
+	double scaleFactor{ 0.5f };
+
 	// static pointer
 	//static myGUI* instance;
 
@@ -215,10 +219,11 @@ private:
 	int distFunc{ 0 };
 	int radiusFunc{ 0 };
 	int radiusOpt{ 0 };
-	int regSteps{ 1 };
+	int regSteps{ 0 };
 	int nX{ 10 }, nY{ 10 }, nZ{ 10 };
 	std::array<int, 3> resolution = {};
 	bool customResolutionFlag{ false };
+	float wallResolution{ 1.0f };
 
 	// model details
 	double scaffoldPorosity{ 50.0 };
@@ -233,6 +238,13 @@ private:
 	int neighbors{ 1 };
 	vtkSmartPointer<vtkPolyData> containerMesh;
 	double containerCenter[3]{ 0.0, 0.0, 0.0 };
+
+	// Cylinder Container
+	int cylinderDir{ 0 };
+	float cylinderPt[3] = { 0.0f, 0.0f, 0.0f };
+	float cylinderAxis[3] = {0.0f, 0.0f, 1.0f};
+	double cylinderRadius{ 2.0f };
+	double cylinderHeight{ 1.0f };
 
 	// Poisson3d
 	float rMin{ 0.8f };

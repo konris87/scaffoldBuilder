@@ -25,6 +25,7 @@ void render_vtk_triangular_cell(const std::vector<vtkSmartPointer<vtkPolyData>>&
 vtkSmartPointer<vtkPolyData> create_face_poly(const Eigen::MatrixXd& vertices, const std::vector<std::vector<int>>& indices);
 
 void render_vtk_polydata(vtkSmartPointer<vtkPolyData>& polyData);
+
 //void render_vtk_mesh(const Eigen::MatrixXd& vertices, const std::vector<std::vector<int>>& indices, const std::string& name);
 
 #endif

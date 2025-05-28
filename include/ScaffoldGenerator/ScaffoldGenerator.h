@@ -89,6 +89,9 @@ protected:
 
 	// vtk scaffold mesh
 	vtkSmartPointer<vtkPolyData> scaffoldMesh;
+
+	void regularize_voro(int regSteps, vtkSmartPointer<vtkPolyData>& containerMesh);
+
 };
 
 // -----------------------------------------------------
@@ -96,14 +99,49 @@ protected:
 class ScaffoldGeneratorBox : public ScaffoldGenerator {
 
 public:
+
+	// constructor using range of hole radius and interpolation for edge size
 	ScaffoldGeneratorBox(
 		std::vector<std::array<double, 3>>& seeds,
 		const std::array<float, 6>& bounds,
-		const std::array<int, 3>& blockDim
+		const std::array<int, 3>& blockDim,
+		const double edgeSize, const double scaleFactor
 	);
-	~ScaffoldGeneratorBox() override {}
 
+	~ScaffoldGeneratorBox() override {};
 	void generate_voro(const int regSteps) override;
+	void add_cylindrical_wall(
+		const double pt0, const double pt1, const double pt2,
+		const double axis0,
+		const double axis1,
+		const double axis2,
+		const double radius);
+
+protected:
+
+	double minHoleRadius{ 0.0 };
+	double maxHoleRadius{ 0.0 };
+	double edgeSize{ 0.0 };
+	double scaleFactor{ 0.0 };
+
+private:
+	std::vector<int> globalIndices;
+	std::vector<std::array<double, 3>> globalVertices;
+	std::vector<std::vector<int>> globalFaces;
+
+	int globalPolyIndex{ 0 };
+	int globalIndex{ 0 };
+
+	std::unique_ptr<voro::wall> wall;
+
+	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalVertexMap;
+
+	// this map is only used for the faces that consist of the vertices of voro cells
+	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
+	
+	std::unordered_map <int, int> localToGlobal;
+
+	void check_global_vertices(const Eigen::MatrixXd& vertices, std::vector<int>* face = nullptr);
 };
 
 // -----------------------------------------------------
@@ -116,7 +154,10 @@ public:
 		vtkSmartPointer<vtkPolyData>& containerPoly,
 		const std::array<int, 3>& blockDim,
 		const int neighbors,
-		const float minDist);
+		const float minDist,
+		const double edgeSize,
+		const double scaleFactor
+	);
 
 	void generate_voro(const int regSteps) override;
 
@@ -127,7 +168,26 @@ private:
 	vtkSmartPointer<vtkPolyData> containerMesh;
 	float minDist{ 0.0 };
 	int neighbors{ 1 };
+	double edgeSize{ 1.0 };
+	double scaleFactor{ 0.5 };
+
+	std::vector<int> globalIndices;
+	std::vector<std::array<double, 3>> globalVertices;
+	std::vector<std::vector<int>> globalFaces;
+
+	int globalPolyIndex{ 0 };
+	int globalIndex{ 0 };
+
+	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalVertexMap;
+
+	// this map is only used for the faces that consist of the vertices of voro cells
+	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
+
+	std::unordered_map <int, int> localToGlobal;
+
 	void _process_triangles();
+	void check_global_vertices(const Eigen::MatrixXd& vertices, std::vector<int>* face = nullptr);
+
 };
 
 
@@ -212,41 +272,5 @@ private:
 //---------------------------------------------------------------------
 // Scaffold Generator using face editing
 
-class ScaffoldGeneratorFaceBox : public ScaffoldGenerator {
-
-public:
-
-	// constructor using range of hole radius and interpolation for edge size
-	ScaffoldGeneratorFaceBox(
-		std::vector<std::array<double, 3>>& seeds,
-		const std::array<float, 6>& bounds,
-		const std::array<int, 3>& blockDim,
-		double minRad, double maxRad, double edgeSize);
-
-	~ScaffoldGeneratorFaceBox() override {};
-	void generate_voro(const int regSteps) override {};
-	void generate_voro();
-
-protected:
-
-	double minHoleRadius{ 0.0 };
-	double maxHoleRadius{ 0.0 };
-	double edgeSize{ 0.0 };
-
-private: 
-	std::vector<int> globalIndices;
-	std::vector<std::array<double, 3>> globalVertices;
-	std::vector<std::vector<int>> globalFaces;
-	
-	int globalPolyIndex{ 0 };
-	int globalIndex{ 0 };
-	
-	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalVertexMap;
-
-	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalCellVertexMap;
-
-	// this map is only used for the faces that consist of the vertices of voro cells
-	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
-};
 
 #endif

@@ -28,6 +28,7 @@ public:
 	~RandomGenerator(){};
 	RandomGenerator(const std::array<float, 6>& bounds, const int seedNr);
 	void generate_seeds() override;
+	void generate_seeds(const std::array<float, 3>& cylinderPt, const std::array<float, 3>& cylinderAxis, double cylinderRadius);
 
 private:
 	std::array<float, 6> bounds{ 0.0f, 10.0f, 0.0f, 10.0f, 0.0f, 10.0f };

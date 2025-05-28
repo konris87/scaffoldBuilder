@@ -130,7 +130,7 @@ private:
 
 	void setup_data() {
 
-		std::cout << "setup_data" << std::endl;
+		//std::cout << "setup_data" << std::endl;
 
 		vtkSmartPointer<vtkPoints> points = polyData->GetPoints();
 		vtkSmartPointer<vtkCellArray> cells = polyData->GetPolys();
@@ -145,7 +145,7 @@ private:
 		zMin = bounds[4];
 		zMax = bounds[5];
 
-		std::cout << "volume" << std::endl;
+		//std::cout << "volume" << std::endl;
 		// get volume
 		vtkNew<vtkMassProperties> massProperties;
 		massProperties->SetInputData(polyData);
@@ -170,7 +170,7 @@ private:
 
 		double center[3];
 		polyData->GetCenter(center);
-		std::cout << "Actual center: " << center[0] << " " << center[1] << center[2] << std::endl;
+		//std::cout << "Actual center: " << center[0] << " " << center[1] << center[2] << std::endl;
 
 		// get vertex data and pass them to the vector of vertices
 		for (vtkIdType i{ 0 }; i < points->GetNumberOfPoints(); i++) {
@@ -224,7 +224,7 @@ private:
 		}
 
 		// get also the mesh normals for now we use the face normals
-		std::cout << "Estimating norms" << std::endl;
+		//std::cout << "Estimating norms" << std::endl;
 		vtkNew<vtkPolyDataNormals> norms;
 
 		norms->SetInputData(polyData);
@@ -241,7 +241,7 @@ private:
 			return;
 		}
 		else {
-			std::cout << normalData->GetNumberOfTuples() << std::endl;
+			//std::cout << normalData->GetNumberOfTuples() << std::endl;
 			for (vtkIdType i{ 0 }; i < normalData->GetNumberOfTuples(); i++) {
 				double normal[3];
 
@@ -301,7 +301,7 @@ private:
 
 	void setup_edges() {
 
-		std::cout << "setup edges" << std::endl;
+		//std::cout << "setup edges" << std::endl;
 
 		// generate Vertex Array Object
 		glGenVertexArrays(1, &edgeVAO);
@@ -348,7 +348,7 @@ public:
 		
 		center = glm::vec3(origin.x, origin.y, origin.z);
 
-		std::cout << "Passed center: " << origin.x << " " << origin.y << " " << origin.z << std::endl;
+		//std::cout << "Passed center: " << origin.x << " " << origin.y << " " << origin.z << std::endl;
 
 		// change coordinates of the plane
 		for (int i{ 0 }; i < 4; i++) {

@@ -94,24 +94,6 @@ public:
 
             c.nplane(xc, yc, zc, offset, w_id);
             ++w_id;
-
-            // create a plane at x, y, z
-            //std::cout << w_id++ << std::endl;
-            //c.plane(xc, yc, zc, 2 * d);
-            //return c.nplane(px, py, pz, offset);
-            // add as point the normal
-            //c.nplane(xc, yc, zc, offset, w_id);
-
-            // add as point the surface point
-            // this works
-            
-
-            // this w
-
-            /*xc *= 2 * d;
-            yc *= 2 * d;
-            zc *= 2 * d;
-            c.plane(xc, yc, zc, w_id=w_id);*/
         }
         return true;
     }
