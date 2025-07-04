@@ -69,7 +69,9 @@ public:
 
 	PlaneDistEstimator planeDistance;
 	MeshDistEstimator meshDistance;
-	BoxDistEstimator boxDistance;
+	//BoxDistEstimator boxDistance;
+	//CylinderDistEstimator cylinderDistance;
+	ImplicitFunctionDistEstimator containerDistance;
 
 	// gui split viewports
 	//float split{ 0.0f };

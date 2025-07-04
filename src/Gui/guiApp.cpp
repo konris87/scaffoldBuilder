@@ -8,6 +8,7 @@
 #include <functional>
 #include <filesystem>
 #include <vtkBox.h>
+#include <vtkCylinder.h>
 #include <vtkMassProperties.h>
 #include <vtkSTLWriter.h>
 #include <vtkSTLReader.h>
@@ -1027,19 +1028,43 @@ void myGUI::render_settings() {
 			rMax = rMin;
 		}
 
+		// check if distance function is defined from a plane
 		if (distFunc == 0) {
-			std::cout << distPlaneCenter[0] << std::endl;
-			//planeDistance = PlaneDistEstimator({ -1.85807, 0.241241, 2.09239 }, { 1.0f, 0.0f, -1.0f });
+			
 			planeDistance = PlaneDistEstimator(
 				{ distPlaneCenter[0], distPlaneCenter[1], distPlaneCenter[2] },
 				{ distPlaneNormal[0], distPlaneNormal[1], distPlaneNormal[2] });
 		}
+
+		// or from the container surface
 		else if (distFunc == 1) {
+
+			// if conOption is just a box
 			if (conOption == 0) {
 				vtkSmartPointer<vtkBox> box = vtkSmartPointer<vtkBox>::New();
 				std::cout << xMin << " " << xMax << std::endl;
 				box->SetBounds(xMin, xMax, yMin, yMax, zMin, zMax);
-				boxDistance = BoxDistEstimator(box);
+				containerDistance = ImplicitFunctionDistEstimator(box);
+			}
+			else if (conOption == 1) {
+				vtkSmartPointer<vtkCylinder> cylinder = vtkSmartPointer<vtkCylinder>::New();
+				cylinder->SetRadius(cylinderRadius);
+
+				double center[3] = { 
+					cylinderHeight * cylinderAxis[0] * 0.5,
+					cylinderHeight * cylinderAxis[1] * 0.5,
+					cylinderHeight * cylinderAxis[2] * 0.5,
+				};
+
+				std::cout << "Center: " << center[0] << " " << center[1] << " " << center[2] << std::endl;
+
+				cylinder->SetCenter(center);
+
+				double axis[3] = {
+					cylinderAxis[0], cylinderAxis[1], cylinderAxis[2]
+				};
+				cylinder->SetAxis(axis);
+				containerDistance = ImplicitFunctionDistEstimator(cylinder);
 			}
 			else {
 				meshDistance = MeshDistEstimator(containerMesh);
@@ -1106,8 +1131,6 @@ void myGUI::render_settings() {
 
 					suffix += " inside a Cylinder.";
 
-					std::cout << cylinderPt[0] << " " << cylinderPt[1] << " " << cylinderPt[2] << std::endl;
-
 					inside_check = [&](const std::array<double, 3>& pt) {
 						return is_inside_cylinder(
 							pt,
@@ -1118,8 +1141,6 @@ void myGUI::render_settings() {
 
 				}
 
-				std::cout << containerCenter[0] << " " << containerCenter[1] << " " << containerCenter[2] << std::endl;
-				std::cout << 0.0 << " " << xDim << " " << 0.0 << " " << yDim << " " << 0.0 << " " << zDim << std::endl;
 				Poisson3D sg(
 					rMin, rMax,
 					{ containerCenter[0], containerCenter[1], containerCenter[2] },
@@ -1140,7 +1161,7 @@ void myGUI::render_settings() {
 				else if (radiusOpt == 1 && distFunc == 1) {
 					std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from mesh outer face.";
 					add_log(LogPriority::INFO, tag);
-					sg.generate_seeds(boxDistance, linearFunc);
+					sg.generate_seeds(containerDistance, linearFunc);
 				}
 				_update_cameras();
 				sg.get_seeds(seeds);
@@ -1551,6 +1572,8 @@ void myGUI::render_container_options(int& conOption) {
 
 		ImGui::InputDouble("Cylinder Radius", &cylinderRadius, 0.1, 0.0, "%.3f");
 		ImGui::SameLine(); help_marker("The radius of the cylinder.");
+		//ImGui::InputDouble("Cylinder Height", &cylinderHeight, 0.1, 1.0, "%.3f");
+		//ImGui::SameLine(); help_marker("The height of the cylinder.");
 	}
 
 	ImGui::RadioButton("STL Mesh", &conOption, 2);

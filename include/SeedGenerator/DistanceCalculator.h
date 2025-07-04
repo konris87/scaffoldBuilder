@@ -8,6 +8,7 @@
 #include <vtkImplicitPolyDataDistance.h>
 #include <vtkPolyData.h>
 #include <vtkBox.h>
+#include <vtkCylinder.h>
 
 class DistanceEstimator {
 public:
@@ -61,26 +62,62 @@ private:
 	vtkSmartPointer<vtkImplicitPolyDataDistance> distanceCalculator;
 };
 
-// 
-class BoxDistEstimator : public DistanceEstimator {
+//class BoxDistEstimator : public DistanceEstimator {
+//
+//public:
+//	BoxDistEstimator() {};
+//	~BoxDistEstimator() {};
+//	BoxDistEstimator(
+//		vtkSmartPointer<vtkBox>& box) {
+//
+//		container = vtkSmartPointer<vtkBox>::New();
+//		container = box;
+//	};
+//
+//	double compute_distance(const std::array<double, 3>& point) const override {
+//		return std::abs(container->EvaluateFunction(point[0], point[1], point[2]));
+//	};
+//
+//private:
+//	vtkSmartPointer<vtkBox> container;
+//};
+//
+//// Cylinder box
+//class CylinderDistEstimator : public DistanceEstimator {
+//
+//public:
+//	CylinderDistEstimator() {};
+//	~CylinderDistEstimator() {};
+//	CylinderDistEstimator(
+//		vtkSmartPointer<vtkCylinder>& cylinder) {
+//
+//		container = vtkSmartPointer<vtkCylinder>::New();
+//		container = cylinder;
+//	};
+//
+//	double compute_distance(const std::array<double, 3>& point) const override {
+//		return std::abs(container->EvaluateFunction(point[0], point[1], point[2]));
+//	};
+//
+//private:
+//	vtkSmartPointer<vtkCylinder> container;
+//};
 
+class ImplicitFunctionDistEstimator : public DistanceEstimator {
 public:
-	BoxDistEstimator() {};
-	~BoxDistEstimator() {};
-	BoxDistEstimator(
-		vtkSmartPointer<vtkBox>& box) {
+	ImplicitFunctionDistEstimator() = default;
+	~ImplicitFunctionDistEstimator() override = default;
 
-		container = vtkSmartPointer<vtkBox>::New();
-		container = box;
-	};
+	ImplicitFunctionDistEstimator(vtkSmartPointer<vtkImplicitFunction> implicitFunc)
+		: container(implicitFunc) {
+	}
 
 	double compute_distance(const std::array<double, 3>& point) const override {
 		return std::abs(container->EvaluateFunction(point[0], point[1], point[2]));
-	};
+	}
 
 private:
-	vtkSmartPointer<vtkBox> container;
+	vtkSmartPointer<vtkImplicitFunction> container;
 };
-
 
 #endif

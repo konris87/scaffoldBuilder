@@ -296,8 +296,6 @@ void Poisson3D::generate_seeds(DistanceEstimator& distEstimator, RadiusFunction&
 
 	try {
 
-		//std::cout << root[0] << " " << root[1] << " " << root[2] << std::endl;
-
 		int currSize = { 0 };
 
 		// this is the active list
