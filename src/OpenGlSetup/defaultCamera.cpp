@@ -4,7 +4,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 #include <imgui_impl_glfw.h>
-#include <Misc/Quaternion.h>
 
 defaultCamera::defaultCamera(
     GLFWwindow* window, double split,

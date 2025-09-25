@@ -18,11 +18,13 @@
 #include "SeedGenerator/DistanceCalculator.h"
 #include "OpenGlSetup/trackBallCamera.h"
 #include "OpenGlSetup/defaultCamera.h"
+#include "OpenGlSetup/simpleCamera.h"
 #include "OpenGlSetup/UniformManager.h"
 #include "OpenGlSetup/Grid.h"
 #include "Shader.h"
 #include "SeedGenerator/Poisson3D.h"
 #include "Logger/Logger.h"
+#include "OpenGlSetup/Misc.h"
 
 class myGUI {
 
@@ -124,8 +126,6 @@ public:
 	// constructor
 	myGUI() {};
 
-	myGUI(GLFWwindow* w, const float split);
-
 	myGUI(int width, int height);
 
 	void init();
@@ -133,8 +133,6 @@ public:
 	void clean();
 
 	void update_render();
-
-	void render_settings();
 
 	void framebuffer_size_callback_imp(int width, int height);
 
@@ -150,12 +148,15 @@ private:
 	int height{ 1200 };
 	int width{ 800 };
 
-	// background color
+		// background color
 	glm::vec4 fontColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+	// framebuffer
+	FrameBuffer framebuffer;
 
 	float lineWidth = 0.1f;
 	float pointSize = 1.0f;
-	float split{ 0.3 };
+	//float split{ 0.3 };
 
 	// interpolation size
 	double edgeSize{ 2.0 };
@@ -174,16 +175,18 @@ private:
 	bool trackCameraFlag{ true };
 	// camera type
 	enum cameraType {
-		default, trackBall
+		defaultOption, trackOption
 	};
-	cameraType cameraOption = trackBall;
+	cameraType cameraOption = trackOption;
 
 	glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 5.0f);
 	glm::vec3 cameraCenter = glm::vec3(0.0f, 0.0f, 0.0f);
 	glm::vec3 cameraTarget = glm::vec3(0.0f, 0.0f, 0.0f);
 
-	trackBallCamera *trackCamera;
-	defaultCamera *defCamera;
+	std::unique_ptr<TrackBall> trackCamera;
+	defaultCamera* defCamera;
+	std::unique_ptr<SimpleCamera> sCamera;
+	ProjectionMode cameraProjectionMode = ProjectionMode::Ortho;
 
 	glm::mat4 projection = glm::mat4(1.0f);
 	glm::mat4 view = glm::mat4(1.0f);
@@ -261,6 +264,7 @@ private:
 	Eigen::VectorXd wInit;
 	Eigen::VectorXd targetVols;
 	int volOption{ 0 };
+	bool runVolumeOptimization = false;
 
 	// loading flags
 	enum meshType {
@@ -279,6 +283,8 @@ private:
 
 	std::string _get_glsl_version();
 
+	void _render_settings_panel();
+
 	void write_settings();
 
 	static void help_marker(const char* descr) {
@@ -293,17 +299,17 @@ private:
 	}
 
 	// console stuff
-	void render_console();
+	void _render_console();
 
 	void add_log(LogPriority priority, const std::string& message);
 
-	void generate_scaffold();
+	void _generate_scaffold();
 
-	void render_scaffold();
+	void _render_scaffold();
 
-	void render_container_options(int& conOption);
+	void _render_container_options(int& conOption);
 
-	void render_menu_bar();
+	void _render_menu_bar();
 
 	void _update_cameras();
 
@@ -313,12 +319,27 @@ private:
 
 	void _render_mesh_settings();
 
-	// static function from framebuffer_size_callback
-	//static void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-	//	if (instance) {
-	//		instance->framebuffer_size_callback_imp(width, height);
-	//	}
-	//};
+	void _render_axes_viewport();
+
+	void _render_main_menu_bar();
+
+	void _render_display_settings();
+
+	void _render_cut_tool();
+
+	void _render_seed_generator();
+
+	void _render_volume_optimization();
+	
+	void _render_scaffold_settings();
+
+	void _action_generate_seeds();
+
+	void _action_generate_scaffold();
+
+	void _create_dockspace();
+
+	void _render_visualizer();
 };
 
 #endif

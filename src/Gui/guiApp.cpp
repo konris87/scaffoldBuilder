@@ -225,10 +225,24 @@ void myGUI::_init_opengl() {
 	zArrow = std::make_unique<Arrow>();
 	std::cout << "Created arrows: " << std::endl;
 
-	defCamera = new defaultCamera(window, split, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
-	trackCamera = new trackBallCamera(window, split, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0, 0.0, 20.0));
+	float sphereRadius{ 0.0f };
+	if (width > height)
+		sphereRadius = height * 0.5f;
+	else
+		sphereRadius = width * 0.5f;
+
+	defCamera = new defaultCamera(window, 0.3f, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
+	//trackCamera = new trackBallCamera(window, split, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0, 0.0, 20.0));
+	trackCamera = std::make_unique<TrackBall>(window, sphereRadius, framebuffer.width, framebuffer.height, 0, 0);
 
 	//defCamera.scroll_setup();
+	//framebuffer.width = width;
+	//framebuffer.height = height;
+
+	// create frame buffer
+
+	std::cout << "init opengl create buffer" << std::endl;
+	create_frame_buffer(framebuffer);
 };
 
 void myGUI::_init_imgui() {
@@ -261,69 +275,70 @@ void myGUI::_init_imgui() {
 
 void myGUI::run() {
 
-	int windowWidth, windowHeight;
-	//glm::mat4 projection(1.0f);
-	//glm::mat4 view(1.0f);
-	//glm::mat4 model(1.0f);
-	//glm::mat4 modelPlane(1.0f);
-	//grid = new Grid(Grid::XY);
 	grid = std::make_unique<Grid>(Grid::XY);
 
 	while (!glfwWindowShouldClose(window))
 	{
-		glfwPollEvents();
 
-		// update viewports in the case where the window resizes
-		glfwGetWindowSize(window, &windowWidth, &windowHeight);
+		glfwGetFramebufferSize(window, &width, &height);
+
+		glfwPollEvents();
 
 		// Start a new ImGui frame
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 
-		// render gui in the left viewport
-		glViewport(0.0, 0.0, split * windowWidth, windowHeight);
+		_create_dockspace();
 
-		render_settings();
+		_render_settings_panel();
 
-		glViewport(split * windowWidth, 0, (1 - split) * windowWidth, windowHeight);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.id);
+		glViewport(0, 0, framebuffer.width, framebuffer.height);
+
 		glClearColor(fontColor[0], fontColor[1], fontColor[2], fontColor[3]);
-		
-		bool cameraUpdateFlags = !ImGuiFileDialog::Instance()->IsOpened() && !ImGui::IsAnyItemActive() && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) && !ImGui::IsAnyItemHovered();
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		if (cameraUpdateFlags) {
-			if (cameraOption == default) {
-				defCamera->scroll_setup(window);
-				defCamera->update();
-				projection = defCamera->projectionMatrix;
-				view = defCamera->viewMatrix;
-				model = model;
-			}
-			else if (cameraOption == trackBall) {
-				trackCamera->scroll_setup(window);
-				trackCamera->update();
-				projection = trackCamera->projectionMatrix;
-				view = trackCamera->viewMatrix;
-				model = model;
-			}
-		}
+		_render_visualizer();
 
-		frameShader.use();
-		uniManager.setUniform(frameShader, "projection", projection);
-		uniManager.setUniform(frameShader, "view", view);
-		uniManager.setUniform(frameShader, "model", glm::mat4(1.0f));
-		uniManager.setUniform(frameShader, "screenSize", glm::vec2(width, height));
-		uniManager.setUniform(frameShader, "height", height);
-		uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
-		//uniManager.setUniform(frameShader, "model", glm::scale(glm::mat4(1.0), glm::vec3(2, 2, 2)));
-		zArrow->draw();
-		uniManager.setUniform(frameShader, "model", glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
-		uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
-		yArrow->draw();
-		uniManager.setUniform(frameShader, "model", glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
-		uniManager.setUniform(frameShader, "outColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
-		xArrow->draw();
+		double xPos, yPos;
+		glfwGetCursorPos(window, &xPos, &yPos);
+
+		//std::cout << xPos << " " << yPos << std::endl;
+
+		bool cameraUpdateFlags = !ImGuiFileDialog::Instance()->IsOpened() && !ImGui::IsAnyItemActive() && !ImGui::IsAnyItemHovered();
+
+		//if (cameraUpdateFlags) {
+		//	if (cameraOption == defaultOption) {
+		//		defCamera->scroll_setup(window);
+		//		defCamera->update();
+		//		projection = defCamera->projectionMatrix;
+		//		view = defCamera->viewMatrix;
+		//		model = model;
+		//	}
+		//	else if (cameraOption == trackOption) {
+
+		//		float sphereRadius{ 0.0f };
+		//		sphereRadius = std::min(0.3f * framebuffer.width, static_cast<float>(framebuffer.height)) * 0.5f;
+		//		trackCamera->set_radius(sphereRadius);
+		//		//trackCamera->set_screen_size(0.3f * framebuffer.width, framebuffer.height, 0);
+		//		trackCamera->update();
+		//		Vec3 cameraPos = trackCamera->get_position();
+		//		projection = trackCamera->get_projection_matrix();
+		//		view = trackCamera->get_view_matrix();
+		//		model = model;
+		//	}
+		//}
+
+		float sphereRadius;
+		sphereRadius = std::min(static_cast<float>(framebuffer.width), static_cast<float>(framebuffer.height)) * 0.5f;
+		trackCamera->set_radius(sphereRadius);
+		//trackCamera->set_screen_size(0.3f * framebuffer.width, framebuffer.height, 0);
+		trackCamera->update();
+		Vec3 cameraPos = trackCamera->get_position();
+		projection = trackCamera->get_projection_matrix();
+		view = trackCamera->get_view_matrix();
+		model = model;
 
 		scaffoldShader.use();
 
@@ -446,44 +461,16 @@ void myGUI::run() {
 			seedObj->draw();
 		}
 
-		//if (showDistancePlane) {
-		//	std::cout << "Draw distance plane " << std::endl;
-		//	glm::mat4 modelDist = distPlane->tMatrix * distPlane->initMatrix * distPlane->rotMatrix;
-		//	cutShader.use();
-		//	uniManager.setUniform(cutShader, "projection", projection);
-		//	uniManager.setUniform(cutShader, "view", view);
-		//	uniManager.setUniform(cutShader, "model", modelDist);
-		//	uniManager.setUniform(cutShader, "minBounds", 0, 0, 0);
-		//	uniManager.setUniform(cutShader, "maxBounds", xDim, yDim, zDim);
-		//	distPlane->draw();
-		//}
-
-		if (scaffoldModel && showScaffold) {
-			ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-			const float PAD = 10.0f;
-			const ImGuiViewport* viewport = ImGui::GetMainViewport();
-			ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
-			ImVec2 work_size = viewport->WorkSize;
-			ImVec2 window_pos, window_pos_pivot;
-			window_pos.x = work_pos.x + work_size.x - PAD;
-			window_pos.y = work_pos.y + work_size.y - PAD;
-			window_pos_pivot.x = 1.0f;
-			window_pos_pivot.y = 1.0f;
-			ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-			ImGui::SetNextWindowViewport(viewport->ID);
-			window_flags |= ImGuiWindowFlags_NoMove;
-			ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
-			if (ImGui::Begin("Example: Simple overlay", nullptr, window_flags))
-			{
-				ImGui::Text("Mesh Details");
-				ImGui::Separator();
-				ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
-				ImGui::Text("Mesh Vertices: %d", vertexNr);
-				ImGui::Text("Mesh Faces: %d", faceNr);
-				ImGui::Text("Volume: %.3f", scaffoldVolume);
-				ImGui::Text("Porosity: %.3f", scaffoldPorosity);
-				ImGui::End();
-			}
+		if (showDistancePlane) {
+			std::cout << "Draw distance plane " << std::endl;
+			glm::mat4 modelDist = distPlane->tMatrix * distPlane->initMatrix * distPlane->rotMatrix;
+			cutShader.use();
+			uniManager.setUniform(cutShader, "projection", projection);
+			uniManager.setUniform(cutShader, "view", view);
+			uniManager.setUniform(cutShader, "model", modelDist);
+			uniManager.setUniform(cutShader, "minBounds", 0, 0, 0);
+			uniManager.setUniform(cutShader, "maxBounds", xDim, yDim, zDim);
+			distPlane->draw();
 		}
 
 		if (glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS) {
@@ -510,8 +497,13 @@ void myGUI::run() {
 			//}
 		}
 
+		_render_axes_viewport();
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 		// Render ImGui into the OpenGL context
-		ImGui::Render();
+ 		ImGui::Render();
+
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 		update_render();
@@ -537,236 +529,43 @@ void myGUI::update_render() {
 		ImGui::UpdatePlatformWindows();
 		ImGui::RenderPlatformWindowsDefault();
 		glfwMakeContextCurrent(backup_current_context);
-		//glfwSetFramebufferSizeCallback(backup_current_context, framebuffer_size_callback);
 	}
 }
 
-void myGUI::render_settings() {
+void myGUI::_render_settings_panel() {
 
 	//// get window width and height
-	int windowWidth, windowHeight;
+	//int windowWidth, windowHeight;
 
-	glfwGetWindowSize(window, &windowWidth, &windowHeight);
+	//glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
 
-	ImGuiWindowFlags flags = 0;
+	//ImGuiIO& io = ImGui::GetIO();
+	//ImGuiID dockspaceId = ImGui::GetID("MainDockSpace");
 
-	flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+	//ImGuiWindowFlags flags = 0;
 
-	// file browser
-	// Set window position to the left and window dimensions based on window size
-	ImGui::SetNextWindowSize(ImVec2(windowWidth * split, windowHeight));
-	ImGui::SetNextWindowPos(ImVec2(0, 0));
-	ImGui::Begin("Scaffold Modeler", nullptr, flags);
+	//flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
 
+	//// first render the main menu bar
+	//_render_main_menu_bar();
 
-	float menuWidth = ImGui::GetWindowWidth();
-	split = menuWidth / windowWidth;
+	//// Set window position to the left and window dimensions based on window size
+	//ImGui::SetNextWindowSize(ImVec2(300, height));
+	//ImGui::SetNextWindowPos(ImVec2(0, 0));
+	//ImGui::Begin("Scaffold Modeler", nullptr);
 
-	// Add Menu Bar
-	if (ImGui::BeginMainMenuBar()) {
+	////ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
 
-		//ImGui::PushItemWidth(150);
-
-		if (ImGui::BeginMenu("File")) {
-
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
-			}
-
-			if (ImGui::MenuItem("Save Settings", "CTRL+S")) {
-				// Call your function to save model settings here
-				write_settings();
-				add_log(LogPriority::INFO, "Settings saved.");
-			}
-			if (ImGui::MenuItem("Load Scaffold", "load mesh file by specifying the path")) {
-				// Call your function to load a model mesh here
-				IGFD::FileDialogConfig config;
-				config.path = "..//data";
-				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl, .vtk", config);
-
-				loadedMesh = scaffold;
-				//add_log("Model mesh loaded.");
-			}
-
-			if (ImGui::MenuItem("Load Bone", "load bone mesh file by specifying the path")) {
-				// Call your function to load a model mesh here
-				IGFD::FileDialogConfig config;
-				config.path = "..//data";
-				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl", config);
-				//add_log("Model mesh loaded.");
-				loadedMesh = bone;
-			}
-
-			ImGui::SameLine(); help_marker("So far only .stl files are supported");
-
-			ImGui::EndMenu();
-		}
-
-		// menu for view settings like normals, edges etc
-		if (ImGui::BeginMenu("View")) {
-
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
-			}
-
-			if (ImGui::MenuItem("Show Scaffold", NULL, showScaffold)) {
-				showScaffold = !showScaffold;
-			}
-
-			if (ImGui::MenuItem("Show Seeds", NULL, showSeeds)) {
-				showSeeds = !showSeeds;
-			}
-
-			if (ImGui::MenuItem("Show Scaffold Face Normals", NULL, showNormals)) {
-				showNormals = !showNormals;
-			}
-
-			if (ImGui::MenuItem("Show Scaffold Edges", NULL, showEdges)) {
-				showEdges = !showEdges;
-			}
-
-			if (ImGui::MenuItem("Show Grid", NULL, showGrid)) {
-				showGrid = !showGrid;
-			}
-
-			if (ImGui::MenuItem("Show Container", NULL, showContainer)) {
-				showContainer = !showContainer;
-			}
-
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Settings")) {
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
-			}
-
-			if (ImGui::MenuItem("Display")) {
-				showDisplaySettingsWin = true;
-			}
-
-			if (ImGui::MenuItem("Mesh")) {
-				showDisplayMeshSettingsWin = true;
-			}
-
-			if (ImGui::BeginMenu("Select Camera")) {
-				if (ImGui::MenuItem("Default", NULL, &defCameraFlag))
-				{
-					cameraOption = default;
-					trackCameraFlag = false;
-					defCamera = new defaultCamera(window, split, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
-				}
-				if (ImGui::MenuItem("TrackBall", NULL, &trackCameraFlag))
-				{
-					cameraOption = trackBall;
-					defCameraFlag = false;
-					trackCamera = new trackBallCamera(window, split, cameraTarget, cameraPos);
-				}
-
-				ImGui::EndMenu();
-			}
-
-			ImGui::EndMenu();
-		}
-
-		if (ImGui::BeginMenu("Tools")) {
-
-			if (ImGui::IsItemHovered()) {
-				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
-			}
-			if (ImGui::MenuItem("Cut With Plane")) {
-
-				if (scaffoldModel) {
-					showCutPlane = true;
-					//cutPlane = new CutPlane(5.0f);
-					cutPlane = std::make_unique<CutPlane>(5.0f);
-					cutPlane->center = glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]);
-					cutPlane->initMatrix = glm::translate(
-						glm::mat4(1.0),
-						glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]));
-				}
-			}
-
-			ImGui::EndMenu();
-		}
-
-		// Close the menu bar
-		ImGui::EndMainMenuBar();
-	}
+	//float menuWidth = ImGui::GetWindowWidth();
+	//split = menuWidth / windowWidth;
 
 	//static ImVec4 currentScaffoldColor = ImVec4(1.0f, 0.5f, 0.5f, 1.0f);
 	//static ImVec4 seedColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-	static int pickedItem{ -99 };
 	//static float pointSize{ 5.0f };
 
 	// display settings window
 	if (showDisplaySettingsWin) {
-
-		ImGui::SetNextWindowSize(ImVec2(200, 250), ImGuiCond_FirstUseEver);
-		if (ImGui::Begin("Display Settings", &showDisplaySettingsWin)) {
-
-			// Left side - Selectable items
-			{
-				ImGui::BeginChild("LeftPanel", ImVec2(150, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
-				if (ImGui::Selectable("Mesh", pickedItem == 0)) pickedItem = 0;
-				if (ImGui::Selectable("Seeds", pickedItem == 1)) pickedItem = 1;
-				if (ImGui::Selectable("Grid", pickedItem == 2)) pickedItem = 2;
-				if (ImGui::Selectable("Lighting", pickedItem == 3)) pickedItem = 3;
-				if (ImGui::Selectable("Linear Function", pickedItem == 4)) pickedItem = 4;
-				if (ImGui::Selectable("Container", pickedItem == 5)) pickedItem = 5;
-				ImGui::EndChild();
-			}
-			ImGui::SameLine();
-
-			// Right side - Color and size controls
-			{
-				ImGui::BeginGroup();
-				{
-					ImGui::BeginChild("settings item");
-
-					if (pickedItem == 0) {
-						ImGui::Text("Mesh Settings");
-						ImGui::ColorEdit3("Mesh Color", (float*)&scaffoldColor);
-					}
-					else if (pickedItem == 1) {
-						ImGui::Text("Seed Settings");
-						ImGui::ColorEdit3("Seed Color", (float*)&seedColor);
-						ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
-					}
-					else if (pickedItem == 2) {
-						ImGui::Text("Grid Settings");
-						ImGui::ColorEdit3("Grid Color", (float*)&gridColor);
-						ImGui::Checkbox("Use Grid", &showGrid);
-						//ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
-					}
-					else if (pickedItem == 3) {
-						ImGui::Text("Lighting Settings");
-						ImGui::ColorEdit3("Light Color", (float*)&lightColor);
-						ImGui::ColorEdit3("Font Color", (float*)&fontColor);
-						ImGui::ColorEdit3("Normal Color", (float*)&normalColor);
-						ImGui::InputFloat("Ambient Strength", &Ka);
-						ImGui::InputFloat("Specular Strength", &Ks);
-						//ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
-					}
-					else if (pickedItem == 4) {
-						ImGui::Text("Linear Function Settings");
-						ImGui::InputDouble("Max Distance", &maxDist);
-					}
-					if (pickedItem == 5) {
-						ImGui::Text("Container Settings");
-						ImGui::ColorEdit4("Container Color", (float*)&containerColor);
-					}
-
-					ImGui::EndChild();
-
-					ImGui::SameLine();
-
-					ImGui::EndGroup();
-				}
-			}
-			ImGui::End();
-
-		}
+		_render_display_settings();
 	}
 
 	if (showDisplayMeshSettingsWin) {
@@ -774,46 +573,8 @@ void myGUI::render_settings() {
 	}
 
 	if (showCutPlane) {
-
+		_render_cut_tool();
 		//cutPlane = new CutPlane();
-
-		if (ImGui::Begin("Plane Cut Tool", &showCutPlane)) {
-			if (ImGui::Button("X")) {
-				// update previous normal
-				cutPlane->prevNormal = cutPlane->normal;
-				// update current normal
-				cutPlane->normal[0] = 1.0f;
-				cutPlane->normal[1] = 0.0f;
-				cutPlane->normal[2] = 0.0f;
-				cutPlane->offset = 0.0f;
-				planeOffset = 0.0f;
-				cutPlane->updateModelMatrix();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Y")) {
-				cutPlane->prevNormal = cutPlane->normal;
-				cutPlane->normal[0] = 0.0f;
-				cutPlane->normal[1] = 1.0f;
-				cutPlane->normal[2] = 0.0f;
-				cutPlane->offset = 0.0f;
-				planeOffset = 0.0f;
-				cutPlane->updateModelMatrix();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Z")) {
-				cutPlane->prevNormal = cutPlane->normal;
-				cutPlane->normal[0] = 0.0f;
-				cutPlane->normal[1] = 0.0f;
-				cutPlane->normal[2] = 1.0f;
-				cutPlane->offset = 0.0f;
-				planeOffset = 0.0f;
-				cutPlane->updateModelMatrix();
-			}
-			ImGui::SliderFloat("Offset", &planeOffset, -10.0f, 10.0f);
-			cutPlane->offset = planeOffset;
-			cutPlane->updateTranslation();
-		}
-		ImGui::End();
 	}
 
 	//if (showSeeds && !seeds.empty()) {
@@ -828,7 +589,7 @@ void myGUI::render_settings() {
 			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
 
-			// Process the file, open, load etc.
+	//		// Process the file, open, load etc.
 			if (loadedMesh == scaffold) {
 
 				//scaffoldMesh = new Mesh(filePath);
@@ -862,9 +623,9 @@ void myGUI::render_settings() {
 
 			else if (loadedMesh == bone) {
 
-			/*	boneMesh = new Mesh(filePath);
-				boneReady = true;
-				boneFileName = filePath;*/
+				/*	boneMesh = new Mesh(filePath);
+					boneReady = true;
+					boneFileName = filePath;*/
 				std::cout << boneFileName << std::endl;
 			}
 
@@ -873,550 +634,34 @@ void myGUI::render_settings() {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
-	ImGui::Spacing();
-	ImGui::Spacing();
-
-	ImGui::InputText("Model Name", version, IM_ARRAYSIZE(version));
-
-	//ImGui::SeparatorText("Scaffold Container");
-	
-	if (ImGui::TreeNode("Container Options")) {
-		render_container_options(conOption);
-		ImGui::TreePop();
-	}
-
-	//ImGui::SeparatorText("Scaffold Settings");
-	//ImGui::InputFloat("Porosity", &porosity, 30, 70);
-	//ImGui::SameLine(); help_marker("CTRL+click to input value.");
-
-
-	const char* settings[] = { "Radius" };
+	////ImGui::Spacing();
 
 	//ImGui::Separator();
 
-	if (ImGui::TreeNode("Seed Generator")) {
+	_render_container_options(conOption);
 
-		ImGui::SeparatorText("Generator");
-		ImGui::RadioButton("Random Seed Generator", &generateOption, 0);
-		ImGui::SameLine(); help_marker("Generate random points inside the container");
+	_render_seed_generator();
 
-		ImGui::RadioButton("Poisson3D", &generateOption, 1);
-		ImGui::SameLine(); help_marker("Generate seeds with distance constraints");
+	_render_volume_optimization();
 
-		ImGui::SeparatorText("Settings");
-
-		if (generateOption == 0) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputInt("Seeds", &seedNr, 1, 1000);
-		}
-
-		if (generateOption == 1) {
-			//ImGui::InputFloat("Min Radius", &rMin);
-			//ImGui::InputFloat("Max Radius", &rMax);
-
-			//ImGui::SeparatorText("Varying Radius");
-			//ImGui::RadioButton("Uniform Radius", &distFunc, 0);
-
-			ImGui::RadioButton("Uniform Radius", &radiusOpt, 0);
-			if (radiusOpt == 0) {
-				ImGui::InputFloat("Radius", &rMin);
-			}
-
-			ImGui::RadioButton("Varied Radius", &radiusOpt, 1);
-
-			if (radiusOpt == 1) {
-				ImGui::InputFloat("Min Radius", &rMin);
-				ImGui::InputFloat("Max Radius", &rMax);
-				if (ImGui::TreeNode("Distance Metric")) {
-					ImGui::RadioButton("Distance From Plane", &distFunc, 0);
-					if (distFunc == 0) {
-						ImGui::InputFloat3("Normal", distPlaneNormal);
-						ImGui::InputFloat3("Center", distPlaneCenter);
-					};
-					ImGui::RadioButton("Distance From Mesh Face", &distFunc, 1);
-					ImGui::TreePop();
-				}
-				if (ImGui::TreeNode("Distance - Radius Function")) {
-					ImGui::RadioButton("Linear", &radiusFunc, 0);
-					ImGui::RadioButton("Quadratic", &radiusFunc, 1);
-					ImGui::TreePop();
-				}
-			}
-		}
-		ImGui::TreePop();
-	}
-
-	ImGui::Indent(20.0f);
-
-	ImGui::SeparatorText("Adjust Voronoi Cell Volume");
-
-	static bool addVolumeOpt = false;
-	ImGui::Checkbox("Volume Optimization", &addVolumeOpt);
-	ImGui::SameLine(); help_marker("An optimization approach to enforce pore volumes");
-	if (addVolumeOpt) {
-		//ImGui::SeparatorText("Volume Optimization Settings"); 
-		ImGui::Separator();
-		static int initOpt = 0;
-
-		//Eigen::VectorXd 
-
-		if (ImGui::TreeNode("Weight Initialization")) {
-
-			ImGui::RadioButton("All zero", &initOpt, 0);
-			ImGui::RadioButton("Load", &initOpt, 1);
-			ImGui::SameLine(); help_marker("Not implemented yet");
-
-			if (initOpt == 0) {
-				wInit = Eigen::VectorXd::Zero(seedNr);
-			}
-			else if (initOpt == 1) {
-			};
-
-			ImGui::TreePop();
-		}
-
-		if (ImGui::TreeNode("Target Volumes")) {
-
-			ImGui::RadioButton("All equal", &volOption, 0);
-			ImGui::RadioButton("Use Radii From Poisson 3D", &volOption, 1);
-			ImGui::RadioButton("Load", &volOption, 2);
-			ImGui::SameLine(); help_marker("Not implemented yet");
-
-			if (volOption == 0) {
-
-			}
-
-			if (volOption == 2) {
-				add_log(LogPriority::ERROR, "Not implemented yet!");
-			};
-
-			ImGui::TreePop();
-		}
-		ImGui::Separator();
-	}
-	//ImGui::RadioButton("Load", &modeOption, 3);
-	//ImGui::SameLine(); help_marker("Load seeds from a text file");
-	//if (modeOption == 3) {
-	//	static char filePath[128] = "";
-	//	ImGui::InputText("Seed File Path", filePath, IM_ARRAYSIZE(filePath));
-	//	ImGui::SameLine(); help_marker("Path to the file containing seed points.");
-	//	ImGui::Separator();
-	//};
-
-	ImGui::SeparatorText("Scaffold Mesh Generator");
-	ImGui::SetNextItemWidth(200);
-	ImGui::InputInt("Regularization Steps", &regSteps, 1, 1000);
-	ImGui::SameLine(); help_marker("More regularization steps lead to a more regular voronoi grid");
-
-	ImGui::InputFloat("Thickness", &thickness, 0.1f, 1.0f, "%.3f");
-	ImGui::SameLine(); help_marker("Thickness of Scaffold");
-
-	ImGui::InputDouble("Hole Scale Factor", &scaleFactor, 0.1, 0.99, "%.3f");
-	ImGui::SameLine(); help_marker("To create holes to each face we estimate the maximum inscribed circle, this factor scales its radius. Default value is 0.5");
-
-	ImGui::Separator();
-
-	if (ImGui::Button("Generate Seeds")) {
-
-		// ensure that seeds are empty
-		seeds.clear();
-
-		// decide boundaries and center of domain
-		_update_bounds_center(conOption);
-
-		if (radiusOpt == 0) {
-			rMax = rMin;
-		}
-
-		// check if distance function is defined from a plane
-		if (distFunc == 0) {
-			
-			planeDistance = PlaneDistEstimator(
-				{ distPlaneCenter[0], distPlaneCenter[1], distPlaneCenter[2] },
-				{ distPlaneNormal[0], distPlaneNormal[1], distPlaneNormal[2] });
-		}
-
-		// or from the container surface
-		else if (distFunc == 1) {
-
-			// if conOption is just a box
-			if (conOption == 0) {
-				vtkSmartPointer<vtkBox> box = vtkSmartPointer<vtkBox>::New();
-				std::cout << xMin << " " << xMax << std::endl;
-				box->SetBounds(xMin, xMax, yMin, yMax, zMin, zMax);
-				containerDistance = ImplicitFunctionDistEstimator(box);
-			}
-			else if (conOption == 1) {
-				vtkSmartPointer<vtkCylinder> cylinder = vtkSmartPointer<vtkCylinder>::New();
-				cylinder->SetRadius(cylinderRadius);
-
-				double center[3] = { 
-					cylinderHeight * cylinderAxis[0] * 0.5,
-					cylinderHeight * cylinderAxis[1] * 0.5,
-					cylinderHeight * cylinderAxis[2] * 0.5,
-				};
-
-				std::cout << "Center: " << center[0] << " " << center[1] << " " << center[2] << std::endl;
-
-				cylinder->SetCenter(center);
-
-				double axis[3] = {
-					cylinderAxis[0], cylinderAxis[1], cylinderAxis[2]
-				};
-				cylinder->SetAxis(axis);
-				containerDistance = ImplicitFunctionDistEstimator(cylinder);
-			}
-			else {
-				meshDistance = MeshDistEstimator(containerMesh);
-			}
-		}
-
-		// Random seed generation
-		if (generateOption == 0) {
-
-			if (conOption == 0) {
-
-				add_log(LogPriority::INFO, "Generating Random Seeds Inside Box.");
-				RandomGenerator rg(
-					{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
-				);
-				rg.generate_seeds();
-				_update_cameras();
-				rg.get_seeds(seeds);
-			}
-			else if (conOption == 1) {
-
-				add_log(LogPriority::INFO, "Generating Random Seeds Inside Cylinder.");
-				RandomGenerator rg(
-					{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
-				);
-				rg.generate_seeds(
-					{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
-					{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
-					cylinderRadius);
-				_update_cameras();
-				rg.get_seeds(seeds);
-			}
-			else {
-
-				add_log(LogPriority::INFO, "Generating Random Seeds Inside Mesh Container.");
-
-				RandomGeneratorWall sg(seedNr, containerMesh);
-				sg.generate_seeds();
-				_update_cameras();
-				sg.get_seeds(seeds);
-			}
-		}
-
-		// Poisson 3D seed generation
-		else if (generateOption == 1) {
-
-			if (conOption == 0 || conOption == 1){
-				// determine function to check if a point is inside a container
-				std::function<bool(const std::array<double, 3>&)> inside_check;
-
-				// a string to print messages
-				std::string suffix{ "" };
-
-				if (conOption == 0) {
-
-					suffix += " inside a Box.";
-
-					inside_check = [&](const std::array<double, 3>& pt) {
-						return is_inside_box(pt, { xMin, xMax, yMin, yMax, zMin, zMax });
-					};
-
-				}
-				else if (conOption == 1) {
-
-					suffix += " inside a Cylinder.";
-
-					inside_check = [&](const std::array<double, 3>& pt) {
-						return is_inside_cylinder(
-							pt,
-							{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
-							{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
-							cylinderRadius, zDim);
-					};
-
-				}
-
-				Poisson3D sg(
-					rMin, rMax,
-					{ containerCenter[0], containerCenter[1], containerCenter[2] },
-					{ 0, xDim, 0.0, yDim, 0.0, zDim },
-					inside_check
-				);
-
-				if (radiusOpt == 0) {
-					add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D " + suffix);
-					sg.generate_seeds();
-				}
-				else if (radiusOpt == 1 && distFunc == 0) {
-					//std::cout << "generating with Poisson 3D and dist from plane" << std::endl;
-					std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from plane.";
-					add_log(LogPriority::INFO, tag);
-					sg.generate_seeds(planeDistance, linearFunc);
-				}
-				else if (radiusOpt == 1 && distFunc == 1) {
-					std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from mesh outer face.";
-					add_log(LogPriority::INFO, tag);
-					sg.generate_seeds(containerDistance, linearFunc);
-				}
-				_update_cameras();
-				sg.get_seeds(seeds);
-			}
-
-			// Poisson 3d inside a container
-			if (conOption == 2) {
-				Poisson3DWall sg(containerMesh, rMin, rMax, neighbors, { 10, 10, 10 }, wallResolution);
-				if (radiusOpt == 0) {
-					add_log(LogPriority::INFO, "Generating seeds using Uniform Poisson 3D inside Mesh Container");
-					sg.generate_seeds();
-				}
-				else if (radiusOpt == 1 && distFunc == 0) {
-					add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from plane.");
-					sg.generate_seeds(planeDistance, linearFunc);
-				}
-				else if (radiusOpt == 1 && distFunc == 1) {
-					add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from mesh outer face.");
-					std::cout << "generating with Poisson 3D and dist from mesh" << std::endl;
-					sg.generate_seeds(meshDistance, linearFunc);
-				}
-				_update_cameras();
-				sg.get_radii(radii);
-				sg.get_seeds(seeds);				
-			}
-		}
-
-		// create a bounding box
-		//box = new BBox(xMin, xMax, yMin, yMax, zMin, zMax);
-		box = std::make_unique<BBox>(xMin, xMax, yMin, yMax, zMin, zMax);
-
-		// create the container if it is a mesh
-		if (conOption == 2) {
-			//containerModel = new Model(containerFile);
-			containerModel = std::make_unique<Model>(containerFile);
-		}
-
-		//seedObj = new VisualizeSeeds(seeds);
-		seedObj = std::make_unique<VisualizeSeeds>(seeds);
-		showSeeds = true;
-	};
-
-	ImGui::SameLine();
-
-	if (ImGui::Button("Create Scaffold")) {
-		
-		add_log(LogPriority::INFO, "Generating Scaffold");
-
-		if (conOption == 0) {
-			domainVolume = xDim * yDim * zDim;
-		}
-		else {
-			vtkNew<vtkMassProperties> massProperties;
-			massProperties->SetInputData(containerMesh);
-			massProperties->Update();
-			domainVolume = massProperties->GetVolume();
-		}
-
-		// define the model file name
-		scaffoldFilePath = "../data/" + std::string(version) + ".stl";
-		scaffoldFileName = std::string(version) + ".stl";
-
-		if (!addVolumeOpt) {
-			if (conOption == 0 || conOption == 1) {
-				std::cout << "Generating Random Seeds Mesh inside rectangular" << std::endl;
-				ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ }, edgeSize, scaleFactor);
-
-				if (conOption == 1) {
-					sgb.add_cylindrical_wall(
-						static_cast<double>(cylinderPt[0]),
-						static_cast<double>(cylinderPt[1]),
-						static_cast<double>(cylinderPt[2]),
-						static_cast<double>(cylinderAxis[0]),
-						static_cast<double>(cylinderAxis[1]),
-						static_cast<double>(cylinderAxis[2]),
-						cylinderRadius
-					);
-				}
-
-				sgb.generate_voro(regSteps);
-				sgb.get_seeds(seeds);
-				//sgb.generate_mesh(thickness, scaffoldFilePath);
-				if (customResolutionFlag) {
-					sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2]});
-				}
-				else {
-					sgb.generate_mesh(thickness, scaffoldPolyData, {});
-				}
-				_update_cameras();
-			}
-
-			else if (conOption == 2) {
-				std::cout << "Generating Random Seeds Mesh inside Container" << std::endl;
-				//wallResolution = rMin / 2.0f;
-				ScaffoldGeneratorWall sgb(seeds, containerMesh, {nX, nY, nZ}, neighbors, wallResolution, edgeSize, scaleFactor);
-				sgb.generate_voro(regSteps);
-				sgb.get_seeds(seeds);
-				//sgb.generate_mesh(thickness, scaffoldFilePath);
-				if (customResolutionFlag) {
-					sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
-				}
-				else {
-					sgb.generate_mesh(thickness, scaffoldPolyData, {});
-				}
-				seedObj = std::make_unique<VisualizeSeeds>(seeds);
-				_update_cameras();
-			}
-		}
-
-		else if (addVolumeOpt) {
-			std::cout << "Generating with Volume Optimization" << std::endl;
-
-			if (seeds.empty()) {
-				std::cerr << "First Populate Seeds" << std::endl;
-			}
-			int seedSize = seeds.size();
-
-			wInit.resize(seedSize);
-			wInit.setZero();
-			std::cout << " -------------------- " << std::endl;
-			
-			targetVols.resize(seedSize);
-
-			// case 1: volumes all equal -> divide domain volume per seed nr
-			if (volOption == 0) {
-
-				for (int i = 0; i < seedSize; i++) {
-					targetVols[i] = domainVolume / seedSize;
-				}
-			}
-
-			// case 2: volumes are decided from Poisson 3d radii 
-			
-			else if (volOption == 1) {
-
-				double volSum{ 0.0 };
-				for (int i{ 0 }; i < radii.size(); i++) {
-					targetVols[i] = std::pow(radii[i], 3);
-					volSum += targetVols[i];
-				}
-				// Normalize
-				for (int i{ 0 }; i < seeds.size(); i++) {
-					targetVols[i] = (targetVols[i] / volSum) * domainVolume;
-				}
-
-				double targetSum = 0;
-				for (int i{ 0 }; i < seeds.size(); i++) {
-					targetSum += targetVols[i];
-				}
-				std::cout << "domain volume: " << domainVolume << std::endl;
-				std::cout << "target volume sum: " << targetSum << std::endl;
-				// std::cerr << "Not implemented yet!" << std::endl;
-			}
-
-			else if (volOption == 2) {
-				std::cerr << "Not implemented yet!" << std::endl;
-			}
-
-			// just a simple box container
-			if (conOption == 0) {
-
-				std::cout << "Vol Opt inside rect Domain" << std::endl;
-				VolOpt vo(
-					seeds,
-					targetVols,
-					wInit,
-					{ xMin, xMax, yMin, yMax, zMin, zMax }
-				);
-				vo.loop(regSteps);
-				vo.get_seeds(seeds);
-				//vo.generate_mesh(thickness, scaffoldFilePath);
-				if (customResolutionFlag) {
-					vo.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
-				}
-				else {
-					vo.generate_mesh(thickness, scaffoldPolyData, {});
-				}
-			}
-
-			// volume optimization inside a mesh wall
-			else if (conOption == 2) {
-				
-				std::cout << "Vol Opt inside Mesh" << std::endl;
-
-				VolOptWall vo(
-					seeds,
-					targetVols,
-					wInit,
-					containerMesh
-				);
-				vo.loop(regSteps);
-				vo.get_seeds(seeds);
-				if (customResolutionFlag) {
-					vo.generate_mesh(thickness, scaffoldFilePath, { resolution[0], resolution[1], resolution[2] });
-				}
-				else {
-					vo.generate_mesh(thickness, scaffoldFilePath, {});
-				}
-			}
-
-		}
-
-		//		}
-		//		std::cout << targetVols << std::endl;
-
-		//		std::cout << "Seed Nr: " << targetVols.size() << std::endl;
-		//		// create scaffold builder object, use a lambda expression for 
-		//		// passing the logging function
-		//		VolOpt vo(
-		//			targetVols,
-		//			wInit,
-		//			{ xMin, xMax, yMin, yMax, zMin, zMax });
-		//		if (conOption == 0){
-		//			vo.generate_random_seeds();
-		//		}
-		//		else {
-		//			vo.generate_random_container_seeds(containerMesh);
-		//		}
-		//		vo.loop(regSteps);
-		//		vo.get_seeds(seeds);
-		//		vo.generate_mesh(thickness, scaffoldFileName);
-		//		_update_cameras();
-
-		// create the scaffold mesh
-		//scaffoldModel = new Model(scaffoldPolyData);
-		scaffoldModel = std::make_unique<Model>(scaffoldPolyData);
-		scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
-		scaffoldPorosity = scaffoldVolume / domainVolume;
-		//scaffoldReady = true;
-
-		add_log(LogPriority::INFO, "Scaffold Ready");
-	}
-
-	ImGui::SameLine();
+	_render_scaffold_settings();
 
 	if (ImGuiFileDialog::Instance()->Display("Export File")) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
-			
 			_export_mesh();
 		}
 		ImGuiFileDialog::Instance()->Close();
 	}
 
-	selectFileButton("Export Scaffold", "../data/", "Export File", ".stl, .vtk");
+	_render_console();
 
-	render_console();
-
-	ImGui::End();
-
-}
+	//ImGui::End();
+};
 
 void myGUI::write_settings() {
-		
+
 	nlohmann::json settings;
 
 	settings["Scaffold"]["version"] = version;
@@ -1438,7 +683,7 @@ void myGUI::write_settings() {
 	file << settings.dump(4);
 	file.close();
 
-}
+};
 
 std::string myGUI::_get_glsl_version() {
 	// Get OpenGL version
@@ -1477,29 +722,30 @@ std::string myGUI::_get_glsl_version() {
 
 // console
 
-void myGUI::render_console() {
+void myGUI::_render_console() {
 
 	// Ensure the console box is always scrolled to the bottom when a new message is added
-	
-	ImGui::SeparatorText("Output Console");
-	
 	//if (ImGui::Button("Clear")) {
 	//	log.clear();
 	//}
 
-	// Start a scrolling region inside the console
-	ImGui::BeginChild("ScrollingConsole", ImVec2(0, 200), true, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);	
-	for (const auto& entry : logger.get_logs()) {
-		ImGui::TextUnformatted(entry.c_str());
+	if (ImGui::Begin("Console", NULL)) {
+		// Start a scrolling region inside the console
+		ImGui::BeginChild("ScrollingConsole", ImVec2(0, 200), true, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
+		for (const auto& entry : logger.get_logs()) {
+			ImGui::TextUnformatted(entry.c_str());
+		}
+		ImGui::EndChild();
 	}
-	ImGui::EndChild();
+	ImGui::End();
+
 }
 
 void myGUI::add_log(LogPriority priority, const std::string& message) {
 	logger.log(priority, message);
 }
 
-void myGUI::generate_scaffold() {
+void myGUI::_generate_scaffold() {
 	
 	std::cout << wInit << std::endl;
 	std::cout << " -------------------- " << std::endl;
@@ -1519,7 +765,7 @@ void myGUI::generate_scaffold() {
 		
 };
 
-void myGUI::render_scaffold(){
+void myGUI::_render_scaffold(){
 	
 	std::string v{ version };
 	//currentMesh = Mesh::Mesh(v + "_model.stl");
@@ -1528,95 +774,100 @@ void myGUI::render_scaffold(){
 
 };
 
-void myGUI::render_container_options(int& conOption) {
+void myGUI::_render_container_options(int& conOption) {
 
-	ImGui::RadioButton("Box Container", &conOption, 0);
-	ImGui::SameLine(); help_marker("An orthogonal box container");
-	if (conOption == 0) {
-		ImGui::SliderFloat("x Dimensions", &xDim, 0, 10);
-		ImGui::SameLine(); help_marker("Dimension of Scaffold Along X");
+	if (ImGui::Begin("Container Options", NULL)) {
 
-		ImGui::SliderFloat("y Dimensions", &yDim, 0, 10);
-		ImGui::SameLine(); help_marker("Dimension of Scaffold Along Y.");
+		ImGui::RadioButton("Box Container", &conOption, 0);
+		ImGui::SameLine(); help_marker("An orthogonal box container");
+		if (conOption == 0) {
+			ImGui::SliderFloat("x Dimensions", &xDim, 0, 10);
+			ImGui::SameLine(); help_marker("Dimension of Scaffold Along X");
 
-		ImGui::SliderFloat("z Dimensions", &zDim, 0, 10);
-		ImGui::SameLine(); help_marker("Dimension of Scaffold Along Z.");
-	}
+			ImGui::SliderFloat("y Dimensions", &yDim, 0, 10);
+			ImGui::SameLine(); help_marker("Dimension of Scaffold Along Y.");
 
-	ImGui::RadioButton("Cylindrical Container", &conOption, 1);
-	ImGui::SameLine(); help_marker("A cylindrical container, starting from (0, 0, 0). Select Axis, Radius. The Height depends on the Bounds");
-
-	if (conOption == 1) {
-		ImGui::RadioButton("X", &cylinderDir, 0);
-		ImGui::SameLine(); ImGui::RadioButton("Y", &cylinderDir, 1);
-		ImGui::SameLine(); ImGui::RadioButton("Z", &cylinderDir, 2);
-
-		if (cylinderDir == 0) {
-			cylinderAxis[0] = 1.0;
-			cylinderAxis[1] = 0.0;
-			cylinderAxis[2] = 0.0;
-			cylinderHeight = std::abs(xMax - xMin);
-		}
-		else if (cylinderDir == 1) {
-			cylinderAxis[0] = 0.0;
-			cylinderAxis[1] = 1.0;
-			cylinderAxis[2] = 0.0;
-			cylinderHeight = std::abs(yMax - yMin);
-		}
-		else if (cylinderDir == 2) {
-			cylinderAxis[0] = 0.0;
-			cylinderAxis[1] = 0.0;
-			cylinderAxis[2] = 1.0;
-			cylinderHeight = std::abs(zMax - zMin);
+			ImGui::SliderFloat("z Dimensions", &zDim, 0, 10);
+			ImGui::SameLine(); help_marker("Dimension of Scaffold Along Z.");
 		}
 
-		ImGui::InputDouble("Cylinder Radius", &cylinderRadius, 0.1, 0.0, "%.3f");
-		ImGui::SameLine(); help_marker("The radius of the cylinder.");
-		//ImGui::InputDouble("Cylinder Height", &cylinderHeight, 0.1, 1.0, "%.3f");
-		//ImGui::SameLine(); help_marker("The height of the cylinder.");
-	}
+		ImGui::RadioButton("Cylindrical Container", &conOption, 1);
+		ImGui::SameLine(); help_marker("A cylindrical container, starting from (0, 0, 0). Select Axis, Radius. The Height depends on the Bounds");
 
-	ImGui::RadioButton("STL Mesh", &conOption, 2);
-	ImGui::SameLine(); help_marker("A custom container geometry. In this case the bounding box of the mesh is used for the voro++ container and the scaffold is built inside the mesh domain");
+		if (conOption == 1) {
+			ImGui::RadioButton("X", &cylinderDir, 0);
+			ImGui::SameLine(); ImGui::RadioButton("Y", &cylinderDir, 1);
+			ImGui::SameLine(); ImGui::RadioButton("Z", &cylinderDir, 2);
 
-	if (conOption == 2) {
-
-		if (ImGuiFileDialog::Instance()->Display("Select STL Container")) {
-			if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
-				std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
-				containerFile = filePathName;
-				std::cout << containerFile << std::endl;
-
-				containerMesh = vtkSmartPointer<vtkPolyData>::New();
-				vtkSmartPointer<vtkSTLReader> reader = vtkSmartPointer<vtkSTLReader>::New();
-				reader->SetFileName(containerFile.c_str());
-				reader->Update();
-				containerMesh = reader->GetOutput();
-
-				double bounds[6];
-				containerMesh->GetBounds(bounds);
-				xMin = bounds[0] - 1.0;
-				xMax = bounds[1] + 1.0;
-				yMin = bounds[2] - 1.0;
-				yMax = bounds[3] + 1.0;
-				zMin = bounds[4] - 1.0;
-				zMax = bounds[5] + 1.0;
-
-				// set also the mesh center as the camera pos
-				float xc = (xMax + xMin) * 0.5f;
-				float yc = (yMax + yMin) * 0.5f;
-				float zc = (zMax + zMin) * 0.5f;
-				containerCenter[0] = xc;
-				containerCenter[1] = yc;
-				containerCenter[2] = zc;
-
+			if (cylinderDir == 0) {
+				cylinderAxis[0] = 1.0;
+				cylinderAxis[1] = 0.0;
+				cylinderAxis[2] = 0.0;
+				cylinderHeight = std::abs(xMax - xMin);
 			}
-			ImGuiFileDialog::Instance()->Close();
+			else if (cylinderDir == 1) {
+				cylinderAxis[0] = 0.0;
+				cylinderAxis[1] = 1.0;
+				cylinderAxis[2] = 0.0;
+				cylinderHeight = std::abs(yMax - yMin);
+			}
+			else if (cylinderDir == 2) {
+				cylinderAxis[0] = 0.0;
+				cylinderAxis[1] = 0.0;
+				cylinderAxis[2] = 1.0;
+				cylinderHeight = std::abs(zMax - zMin);
+			}
+
+			ImGui::InputDouble("Cylinder Radius", &cylinderRadius, 0.1, 0.0, "%.3f");
+			ImGui::SameLine(); help_marker("The radius of the cylinder.");
+			//ImGui::InputDouble("Cylinder Height", &cylinderHeight, 0.1, 1.0, "%.3f");
+			//ImGui::SameLine(); help_marker("The height of the cylinder.");
 		}
-		selectFileButton("Select Geometry File", "../data/", "Select STL Container", ".stl");
-		ImGui::InputInt("Neighbors", &neighbors, 1, 100);
-		ImGui::InputFloat("Wall Resolution", &wallResolution, 0.1f, 5.0f);
+
+		ImGui::RadioButton("STL Mesh", &conOption, 2);
+		ImGui::SameLine(); help_marker("A custom container geometry. In this case the bounding box of the mesh is used for the voro++ container and the scaffold is built inside the mesh domain");
+
+		if (conOption == 2) {
+
+			if (ImGuiFileDialog::Instance()->Display("Select STL Container")) {
+				if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+					std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
+					containerFile = filePathName;
+					std::cout << containerFile << std::endl;
+
+					containerMesh = vtkSmartPointer<vtkPolyData>::New();
+					vtkSmartPointer<vtkSTLReader> reader = vtkSmartPointer<vtkSTLReader>::New();
+					reader->SetFileName(containerFile.c_str());
+					reader->Update();
+					containerMesh = reader->GetOutput();
+
+					double bounds[6];
+					containerMesh->GetBounds(bounds);
+					xMin = bounds[0] - 1.0;
+					xMax = bounds[1] + 1.0;
+					yMin = bounds[2] - 1.0;
+					yMax = bounds[3] + 1.0;
+					zMin = bounds[4] - 1.0;
+					zMax = bounds[5] + 1.0;
+
+					// set also the mesh center as the camera pos
+					float xc = (xMax + xMin) * 0.5f;
+					float yc = (yMax + yMin) * 0.5f;
+					float zc = (zMax + zMin) * 0.5f;
+					containerCenter[0] = xc;
+					containerCenter[1] = yc;
+					containerCenter[2] = zc;
+
+				}
+				ImGuiFileDialog::Instance()->Close();
+			}
+			selectFileButton("Select Geometry File", "../data/", "Select STL Container", ".stl");
+			ImGui::InputInt("Neighbors", &neighbors, 1, 100);
+			ImGui::InputFloat("Wall Resolution", &wallResolution, 0.1f, 5.0f);
+		}
 	}
+	ImGui::End();
+		
 };
 
 //void myGUI::framebuffer_size_callback_imp(int width, int height) {
@@ -1630,10 +881,7 @@ void myGUI::_update_cameras() {
 	defCamera->position = cameraPos;
 	defCamera->target = cameraTarget;
 	//trackCamera->position = cameraPos;
-	trackCamera->target = cameraTarget;
-
-	//std::cout << "cameraTarget: " << cameraTarget[0] << " " << cameraTarget[1] << " " << cameraTarget[2] << std::endl;
-	//std::cout << "cameraPos: " << cameraPos[0] << " " << cameraPos[1] << " " << cameraPos[2] << std::endl;
+	trackCamera->set_target(cameraTarget.x, cameraTarget.y, cameraTarget.z);
 }
 
 void myGUI::_update_bounds_center(int& conOption) {
@@ -1791,4 +1039,881 @@ void myGUI::_export_mesh() {
 		writer->SetFileVersion(2);
 		writer->Write();
 	}
+};
+
+void myGUI::_render_axes_viewport() {
+
+	int windowWidth{ 0 }, windowHeight{ 0 };
+	glfwGetWindowSize(window, &windowWidth, &windowHeight);
+
+	// Save depth state
+	glEnable(GL_SCISSOR_TEST);
+
+	// Define the overlay area (e.g., 200x200 in the top right)
+	int overlayW = 100;
+	int overlayH = 100;
+	int overlayX = 0;
+	int overlayY = 0; 
+
+	// create a camera
+	sCamera = std::make_unique<SimpleCamera>(overlayW, overlayH);
+
+	glm::mat4 rotMatrix = trackCamera->get_rotation_matrix();
+	glm::mat4 frameProjection = sCamera->get_projection_matrix();
+
+	glm::mat4 frameView = glm::translate(glm::mat4(1.0), glm::vec3(0.0, 0.0, -5.0)) * rotMatrix;
+
+	glScissor(overlayX, overlayY, overlayW, overlayH);
+
+	// Render the inset scene
+	glViewport(overlayX, overlayY, overlayW, overlayH);
+
+	frameShader.use();
+	glm::mat4 frameModel = glm::scale(glm::mat4(1.0), glm::vec3(0.5f));
+	frameShader.use();
+	uniManager.setUniform(frameShader, "projection", frameProjection);
+	uniManager.setUniform(frameShader, "view", frameView);
+	uniManager.setUniform(frameShader, "model", glm::mat4(1.0f));
+	uniManager.setUniform(frameShader, "screenSize", glm::vec2(width, height));
+	uniManager.setUniform(frameShader, "height", height);
+	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
+	//uniManager.setUniform(frameShader, "model", glm::scale(glm::mat4(1.0), glm::vec3(2, 2, 2)));
+	zArrow->draw();
+	uniManager.setUniform(frameShader, "model", glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
+	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+	yArrow->draw();
+	uniManager.setUniform(frameShader, "model", glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
+	uniManager.setUniform(frameShader, "outColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+	xArrow->draw();
+
+	glDisable(GL_SCISSOR_TEST);
+
+};
+
+void myGUI::_render_main_menu_bar() {
+
+	// Add Menu Bar
+	if (ImGui::BeginMainMenuBar()) {
+
+		//ImGui::PushItemWidth(150);
+
+		if (ImGui::BeginMenu("File")) {
+
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+			}
+
+			if (ImGui::MenuItem("Save Settings", "CTRL+S")) {
+				// Call your function to save model settings here
+				write_settings();
+				add_log(LogPriority::INFO, "Settings saved.");
+			}
+			if (ImGui::MenuItem("Load Scaffold", "load mesh file by specifying the path")) {
+				// Call your function to load a model mesh here
+				IGFD::FileDialogConfig config;
+				config.path = "..//data";
+				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl, .vtk", config);
+
+				loadedMesh = scaffold;
+				//add_log("Model mesh loaded.");
+			}
+
+			if (ImGui::MenuItem("Load Bone", "load bone mesh file by specifying the path")) {
+				// Call your function to load a model mesh here
+				IGFD::FileDialogConfig config;
+				config.path = "..//data";
+				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl", config);
+				//add_log("Model mesh loaded.");
+				loadedMesh = bone;
+			}
+
+			ImGui::SameLine(); help_marker("So far only .stl files are supported");
+
+			ImGui::EndMenu();
+		}
+
+		// menu for view settings like normals, edges etc
+		if (ImGui::BeginMenu("View")) {
+
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+			}
+
+			if (ImGui::MenuItem("Show Scaffold", NULL, showScaffold)) {
+				showScaffold = !showScaffold;
+			}
+
+			if (ImGui::MenuItem("Show Seeds", NULL, showSeeds)) {
+				showSeeds = !showSeeds;
+			}
+
+			if (ImGui::MenuItem("Show Scaffold Face Normals", NULL, showNormals)) {
+				showNormals = !showNormals;
+			}
+
+			if (ImGui::MenuItem("Show Scaffold Edges", NULL, showEdges)) {
+				showEdges = !showEdges;
+			}
+
+			if (ImGui::MenuItem("Show Grid", NULL, showGrid)) {
+				showGrid = !showGrid;
+			}
+
+			if (ImGui::MenuItem("Show Container", NULL, showContainer)) {
+				showContainer = !showContainer;
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Settings")) {
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+			}
+
+			if (ImGui::MenuItem("Display")) {
+				showDisplaySettingsWin = true;
+			}
+
+			if (ImGui::MenuItem("Mesh")) {
+				showDisplayMeshSettingsWin = true;
+			}
+
+			if (ImGui::BeginMenu("Select Camera")) {
+				if (ImGui::MenuItem("Default", NULL, &defCameraFlag))
+				{
+					cameraOption = defaultOption;
+					trackCameraFlag = false;
+					defCamera = new defaultCamera(window, 0.3f, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
+				}
+				if (ImGui::MenuItem("TrackBall", NULL, &trackCameraFlag))
+				{
+					cameraOption = trackOption;
+					defCameraFlag = false;
+
+					float sphereRadius{ 0.0f };
+					if (width > height) {
+						sphereRadius = height * 0.5f;
+					}
+					else {
+						sphereRadius = width * 0.5f;
+					}
+
+					trackCamera = std::make_unique<TrackBall>(
+						window, sphereRadius, framebuffer.width, framebuffer.height, framebuffer.posx, framebuffer.posy);
+				}
+
+				ImGui::EndMenu();
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Tools")) {
+
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+			}
+			if (ImGui::MenuItem("Cut With Plane")) {
+
+				if (scaffoldModel) {
+					showCutPlane = true;
+					//cutPlane = new CutPlane(5.0f);
+					cutPlane = std::make_unique<CutPlane>(5.0f);
+					cutPlane->center = glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]);
+					cutPlane->initMatrix = glm::translate(
+						glm::mat4(1.0),
+						glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]));
+				}
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::Button("Generate Seeds")) {
+			_action_generate_seeds();
+		}
+
+		if (ImGui::Button("Create Scaffold")) {
+			_action_generate_scaffold();
+		}
+
+		selectFileButton("Export Scaffold", "../data/", "Export File", ".stl, .vtk");
+
+		// Close the menu bar
+		ImGui::EndMainMenuBar();
+	}
+
+};
+
+void myGUI::_render_display_settings() {
+
+	static int pickedItem{ -99 };
+
+	ImGui::SetNextWindowSize(ImVec2(200, 250), ImGuiCond_FirstUseEver);
+	if (ImGui::Begin("Display Settings", &showDisplaySettingsWin)) {
+
+		// Left side - Selectable items
+		{
+			ImGui::BeginChild("LeftPanel", ImVec2(150, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
+			if (ImGui::Selectable("Mesh", pickedItem == 0)) pickedItem = 0;
+			if (ImGui::Selectable("Seeds", pickedItem == 1)) pickedItem = 1;
+			if (ImGui::Selectable("Grid", pickedItem == 2)) pickedItem = 2;
+			if (ImGui::Selectable("Lighting", pickedItem == 3)) pickedItem = 3;
+			if (ImGui::Selectable("Linear Function", pickedItem == 4)) pickedItem = 4;
+			if (ImGui::Selectable("Container", pickedItem == 5)) pickedItem = 5;
+			ImGui::EndChild();
+		}
+		ImGui::SameLine();
+
+		// Right side - Color and size controls
+		{
+			ImGui::BeginGroup();
+			{
+				ImGui::BeginChild("settings item");
+
+				if (pickedItem == 0) {
+					ImGui::Text("Mesh Settings");
+					ImGui::ColorEdit3("Mesh Color", (float*)&scaffoldColor);
+				}
+				else if (pickedItem == 1) {
+					ImGui::Text("Seed Settings");
+					ImGui::ColorEdit3("Seed Color", (float*)&seedColor);
+					ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
+				}
+				else if (pickedItem == 2) {
+					ImGui::Text("Grid Settings");
+					ImGui::ColorEdit3("Grid Color", (float*)&gridColor);
+					ImGui::Checkbox("Use Grid", &showGrid);
+					//ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
+				}
+				else if (pickedItem == 3) {
+					ImGui::Text("Lighting Settings");
+					ImGui::ColorEdit3("Light Color", (float*)&lightColor);
+					ImGui::ColorEdit3("Font Color", (float*)&fontColor);
+					ImGui::ColorEdit3("Normal Color", (float*)&normalColor);
+					ImGui::InputFloat("Ambient Strength", &Ka);
+					ImGui::InputFloat("Specular Strength", &Ks);
+					//ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
+				}
+				else if (pickedItem == 4) {
+					ImGui::Text("Linear Function Settings");
+					ImGui::InputDouble("Max Distance", &maxDist);
+				}
+				if (pickedItem == 5) {
+					ImGui::Text("Container Settings");
+					ImGui::ColorEdit4("Container Color", (float*)&containerColor);
+				}
+
+				ImGui::EndChild();
+
+				ImGui::SameLine();
+
+				ImGui::EndGroup();
+			}
+		}
+		ImGui::End();
+
+	}
+
+};
+
+void myGUI::_render_cut_tool() {
+
+	if (ImGui::Begin("Plane Cut Tool", &showCutPlane)) {
+		if (ImGui::Button("X")) {
+			// update previous normal
+			cutPlane->prevNormal = cutPlane->normal;
+			// update current normal
+			cutPlane->normal[0] = 1.0f;
+			cutPlane->normal[1] = 0.0f;
+			cutPlane->normal[2] = 0.0f;
+			cutPlane->offset = 0.0f;
+			planeOffset = 0.0f;
+			cutPlane->updateModelMatrix();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Y")) {
+			cutPlane->prevNormal = cutPlane->normal;
+			cutPlane->normal[0] = 0.0f;
+			cutPlane->normal[1] = 1.0f;
+			cutPlane->normal[2] = 0.0f;
+			cutPlane->offset = 0.0f;
+			planeOffset = 0.0f;
+			cutPlane->updateModelMatrix();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Z")) {
+			cutPlane->prevNormal = cutPlane->normal;
+			cutPlane->normal[0] = 0.0f;
+			cutPlane->normal[1] = 0.0f;
+			cutPlane->normal[2] = 1.0f;
+			cutPlane->offset = 0.0f;
+			planeOffset = 0.0f;
+			cutPlane->updateModelMatrix();
+		}
+		ImGui::SliderFloat("Offset", &planeOffset, -10.0f, 10.0f);
+		cutPlane->offset = planeOffset;
+		cutPlane->updateTranslation();
+	}
+	ImGui::End();
+
+};
+
+void myGUI::_render_seed_generator() {
+
+	if (ImGui::Begin("Seed Generator", NULL)) {
+
+		ImGui::SeparatorText("Generator");
+		ImGui::RadioButton("Random Seed Generator", &generateOption, 0);
+		ImGui::SameLine(); help_marker("Generate random points inside the container");
+
+		ImGui::RadioButton("Poisson3D", &generateOption, 1);
+		ImGui::SameLine(); help_marker("Generate seeds with distance constraints");
+
+		ImGui::SeparatorText("Settings");
+
+		if (generateOption == 0) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputInt("Seeds", &seedNr, 1, 1000);
+		}
+
+		if (generateOption == 1) {
+			//ImGui::InputFloat("Min Radius", &rMin);
+			//ImGui::InputFloat("Max Radius", &rMax);
+
+			//ImGui::SeparatorText("Varying Radius");
+			//ImGui::RadioButton("Uniform Radius", &distFunc, 0);
+
+			ImGui::RadioButton("Uniform Radius", &radiusOpt, 0);
+			if (radiusOpt == 0) {
+				ImGui::InputFloat("Radius", &rMin);
+			}
+
+			ImGui::RadioButton("Varied Radius", &radiusOpt, 1);
+
+			if (radiusOpt == 1) {
+				ImGui::InputFloat("Min Radius", &rMin);
+				ImGui::InputFloat("Max Radius", &rMax);
+				if (ImGui::TreeNode("Distance Metric")) {
+					ImGui::RadioButton("Distance From Plane", &distFunc, 0);
+					if (distFunc == 0) {
+						ImGui::InputFloat3("Normal", distPlaneNormal);
+						ImGui::InputFloat3("Center", distPlaneCenter);
+					};
+					ImGui::RadioButton("Distance From Mesh Face", &distFunc, 1);
+					ImGui::TreePop();
+				}
+				if (ImGui::TreeNode("Distance - Radius Function")) {
+					ImGui::RadioButton("Linear", &radiusFunc, 0);
+					ImGui::RadioButton("Quadratic", &radiusFunc, 1);
+					ImGui::TreePop();
+				}
+			}
+		}
+	}
+	ImGui::End();
+};
+
+void myGUI::_render_volume_optimization() {
+
+	if (ImGui::Begin("Volume Optimization", NULL)) {
+
+		ImGui::Checkbox("Volume Optimization", &runVolumeOptimization);
+		ImGui::SameLine(); help_marker("An optimization approach to enforce pore volumes");
+		if (runVolumeOptimization) {
+			//ImGui::SeparatorText("Volume Optimization Settings"); 
+			ImGui::Separator();
+			static int initOpt = 0;
+
+			//Eigen::VectorXd 
+
+			if (ImGui::TreeNode("Weight Initialization")) {
+
+				ImGui::RadioButton("All zero", &initOpt, 0);
+				ImGui::RadioButton("Load", &initOpt, 1);
+				ImGui::SameLine(); help_marker("Not implemented yet");
+
+				if (initOpt == 0) {
+					wInit = Eigen::VectorXd::Zero(seedNr);
+				}
+				else if (initOpt == 1) {
+				};
+
+				ImGui::TreePop();
+			}
+
+			if (ImGui::TreeNode("Target Volumes")) {
+
+				ImGui::RadioButton("All equal", &volOption, 0);
+				ImGui::RadioButton("Use Radii From Poisson 3D", &volOption, 1);
+				ImGui::RadioButton("Load", &volOption, 2);
+				ImGui::SameLine(); help_marker("Not implemented yet");
+
+				if (volOption == 0) {
+
+				}
+
+				if (volOption == 2) {
+					add_log(LogPriority::ERROR, "Not implemented yet!");
+				};
+
+				ImGui::TreePop();
+			}
+			ImGui::Separator();
+		}
+	}
+	ImGui::End();
+
+};
+
+void myGUI::_render_scaffold_settings() {
+
+	if (ImGui::Begin("Scaffold Settings", NULL)) {
+
+		ImGui::InputText("Model Name", version, IM_ARRAYSIZE(version));
+
+		ImGui::SeparatorText("Scaffold Mesh Generator");
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputInt("Regularization Steps", &regSteps, 1, 1000);
+		ImGui::SameLine(); help_marker("More regularization steps lead to a more regular voronoi grid");
+
+		ImGui::InputFloat("Thickness", &thickness, 0.1f, 1.0f, "%.3f");
+		ImGui::SameLine(); help_marker("Thickness of Scaffold");
+
+		ImGui::InputDouble("Hole Scale Factor", &scaleFactor, 0.1, 0.99, "%.3f");
+		ImGui::SameLine(); help_marker("To create holes to each face we estimate the maximum inscribed circle, this factor scales its radius. Default value is 0.5");
+	}
+	ImGui::End();
+};
+
+void myGUI::_action_generate_seeds() {
+
+	// ensure that seeds are empty
+	seeds.clear();
+
+	// decide boundaries and center of domain
+	_update_bounds_center(conOption);
+
+	if (radiusOpt == 0) {
+		rMax = rMin;
+	}
+
+	// check if distance function is defined from a plane
+	if (distFunc == 0) {
+
+		planeDistance = PlaneDistEstimator(
+			{ distPlaneCenter[0], distPlaneCenter[1], distPlaneCenter[2] },
+			{ distPlaneNormal[0], distPlaneNormal[1], distPlaneNormal[2] });
+	}
+
+	// or from the container surface
+	else if (distFunc == 1) {
+
+		// if conOption is just a box
+		if (conOption == 0) {
+			vtkSmartPointer<vtkBox> box = vtkSmartPointer<vtkBox>::New();
+			std::cout << xMin << " " << xMax << std::endl;
+			box->SetBounds(xMin, xMax, yMin, yMax, zMin, zMax);
+			containerDistance = ImplicitFunctionDistEstimator(box);
+		}
+		else if (conOption == 1) {
+			vtkSmartPointer<vtkCylinder> cylinder = vtkSmartPointer<vtkCylinder>::New();
+			cylinder->SetRadius(cylinderRadius);
+
+			double center[3] = {
+				cylinderHeight * cylinderAxis[0] * 0.5,
+				cylinderHeight * cylinderAxis[1] * 0.5,
+				cylinderHeight * cylinderAxis[2] * 0.5,
+			};
+
+			std::cout << "Center: " << center[0] << " " << center[1] << " " << center[2] << std::endl;
+
+			cylinder->SetCenter(center);
+
+			double axis[3] = {
+				cylinderAxis[0], cylinderAxis[1], cylinderAxis[2]
+			};
+			cylinder->SetAxis(axis);
+			containerDistance = ImplicitFunctionDistEstimator(cylinder);
+		}
+		else {
+			meshDistance = MeshDistEstimator(containerMesh);
+		}
+	}
+
+	// Random seed generation
+	if (generateOption == 0) {
+
+		if (conOption == 0) {
+
+			add_log(LogPriority::INFO, "Generating Random Seeds Inside Box.");
+			RandomGenerator rg(
+				{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
+			);
+			rg.generate_seeds();
+			_update_cameras();
+			rg.get_seeds(seeds);
+		}
+		else if (conOption == 1) {
+
+			add_log(LogPriority::INFO, "Generating Random Seeds Inside Cylinder.");
+			RandomGenerator rg(
+				{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
+			);
+			rg.generate_seeds(
+				{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
+				{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
+				cylinderRadius);
+			_update_cameras();
+			rg.get_seeds(seeds);
+		}
+		else {
+
+			add_log(LogPriority::INFO, "Generating Random Seeds Inside Mesh Container.");
+
+			RandomGeneratorWall sg(seedNr, containerMesh);
+			sg.generate_seeds();
+			_update_cameras();
+			sg.get_seeds(seeds);
+		}
+	}
+
+	// Poisson 3D seed generation
+	else if (generateOption == 1) {
+
+		if (conOption == 0 || conOption == 1) {
+			// determine function to check if a point is inside a container
+			std::function<bool(const std::array<double, 3>&)> inside_check;
+
+			// a string to print messages
+			std::string suffix{ "" };
+
+			if (conOption == 0) {
+
+				suffix += " inside a Box.";
+
+				inside_check = [&](const std::array<double, 3>& pt) {
+					return is_inside_box(pt, { xMin, xMax, yMin, yMax, zMin, zMax });
+				};
+
+			}
+			else if (conOption == 1) {
+
+				suffix += " inside a Cylinder.";
+
+				inside_check = [&](const std::array<double, 3>& pt) {
+					return is_inside_cylinder(
+						pt,
+						{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
+						{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
+						cylinderRadius, zDim);
+				};
+
+			}
+
+			Poisson3D sg(
+				rMin, rMax,
+				{ containerCenter[0], containerCenter[1], containerCenter[2] },
+				{ 0, xDim, 0.0, yDim, 0.0, zDim },
+				inside_check
+			);
+
+			if (radiusOpt == 0) {
+				add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D " + suffix);
+				sg.generate_seeds();
+			}
+			else if (radiusOpt == 1 && distFunc == 0) {
+				//std::cout << "generating with Poisson 3D and dist from plane" << std::endl;
+				std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from plane.";
+				add_log(LogPriority::INFO, tag);
+				sg.generate_seeds(planeDistance, linearFunc);
+			}
+			else if (radiusOpt == 1 && distFunc == 1) {
+				std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from mesh outer face.";
+				add_log(LogPriority::INFO, tag);
+				sg.generate_seeds(containerDistance, linearFunc);
+			}
+			_update_cameras();
+			sg.get_seeds(seeds);
+		}
+
+		// Poisson 3d inside a container
+		if (conOption == 2) {
+			Poisson3DWall sg(containerMesh, rMin, rMax, neighbors, { 10, 10, 10 }, wallResolution);
+			if (radiusOpt == 0) {
+				add_log(LogPriority::INFO, "Generating seeds using Uniform Poisson 3D inside Mesh Container");
+				sg.generate_seeds();
+			}
+			else if (radiusOpt == 1 && distFunc == 0) {
+				add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from plane.");
+				sg.generate_seeds(planeDistance, linearFunc);
+			}
+			else if (radiusOpt == 1 && distFunc == 1) {
+				add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from mesh outer face.");
+				std::cout << "generating with Poisson 3D and dist from mesh" << std::endl;
+				sg.generate_seeds(meshDistance, linearFunc);
+			}
+			_update_cameras();
+			sg.get_radii(radii);
+			sg.get_seeds(seeds);
+		}
+	}
+
+	// create a bounding box
+	//box = new BBox(xMin, xMax, yMin, yMax, zMin, zMax);
+	box = std::make_unique<BBox>(xMin, xMax, yMin, yMax, zMin, zMax);
+
+	// create the container if it is a mesh
+	if (conOption == 2) {
+		//containerModel = new Model(containerFile);
+		containerModel = std::make_unique<Model>(containerFile);
+	}
+
+	//seedObj = new VisualizeSeeds(seeds);
+	seedObj = std::make_unique<VisualizeSeeds>(seeds);
+	showSeeds = true;
+};
+
+void myGUI::_action_generate_scaffold() {
+
+
+	add_log(LogPriority::INFO, "Generating Scaffold");
+
+	if (conOption == 0) {
+		domainVolume = xDim * yDim * zDim;
+	}
+
+	else if (conOption == 1) {
+		domainVolume = std::pow(cylinderRadius, 2) * 3.14f * cylinderHeight;
+	}
+
+	else {
+		vtkNew<vtkMassProperties> massProperties;
+		massProperties->SetInputData(containerMesh);
+		massProperties->Update();
+		domainVolume = massProperties->GetVolume();
+	}
+
+	// define the model file name
+	scaffoldFilePath = "../data/" + std::string(version) + ".stl";
+	scaffoldFileName = std::string(version) + ".stl";
+
+	if (!runVolumeOptimization) {
+		if (conOption == 0 || conOption == 1) {
+			std::cout << "Generating Random Seeds Mesh inside rectangular" << std::endl;
+			ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ }, edgeSize, scaleFactor);
+
+			if (conOption == 1) {
+				sgb.add_cylindrical_wall(
+					static_cast<double>(cylinderPt[0]),
+					static_cast<double>(cylinderPt[1]),
+					static_cast<double>(cylinderPt[2]),
+					static_cast<double>(cylinderAxis[0]),
+					static_cast<double>(cylinderAxis[1]),
+					static_cast<double>(cylinderAxis[2]),
+					cylinderRadius
+				);
+			}
+
+			sgb.generate_voro(regSteps);
+			sgb.get_seeds(seeds);
+			//sgb.generate_mesh(thickness, scaffoldFilePath);
+			if (customResolutionFlag) {
+				sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
+			}
+			else {
+				sgb.generate_mesh(thickness, scaffoldPolyData, {});
+			}
+			_update_cameras();
+		}
+
+		else if (conOption == 2) {
+			std::cout << "Generating Random Seeds Mesh inside Container" << std::endl;
+			//wallResolution = rMin / 2.0f;
+			ScaffoldGeneratorWall sgb(seeds, containerMesh, { nX, nY, nZ }, neighbors, wallResolution, edgeSize, scaleFactor);
+			sgb.generate_voro(regSteps);
+			sgb.get_seeds(seeds);
+			//sgb.generate_mesh(thickness, scaffoldFilePath);
+			if (customResolutionFlag) {
+				sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
+			}
+			else {
+				sgb.generate_mesh(thickness, scaffoldPolyData, {});
+			}
+			seedObj = std::make_unique<VisualizeSeeds>(seeds);
+			_update_cameras();
+		}
+	}
+
+	else if (runVolumeOptimization) {
+		std::cout << "Generating with Volume Optimization" << std::endl;
+
+		if (seeds.empty()) {
+			std::cerr << "First Populate Seeds" << std::endl;
+		}
+		int seedSize = seeds.size();
+
+		wInit.resize(seedSize);
+		wInit.setZero();
+		std::cout << " -------------------- " << std::endl;
+
+		targetVols.resize(seedSize);
+
+		// case 1: volumes all equal -> divide domain volume per seed nr
+		if (volOption == 0) {
+
+			for (int i = 0; i < seedSize; i++) {
+				targetVols[i] = domainVolume / seedSize;
+			}
+		}
+
+		// case 2: volumes are decided from Poisson 3d radii 
+
+		else if (volOption == 1) {
+
+			double volSum{ 0.0 };
+			for (int i{ 0 }; i < radii.size(); i++) {
+				targetVols[i] = std::pow(radii[i], 3);
+				volSum += targetVols[i];
+			}
+			// Normalize
+			for (int i{ 0 }; i < seeds.size(); i++) {
+				targetVols[i] = (targetVols[i] / volSum) * domainVolume;
+			}
+
+			double targetSum = 0;
+			for (int i{ 0 }; i < seeds.size(); i++) {
+				targetSum += targetVols[i];
+			}
+			std::cout << "domain volume: " << domainVolume << std::endl;
+			std::cout << "target volume sum: " << targetSum << std::endl;
+			// std::cerr << "Not implemented yet!" << std::endl;
+		}
+
+		else if (volOption == 2) {
+			std::cerr << "Not implemented yet!" << std::endl;
+		}
+
+		// just a simple box container
+		if (conOption == 0) {
+
+			std::cout << "Vol Opt inside rect Domain" << std::endl;
+			VolOpt vo(
+				seeds,
+				targetVols,
+				wInit,
+				{ xMin, xMax, yMin, yMax, zMin, zMax }
+			);
+			vo.loop(regSteps);
+			vo.get_seeds(seeds);
+			//vo.generate_mesh(thickness, scaffoldFilePath);
+			if (customResolutionFlag) {
+				vo.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
+			}
+			else {
+				vo.generate_mesh(thickness, scaffoldPolyData, {});
+			}
+		}
+
+		// volume optimization inside a mesh wall
+		else if (conOption == 2) {
+
+			std::cout << "Vol Opt inside Mesh" << std::endl;
+
+			VolOptWall vo(
+				seeds,
+				targetVols,
+				wInit,
+				containerMesh
+			);
+			vo.loop(regSteps);
+			vo.get_seeds(seeds);
+			if (customResolutionFlag) {
+				vo.generate_mesh(thickness, scaffoldFilePath, { resolution[0], resolution[1], resolution[2] });
+			}
+			else {
+				vo.generate_mesh(thickness, scaffoldFilePath, {});
+			}
+		}
+
+	}
+
+	// create the scaffold mesh
+
+	scaffoldModel = std::make_unique<Model>(scaffoldPolyData);
+	scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
+	scaffoldPorosity = scaffoldVolume / domainVolume;
+
+	add_log(LogPriority::INFO, "Scaffold Ready");
+
+};
+
+void myGUI::_create_dockspace() {
+
+	ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+
+	_render_main_menu_bar();
+
+};
+
+void myGUI::_render_visualizer() {
+
+	ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_Once);
+	ImGui::Begin("Visualizer");
+	
+	ImVec2 availableSize = ImGui::GetWindowSize();
+	ImVec2 pos = ImGui::GetWindowPos();
+
+	if ((int)availableSize.x != framebuffer.width || (int)availableSize.y != framebuffer.height) {
+
+		//std::cout << "inside visualizer" << std::endl;
+		framebuffer.width = (int)availableSize.x;
+		framebuffer.height = (int)availableSize.y;
+		framebuffer.posx = pos.x;
+		framebuffer.posy = pos.y;
+		create_frame_buffer(framebuffer);
+	}
+
+	int vw = static_cast<int>(availableSize.x);
+	int vh = static_cast<int>(availableSize.y);
+	int vx = static_cast<int>(pos.x);
+	int vy = static_cast<int>(pos.y);
+
+	trackCamera->set_viewport(vx, vy, vw, vh);
+
+	ImGui::Image((ImTextureID)(intptr_t)framebuffer.textureId, availableSize, ImVec2(0, 1), ImVec2(1, 0));
+
+	if (scaffoldModel && showScaffold) {
+		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+		const float PAD = 10.0f;
+		//const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		//ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
+		//ImVec2 work_size = viewport->WorkSize;
+		ImVec2 window_pos, window_pos_pivot;
+		//ImVec2 work_pos;
+		window_pos.x = framebuffer.posx + framebuffer.width - PAD;
+		window_pos.y = framebuffer.posy - framebuffer.height;
+		window_pos_pivot.x = 1.0f;
+		window_pos_pivot.y = 1.0f;
+		ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+		//ImGui::SetNextWindowViewport(viewport->ID);
+		window_flags |= ImGuiWindowFlags_NoMove;
+		ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
+		if (ImGui::Begin("Example: Simple overlay", nullptr, window_flags))
+		{
+			ImGui::Text("Mesh Details");
+			ImGui::Separator();
+			ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
+			ImGui::Text("Mesh Vertices: %d", vertexNr);
+			ImGui::Text("Mesh Faces: %d", faceNr);
+			ImGui::Text("Volume: %.3f", scaffoldVolume);
+			ImGui::Text("Porosity: %.3f", scaffoldPorosity);
+			ImGui::End();
+		}
+	}
+
+
+	ImGui::End();
+
 };

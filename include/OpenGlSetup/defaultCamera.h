@@ -3,7 +3,8 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
-#include <Misc/Quaternion.h>
+#include <Math/Quaternion.h>
+#include <Math/Vec.h>
 
 class defaultCamera {
 

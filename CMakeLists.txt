@@ -75,11 +75,14 @@ set(SOURCES
 	
 	# other src
 	src/Misc/cell_process.cpp
-	src/Misc/quaternion.cpp
+	include/Math/Quaternion.cpp
+	include/Math/Vec.cpp
 	src/Visualize/visualize.cpp
 	src/Visualize/loadMesh.cpp
+	src/OpenGlSetup/simpleCamera.cpp
 	src/OpenGlSetup/trackBallCamera.cpp
 	src/OpenGlSetup/defaultCamera.cpp
+	src/OpenGlSetup/Misc.cpp
 	include/Utils/Utils.cpp
 	include/Wall/Wall.cpp
 	include/SeedGenerator/Random.cpp

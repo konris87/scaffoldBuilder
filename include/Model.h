@@ -14,11 +14,15 @@
 #include <vtkCellArrayIterator.h>
 #include <vtkPolyDataNormals.h>
 #include <vtkMassProperties.h>
+#include <vtkCleanPolyData.h>
+#include <vtkTriangleFilter.h>
+//#include <vtkFillHolesFilter.h>
 #include <vector>
 #include <set>
 #include <iostream>
 #include <filesystem>
-#include "Misc/Quaternion.h"
+#include "Math/Quaternion.h"
+#include "Math/Vec.h"
 
 class Model {
 	
@@ -67,7 +71,34 @@ public:
 		setup_edges();
 	};
 
-	Model(vtkSmartPointer<vtkPolyData>& polyData) : polyData(polyData) {
+	Model(vtkSmartPointer<vtkPolyData>& inputData) {
+
+		vtkNew<vtkCleanPolyData> cleaner;
+		cleaner->SetInputData(inputData);
+		cleaner->Update();
+
+		vtkNew<vtkTriangleFilter> triangleFilter;
+		triangleFilter->SetInputConnection(cleaner->GetOutputPort());
+		triangleFilter->Update();
+
+		//vtkNew<vtkFillHolesFilter> fillHoles;
+		//fillHoles->SetInputConnection(triangleFilter->GetOutputPort());
+		//fillHoles->SetHoleSize(1e6);
+		//fillHoles->Update();
+
+		vtkNew<vtkCleanPolyData> finalClean;
+		finalClean->SetInputConnection(triangleFilter->GetOutputPort());
+		finalClean->Update();
+
+		polyData = finalClean->GetOutput();
+
+		vtkNew<vtkMassProperties> massProperties;
+		massProperties->SetInputData(polyData);
+		massProperties->Update();
+
+		volume = massProperties->GetVolume();
+		std::cout << "Volume: " << volume << std::endl;
+
 		setup_data();
 		setup_mesh();
 		setup_edges();
@@ -147,10 +178,6 @@ private:
 
 		//std::cout << "volume" << std::endl;
 		// get volume
-		vtkNew<vtkMassProperties> massProperties;
-		massProperties->SetInputData(polyData);
-		massProperties->Update();
-		volume = massProperties->GetVolume();
 
 		vtkSmartPointer<vtkFieldData> fieldData = polyData->GetFieldData();
 		if (fieldData) {

@@ -1,38 +1,57 @@
-#include "OpenGlSetup/trackBallCamera.h"
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
+#include "OpenGLSetup/trackBallCamera.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
-#include <Misc/Quaternion.h>
-#include <imgui_impl_glfw.h>
 
+const float EPSILON = 0.00001f;
 
-trackBallCamera::trackBallCamera(
-    GLFWwindow* glWindow, const double split, glm::vec3 targetCamera, glm::vec3 posCamera) : 
-        window(glWindow), split(split), target(targetCamera), position(posCamera) {
+TrackBall::TrackBall() : radius(2.0f), viewportX(0), viewportY(0), viewportW(800), viewportH(600) {
 
-    horizontalAngle = 3.14f;
-    verticalAngle = 0.0f;
-    speed = 3.0f;
-    mouseSpeed = 0.001f;
-    fovSpeed = 2.0f;
+    halfViewWidth = viewportW / 2.0f;
+    halfViewHeight = viewportH / 2.0f;
 
-    glfwGetWindowSize(window, &width, &height);
+    initialOffset = position - target;
 
-    //targetCamera.x = width * split + (1 - split) * width / 2;
-    //targetCamera.x = width / 2.0f;
-    //targetCamera.y = height / 2.0f;
-    //targetCamera = Vec3(0.0, 0.0, 0.0);
+    initialDir = glm::normalize(position - target);
 
-    //xPrev = width * split + (1 - split) * width / 2;
-
-    Quaternion q = Quaternion(0.0, 0.0, 0.0, 1.0);
-    Quaternion qPrev;
-
-    up = glm::vec3(0.0, 1.0, 0.0);
+    set_projection_ortho();
 };
 
-void trackBallCamera::update() {
+TrackBall::~TrackBall() {};
+
+TrackBall::TrackBall(GLFWwindow* window, float radius, int viewportWidth, int viewportHeight, int viewportX, int viewportY) :
+    window(window),
+    viewportW(viewportWidth),
+    viewportH(viewportHeight),
+    viewportX(viewportX),
+    viewportY(viewportY),
+    radius(radius) {
+
+    halfViewWidth = viewportWidth / 2.0f;
+    halfViewHeight = viewportHeight / 2.0f;
+
+    initialOffset = position - target;
+    initialDir = glm::normalize(position - target);
+
+    direction = glm::normalize(position - target);
+
+    distance = glm::length(position - target);
+
+    right = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), direction));
+
+    up = glm::normalize(glm::cross(direction, right));
+
+    rotMatrix[0][0] = right.x; // First column, first row
+    rotMatrix[1][0] = right.y; // First column, first row
+    rotMatrix[2][0] = right.z;
+    rotMatrix[0][1] = up.x; // First column, second row
+    rotMatrix[1][1] = up.y;
+    rotMatrix[2][1] = up.z;
+    rotMatrix[0][2] = direction.x; // First column, third row
+    rotMatrix[1][2] = direction.y;
+    rotMatrix[2][2] = direction.z;
+};
+
+void TrackBall::update() {
 
     static double lastTime = glfwGetTime();
 
@@ -43,189 +62,337 @@ void trackBallCamera::update() {
     double xPos, yPos;
     glfwGetCursorPos(window, &xPos, &yPos);
 
-    xCurr = xPos;
-    yCurr = yPos;
+    // update camera only if the cursor and the action is captured inside the viewport
+    if (is_inside_viewport(xPos, yPos)) {
 
-    if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS && in_viewport()) {
+        // 1. Translation Handling
+        // check if middle button is dragged
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS) {
+            if (!isMiddleDragging) {
+                isMiddleDragging = true;
+                lastMouseX = xPos;
+                lastMouseY = yPos;
+            }
+            else {
+                float viewportScale = distance * 0.002f;
+                float dx = float(xPos - lastMouseX);
+                float dy = float(yPos - lastMouseY);
+                glm::vec3 panRight = -dx * viewportScale * right;
+                glm::vec3 panUp = dy * viewportScale * up;
 
-        if (!leftPressed) {
+                position += panRight + panUp;
+                target += panRight + panUp;
 
-            leftPressed = true;
-
-            // get the current position for the next frame
-            xPrev = xCurr;
-            yPrev = yCurr;
-            qPrev = q;
-        }
-
-        /*std::cout << "x Prev: " << xPrev << "y Prev: " << yPrev << std::endl;
-        std::cout << "x Curr: " << xCurr << "y Curr: " << yCurr << std::endl;*/
-
-        // Sphere projection for dragging (or just use dx, dy directly for simple rotation)
-        /*Vec3 v1 = sphere_projection(xPrev, yPrev, targetCamera);
-        Vec3 v2 = sphere_projection(xCurr, yCurr, targetCamera);*/
-
-        Vec3 v1 = arc(xPrev, yPrev);
-        Vec3 v2 = arc(xCurr, yCurr);
-
-        // Compute quaternion rotation between v1 and v2
-        Quaternion qd = get_from_v1_to_v2(v1, v2);
-
-        // Update the current quaternion
-        q = qd * qPrev;
-        q.normalize();
-    }
-    else {
-        leftPressed = false;
-        qPrev = q;
-        xPrev = xCurr;
-        yPrev = yCurr;
-    }
-    
-    // reset if press R
-    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-        q = Quaternion(0.0, 0.0, 0.0, 1.0);
-    }
-
-    // Task 5.7: construct projection and view matrices
-    //projectionMatrix = glm::perspective(glm::radians(FoV), 4.0f / 3.0f, 0.1f, 100.0f);
-    projectionMatrix = glm::perspective(glm::radians(FoV), (float)width/height, 0.1f, 1000.0f);
-
-    glm::mat4 minit(1.0);
-    glm::mat4 mt(1.0);
-    glm::mat4 mr(1.0);
-
-    Mat4 mrot = q.to_matrix();
-    
-    mr[0] = glm::vec4(mrot.r00, mrot.r10, mrot.r20, 0.0f);
-    mr[1] = glm::vec4(mrot.r01, mrot.r11, mrot.r21, 0.0f);
-    mr[2] = glm::vec4(mrot.r02, mrot.r12, mrot.r22, 0.0f);
-
-    Quaternion pos = Quaternion(position.x, position.y, position.z, 0.0);
-
-    Quaternion rotPos = q.inverse() * pos * q;
-
-    mt[3] = glm::vec4(-rotPos.x, -rotPos.y, -rotPos.z, 1.0);
-
-    minit[3] = glm::vec4(-target.x, -target.y, -target.z, 1.0);
-
-    //viewMatrix = mr * mt * minit;
-    viewMatrix = mr * minit * mt;
-
-    lastTime = currentTime;
-};
-
-Vec3 trackBallCamera::sphere_projection(double xpos, double ypos, Vec3 target) {
-
-    // https://www.khronos.org/opengl/wiki/Object_Mouse_Trackball
-
-    float mx = xpos - width / 2.0f;
-    float my = height / 2.0f - ypos;
-    //float my = ypos - height/2.0f;
-
-    // this initial vector in screen coordinates
-    Vec3 pj = Vec3(mx, my, 0.0f);
-
-    float lenSquared = pj.x * pj.x + pj.y * pj.y;
-    float radSquared = sphereRadius * sphereRadius;
-
-    if (lenSquared <= (0.5f * radSquared)) {
-        pj.z = sqrtf(radSquared - lenSquared);
-    }
-    else {
-        pj.z = 0.5f * radSquared / sqrtf(lenSquared);
-
-        // now scale x, y so they fit to the sphere. Scaling is performed
-        // based on the aspect ratio between these two aspectRatio = y / x
-        float newX, newY, aspectRatio;
-        if (mx == 0.0) {
-
-            // use the sphere equation to get the new y
-            newX = 0.0;
-            newY = sqrtf(radSquared - pj.z * pj.z);
-
-            if (newY < 0) { newY *= -1; }
+                lastMouseX = xPos;
+                lastMouseY = yPos;
+            }
         }
         else {
-            aspectRatio = my / mx;
-            newX = sqrtf((radSquared - pj.z * pj.z) / (1 + aspectRatio * aspectRatio));
-            if (newX < 0.0) {
-                newX *= -1;
-            }
-            newY = aspectRatio * newX;
+            isMiddleDragging = false;
         }
-        pj.x = newX;
-        pj.y = newY;
+
+        // 2. Rotation Handling is controlled by left mouse button dragging 
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS) {
+
+            // if the left mouse was not dragged previously
+            if (!isLeftDragging) {
+                isLeftDragging = true;
+                lastRotX = xPos;
+                lastRotY = yPos;
+                prevQuat = quat;
+            }
+            // else it was dragged
+            else {
+
+                // create the quaternion from current to next position
+                Vec3 v1 = get_unit_vector(lastRotX, lastRotY);
+
+                Vec3 v2 = get_unit_vector(xPos, yPos);
+
+                Quaternion delta = get_from_v1_to_v2(v1, v2);
+
+                quat = delta * prevQuat;
+            }
+        }
+        // if releashed change mode
+        else {
+            isLeftDragging = false;
+            lastRotX = xPos;
+            lastRotY = yPos;
+        }
+
+        // 3. Zoom handling right mouse
+        if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
+            if (!isRightDragging) {
+                isRightDragging = true;
+                lastZoomY = yPos;
+            }
+            else {
+                float dy = float(yPos - lastZoomY);
+                FoV += dy * speed * deltaTime;
+
+                // clamp
+                if (FoV < 0.1f)
+                    FoV = 0.1f;
+                if (FoV > 120.0f)
+                    FoV = 120.0f;
+                lastZoomY = yPos;
+            }
+        }
+        else {
+            isRightDragging = false;
+        }
+
     }
 
-    // normalize p
-    pj.normalize();
-       
-    return pj;
-    
-};
+    rotMatrix = quat.to_matrix().to_glm();
 
-Vec3 trackBallCamera::arc(double xpos, double ypos) {
+    direction = target - position;
+    //double distance = glm::length(direction) * 1.5f;
+    distance = glm::length(direction) * 1.5f;
+    direction = glm::normalize(direction);
 
-    xpos -= width * split;
+    right = glm::vec3(rotMatrix[0][0], rotMatrix[1][0], rotMatrix[2][0]);
 
-    //float mx = xpos - width / 2.0f;
-    float mx = xpos - (1 - split) * width / 2.0f ;
-    float my = height / 2.0f - ypos;
+    up = glm::vec3(rotMatrix[0][1], rotMatrix[1][1], rotMatrix[2][1]);
 
-    float arc = sqrtf(mx * mx + my * my);
-    float a = arc / sphereRadius;
-    float b = atan2f(my, mx);
-    float newX = sphereRadius * sinf(a);
-
-    Vec3 v;
-    v.x = newX * cosf(b);
-    v.y = newX * sinf(b);
-    v.z = sphereRadius * cosf(a);
-
-    v.normalize();
-
-    return v;
-}
-
-void trackBallCamera::set_window_size(int newWidth, int newHeight) {
-    
-    width = newWidth;
-    height = newHeight;
-
-};
-
-void trackBallCamera::scroll_setup(GLFWwindow* window) {
-    glfwSetWindowUserPointer(window, this);
-    glfwSetScrollCallback(window, [](GLFWwindow* window, double xoffset, double yoffset) {
-        trackBallCamera* camera = (trackBallCamera*)glfwGetWindowUserPointer(window);
-        camera->scroll_callback(window, xoffset, yoffset);
-        //ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-    });
-};
-
-void trackBallCamera::scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
-{
-
-    ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-
-    if (in_viewport()) {
-        this->FoV -= (float)yoffset;
-        if (this->FoV < 1.0f)
-            this->FoV = 1.0f;
-        if (this->FoV > 90.0f)
-            this->FoV = 90.0f;
+    if (mode == ProjectionMode::Ortho) {
+        set_projection_ortho();
     }
+    else {
+        set_projection_perspective();
+    }
+    viewMatrix = glm::translate(glm::mat4(1.0), glm::vec3(0.0, 0.0, -distance)) * rotMatrix * glm::translate(glm::mat4(1.0), -target);
+
+    lastTime = currentTime;
+
+};
+
+// Setters
+void TrackBall::set(float r, int w, int h, int originX) {
+    radius = r;
+    viewportW = w;
+    viewportH = h;
+    halfViewWidth = w * 0.5f;
+    halfViewHeight = h * 0.5f;
+    viewportX = originX;
+};
+
+void TrackBall::set_radius(float r) {
+    radius = r;
+};
+
+void TrackBall::set_screen_size(int w, int h, int originX) {
+    viewportW = w;
+    viewportH = h;
+    halfViewWidth = w * 0.5f;
+    halfViewHeight = h * 0.5f;
+    viewportX = originX;
+};
+
+void TrackBall::set_position(float x, float y, float z) {
+    position.x = x;
+    position.y = y;
+    position.z = z;
+};
+
+void TrackBall::set_target(float x, float y, float z) {
+    target.x = x;
+    target.y = y;
+    target.z = z;
+};
+
+void TrackBall::set_viewport(int viewX, int viewY, int viewW, int viewH) {
+    viewportX = viewX;
+    viewportY = viewY;
+    viewportW = viewW;
+    viewportH = viewH;
+};
+
+
+void TrackBall::set_view(glm::vec3 newDir, glm::vec3 newUp) {
+
+    direction = glm::normalize(newDir);
+
+    right = glm::normalize(glm::cross(newUp, direction));
+
+    up = glm::normalize(glm::cross(direction, right));
+
+    right = glm::normalize(glm::cross(up, direction));
+
+    glm::vec3 test = glm::cross(up, right);
+
+    float distance = glm::length(target - position) * 1.1f;
+
+    // Update rotation matrix from the new basis
+    rotMatrix = glm::mat4(1.0f);
+    rotMatrix[0][0] = right.x;
+    rotMatrix[1][0] = right.y;
+    rotMatrix[2][0] = right.z;
+    rotMatrix[0][1] = up.x;
+    rotMatrix[1][1] = up.y;
+    rotMatrix[2][1] = up.z;
+    rotMatrix[0][2] = direction.x;
+    rotMatrix[1][2] = direction.y;
+    rotMatrix[2][2] = direction.z;
+
+    // Reset quaternion (optional, prevents conflict with arcball rotation)
+    quat = Quaternion(rotMatrix);
+    prevQuat = quat;
+};
+
+void TrackBall::set_projection_plane(float nearPlane, float farPlane) {
+    near = nearPlane;
+    far = farPlane;
+};
+
+void TrackBall::set_projection_ortho() {
+
+    float orthoHeight = tan(glm::radians(FoV / 2.0f)) * distance;
+
+    float aspect = (float)viewportW / (float)viewportH;
+
+    projectionMatrix = glm::ortho(
+        -orthoHeight * aspect, orthoHeight * aspect,
+        -orthoHeight, orthoHeight,
+        near, 1000.0f
+    );
+};
+
+void TrackBall::set_projection_mode(ProjectionMode newMode) {
+    mode = newMode;
+};
+
+
+void TrackBall::set_projection_perspective() {
+    projectionMatrix = glm::perspective(glm::radians(FoV), (float)viewportW / viewportH, near, far);
+};
+
+// Getters
+int TrackBall::get_screen_width() const { return viewportW; };
+
+int TrackBall::get_screen_height() const { return viewportH; };
+
+float TrackBall::get_radius() const { return radius; };
+
+glm::mat4 TrackBall::get_rotation_matrix() const { return rotMatrix; };
+
+glm::mat4 TrackBall::get_translation_matrix() const { return translationMatrix; };
+
+glm::mat4 TrackBall::get_view_matrix() const {
+
+    glm::mat4 view;
+
+    view = viewMatrix;
+
+    return view;
+
+};
+
+glm::mat4 TrackBall::get_projection_matrix() const {
+
+    glm::mat4 proj;
+
+    proj = projectionMatrix;
+
+    return proj;
+
+};
+
+Vec3 TrackBall::get_unit_vector(float x, float y) {
+
+    float localX, localY;
+    map_to_viewport(x, y, localX, localY);
+
+    Vec3 vec = get_vector(localX, localY);
+    //Vec3 vec = get_vector(x, y);
+
+    vec = vec.normalized();
+
+    //std::cout << "vec normal: vx " << vec.x << " " << vec.y << " " << vec.z << std::endl;
+
+    return vec;
+};
+
+Vec3 TrackBall::get_vector(float x, float y) {
+
+    float nx = (2.0f * x / viewportW) - 1.0f;
+    float ny = (2.0f * y / viewportH) - 1.0f;  // now y=-1 bottom, y=1 top
+    
+    float length2 = nx * nx + ny * ny;
+    Vec3 vec;
+    if (length2 <= 1.0f) {
+        vec = Vec3(nx, ny, sqrtf(1.0f - length2));
+    }
+    else {
+        float norm = 1.0f / sqrtf(length2);
+        vec = Vec3(nx * norm, ny * norm, 0.0f);
+    }
+
+    //// center origin at viewport middle
+    //float mx = x - viewportW * 0.5f;
+    //float my = y - viewportH * 0.5f;
+
+    //float arc = sqrtf(mx * mx + my * my);
+    //float a = arc / radius;
+    //float b = atan2f(my, mx);
+    //float x2 = radius * sinf(a);
+
+    //Vec3 vec;
+    //vec.x = x2 * cosf(b);
+    //vec.y = x2 * sinf(b);
+    //vec.z = radius * cosf(a);
+
+    return vec;
+};
+
+void TrackBall::map_to_viewport(double xPos, double yPos, float& localX, float& localY) const {
+    // Convert from window coords to viewport-local coords
+    // GLFW: origin is top-left, OpenGL viewport: origin is bottom-left
+    localX = static_cast<float>(xPos - viewportX);
+    localY = static_cast<float>((viewportH + viewportY) - yPos);
+
 }
 
-bool trackBallCamera::in_viewport() {
+Vec3 TrackBall::get_point_on_sphere() {
 
     double xPos, yPos;
     glfwGetCursorPos(window, &xPos, &yPos);
 
-    int width, height;
-    glfwGetWindowSize(window, &width, &height);
+    // Ensure the cursor is inside the active viewport
+    if (!is_inside_viewport(xPos, yPos)){
+        return Vec3(0, 0, 0);
+    }
 
-    return (xPos >= split * width && xPos <= width &&
-        yPos >= 0 && yPos <= height);
+    float localX, localY;
+    map_to_viewport(xPos, yPos, localX, localY);
+
+    Vec3 vec = get_vector(xPos, yPos);
+
+    return vec;
+
+};
+
+Vec3 TrackBall::get_position() const {
+
+    glm::vec3 camOffset = glm::vec3(rotMatrix * glm::vec4(0, 0, distance, 1.0));
+    glm::vec3 camPos = target + camOffset;
+
+    Vec3 pos;
+
+    //pos.x = camPos.x;
+    //pos.y = camPos.y;
+    //pos.z = camPos.z;
+
+    pos.x = position.x;
+    pos.y = position.y;
+    pos.z = position.z;
+
+    return pos;
+};
+
+Vec3 TrackBall::get_target() const {
+    Vec3 vec(target.x, target.y, target.z);
+
+    return vec;
 };
