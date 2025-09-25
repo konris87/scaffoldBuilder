@@ -7,6 +7,8 @@
 #include <cmath>
 #include <functional>
 #include <filesystem>
+
+// vtk
 #include <vtkBox.h>
 #include <vtkCylinder.h>
 #include <vtkMassProperties.h>
@@ -17,6 +19,8 @@
 #include <vtkXMLPolyDataWriter.h>
 #include <vtkXMLPolyDataReader.h>
 #include <vtkDoubleArray.h>
+
+// custom
 #include "guiApp.h"
 #include <ImGuiFileDialog/ImGuiFileDialog.h>
 #include "buildScaffold.h"
@@ -104,9 +108,12 @@ void myGUI::_init_opengl() {
 	//glEnable(GL_CULL_FACE);
 	
 	// load shaders
+	
+	//std::cout << std::filesystem:: relative(std::filesystem::path("shaders/mainVShader.vertexshader")).string().c_str() << std::endl;
+
 	scaffoldShader = Shader(
-		"../src/shaders/mainVShader.vertexshader",
-		"../src/shaders/mainFShader.fragmentshader",
+		std::filesystem::absolute(std::filesystem::path("shaders/mainVShader.vertexshader")).string().c_str(),
+		std::filesystem::absolute(std::filesystem::path("shaders/mainFShader.fragmentshader")).string().c_str(),
 		NULL
 	);
 
@@ -128,9 +135,9 @@ void myGUI::_init_opengl() {
 	uniManager.setUniform(scaffoldShader, "Ka", Ka);
 
 	normalShader = Shader(
-		"../src/shaders/normalVShader.vs",
-		"../src/shaders/normalFShader.fs",
-		"../src/shaders/normalGShader.gs"
+		"shaders/normalVShader.vs",
+		"shaders/normalFShader.fs",
+		"shaders/normalGShader.gs"
 	);
 
 	uniManager.add_uniform(normalShader, "view");
@@ -139,8 +146,8 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(normalShader, "normalColor");
 
 	edgeShader = Shader(
-		"../src/shaders/edgeVShader.vs",
-		"../src/shaders/edgeFShader.fs",
+		"shaders/edgeVShader.vs",
+		"shaders/edgeFShader.fs",
 		NULL
 	);
 	uniManager.add_uniform(edgeShader, "view");
@@ -150,9 +157,9 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(edgeShader, "cutPlane");
 
 	gridShader = Shader(
-		"../src/shaders/gridVShader.vs",
-		"../src/shaders/gridFShader.fs",
-		"../src/shaders/gridGShader.gs"
+		"shaders/gridVShader.vs",
+		"shaders/gridFShader.fs",
+		"shaders/gridGShader.gs"
 	);
 	uniManager.add_uniform(gridShader, "view");
 	uniManager.add_uniform(gridShader, "model");
@@ -160,8 +167,8 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(gridShader, "gridColor");
 
 	seedShader = Shader(
-		"../src/shaders/seedVShader.vertexshader",
-		"../src/shaders/seedFShader.fragmentshader",
+		"shaders/seedVShader.vertexshader",
+		"shaders/seedFShader.fragmentshader",
 		NULL
 	);
 	uniManager.add_uniform(seedShader, "projection");
@@ -170,8 +177,8 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(seedShader, "seedSize");
 
 	cutShader = Shader(
-		"../src/shaders/cutVShader.vs",
-		"../src/shaders/cutFShader.fs",
+		"shaders/cutVShader.vs",
+		"shaders/cutFShader.fs",
 		NULL
 	);
 	uniManager.add_uniform(cutShader, "projection");
@@ -181,8 +188,8 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(cutShader, "maxBounds");
 
 	bboxShader = Shader(
-		"../src/shaders/bboxVShader.vs",
-		"../src/shaders/bboxFShader.fs",
+		"shaders/bboxVShader.vs",
+		"shaders/bboxFShader.fs",
 		NULL
 	);
 	uniManager.add_uniform(bboxShader, "view");
@@ -190,8 +197,8 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(bboxShader, "projection");
 
 	containerShader = Shader(
-		"../src/shaders/containerVShader.vs",
-		"../src/shaders/containerFShader.fs",
+		"shaders/containerVShader.vs",
+		"shaders/containerFShader.fs",
 		NULL
 	);
 	uniManager.add_uniform(containerShader, "projection");
@@ -208,8 +215,10 @@ void myGUI::_init_opengl() {
 	uniManager.setUniform(containerShader, "Ka", Ka);
 
 	frameShader = Shader(
-		"../src/shaders/frameVShader.vs",
-		"../src/shaders/frameFShader.fs",
+		std::filesystem::relative(std::filesystem::path("shaders/frameVShader.vs")).string().c_str(),
+		std::filesystem::relative(std::filesystem::path("shaders/frameFShader.fs")).string().c_str(),
+		//"shaders/frameVShader.vs",
+		//"shaders/frameFShader.fs",
 		NULL
 	);
 	frameShader.use();
@@ -254,7 +263,7 @@ void myGUI::_init_imgui() {
 	ImGui::CreateContext();
 
 	io = ImGui::GetIO(); (void)io;
-	io.Fonts->AddFontFromFileTTF("../lib/imgui/misc/fonts/DroidSans.ttf", 20.0f);
+	io.Fonts->AddFontFromFileTTF("share/fonts/DroidSans.ttf", 20.0f);
 	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -293,6 +302,8 @@ void myGUI::run() {
 
 		_render_settings_panel();
 
+		_render_console();
+
 		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.id);
 		glViewport(0, 0, framebuffer.width, framebuffer.height);
 
@@ -306,7 +317,7 @@ void myGUI::run() {
 
 		//std::cout << xPos << " " << yPos << std::endl;
 
-		bool cameraUpdateFlags = !ImGuiFileDialog::Instance()->IsOpened() && !ImGui::IsAnyItemActive() && !ImGui::IsAnyItemHovered();
+		//bool cameraUpdateFlags = !ImGuiFileDialog::Instance()->IsOpened() && !ImGui::IsAnyItemActive() && !ImGui::IsAnyItemHovered();
 
 		//if (cameraUpdateFlags) {
 		//	if (cameraOption == defaultOption) {
@@ -329,16 +340,17 @@ void myGUI::run() {
 		//		model = model;
 		//	}
 		//}
-
-		float sphereRadius;
-		sphereRadius = std::min(static_cast<float>(framebuffer.width), static_cast<float>(framebuffer.height)) * 0.5f;
-		trackCamera->set_radius(sphereRadius);
-		//trackCamera->set_screen_size(0.3f * framebuffer.width, framebuffer.height, 0);
-		trackCamera->update();
-		Vec3 cameraPos = trackCamera->get_position();
-		projection = trackCamera->get_projection_matrix();
-		view = trackCamera->get_view_matrix();
-		model = model;
+		if (cameraUpdate) {
+			float sphereRadius;
+			sphereRadius = std::min(static_cast<float>(framebuffer.width), static_cast<float>(framebuffer.height)) * 0.5f;
+			trackCamera->set_radius(sphereRadius);
+			//trackCamera->set_screen_size(0.3f * framebuffer.width, framebuffer.height, 0);
+			trackCamera->update();
+			Vec3 cameraPos = trackCamera->get_position();
+			projection = trackCamera->get_projection_matrix();
+			view = trackCamera->get_view_matrix();
+			model = model;
+		}
 
 		scaffoldShader.use();
 
@@ -358,7 +370,23 @@ void myGUI::run() {
 			uniManager.setUniform(scaffoldShader, "cutPlane", 0);
 		}
 
+		if (scaffoldReady) {
+
+			//if (scaffoldReady) {
+			scaffoldModel = std::make_unique<Model>(scaffoldPolyData);
+			scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
+			scaffoldPorosity = scaffoldVolume / domainVolume;
+
+			add_log(LogPriority::INFO, "Scaffold Ready");
+
+			scaffoldReady = false;
+
+			if (scaffoldGenerationThread.joinable()) {
+				scaffoldGenerationThread.join(); // safely clean up
+			}
+		}
 		if (scaffoldModel){
+
 			uniManager.setUniform(scaffoldShader, "projection", projection);
 			uniManager.setUniform(scaffoldShader, "view", view);
 			uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
@@ -497,6 +525,35 @@ void myGUI::run() {
 			//}
 		}
 
+		//if (scaffoldModel && showScaffold) {
+		//	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+		//	const float PAD = 10.0f;
+		//	//const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		//	//ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
+		//	//ImVec2 work_size = viewport->WorkSize;
+		//	ImVec2 window_pos, window_pos_pivot;
+		//	//ImVec2 work_pos;
+		//	window_pos.x = framebuffer.posx + framebuffer.width - PAD;
+		//	window_pos.y = framebuffer.posy - framebuffer.height;
+		//	window_pos_pivot.x = 1.0f;
+		//	window_pos_pivot.y = 1.0f;
+		//	ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
+		//	//ImGui::SetNextWindowViewport(viewport->ID);
+		//	window_flags |= ImGuiWindowFlags_NoMove;
+		//	ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
+		//	if (ImGui::Begin("Example: Simple overlay", nullptr, window_flags))
+		//	{
+		//		ImGui::Text("Mesh Details");
+		//		ImGui::Separator();
+		//		ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
+		//		ImGui::Text("Mesh Vertices: %d", vertexNr);
+		//		ImGui::Text("Mesh Faces: %d", faceNr);
+		//		ImGui::Text("Volume: %.3f", scaffoldVolume);
+		//		ImGui::Text("Porosity: %.3f", scaffoldPorosity);
+		//		ImGui::End();
+		//	}
+		//}
+
 		_render_axes_viewport();
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -534,35 +591,6 @@ void myGUI::update_render() {
 
 void myGUI::_render_settings_panel() {
 
-	//// get window width and height
-	//int windowWidth, windowHeight;
-
-	//glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
-
-	//ImGuiIO& io = ImGui::GetIO();
-	//ImGuiID dockspaceId = ImGui::GetID("MainDockSpace");
-
-	//ImGuiWindowFlags flags = 0;
-
-	//flags = ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
-
-	//// first render the main menu bar
-	//_render_main_menu_bar();
-
-	//// Set window position to the left and window dimensions based on window size
-	//ImGui::SetNextWindowSize(ImVec2(300, height));
-	//ImGui::SetNextWindowPos(ImVec2(0, 0));
-	//ImGui::Begin("Scaffold Modeler", nullptr);
-
-	////ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
-
-	//float menuWidth = ImGui::GetWindowWidth();
-	//split = menuWidth / windowWidth;
-
-	//static ImVec4 currentScaffoldColor = ImVec4(1.0f, 0.5f, 0.5f, 1.0f);
-	//static ImVec4 seedColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
-	//static float pointSize{ 5.0f };
-
 	// display settings window
 	if (showDisplaySettingsWin) {
 		_render_display_settings();
@@ -589,7 +617,7 @@ void myGUI::_render_settings_panel() {
 			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
 
-	//		// Process the file, open, load etc.
+			// Process the file, open, load etc.
 			if (loadedMesh == scaffold) {
 
 				//scaffoldMesh = new Mesh(filePath);
@@ -655,7 +683,7 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
-	_render_console();
+	//_render_console();
 
 	//ImGui::End();
 };
@@ -1231,11 +1259,24 @@ void myGUI::_render_main_menu_bar() {
 		}
 
 		if (ImGui::Button("Generate Seeds")) {
+
 			_action_generate_seeds();
 		}
 
 		if (ImGui::Button("Create Scaffold")) {
-			_action_generate_scaffold();
+
+			add_log(LogPriority::INFO, "Generating Scaffold");
+
+			if (scaffoldGenerationThread.joinable()) {
+				scaffoldGenerationThread.join(); // join any previous thread first
+			}
+
+			scaffoldReady = false;
+
+			scaffoldGenerationThread = std::thread([this]() {
+				_action_generate_scaffold();
+				scaffoldReady = true;
+			});
 		}
 
 		selectFileButton("Export Scaffold", "../data/", "Export File", ".stl, .vtk");
@@ -1677,8 +1718,9 @@ void myGUI::_action_generate_seeds() {
 
 void myGUI::_action_generate_scaffold() {
 
-
-	add_log(LogPriority::INFO, "Generating Scaffold");
+	//if (scaffoldGenerating) return;
+	//scaffoldGenerating = true;
+	//scaffoldGenerationThread = std::thread([this]() {
 
 	if (conOption == 0) {
 		domainVolume = xDim * yDim * zDim;
@@ -1839,13 +1881,8 @@ void myGUI::_action_generate_scaffold() {
 
 	}
 
-	// create the scaffold mesh
-
-	scaffoldModel = std::make_unique<Model>(scaffoldPolyData);
-	scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
-	scaffoldPorosity = scaffoldVolume / domainVolume;
-
-	add_log(LogPriority::INFO, "Scaffold Ready");
+	// update the thread status
+	//scaffoldGenerating = false;
 
 };
 
@@ -1862,6 +1899,8 @@ void myGUI::_render_visualizer() {
 	ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_Once);
 	ImGui::Begin("Visualizer");
 	
+	cameraUpdate = (ImGui::IsWindowHovered() && ImGui::IsWindowFocused()) ? true : false;
+
 	ImVec2 availableSize = ImGui::GetWindowSize();
 	ImVec2 pos = ImGui::GetWindowPos();
 
@@ -1883,36 +1922,6 @@ void myGUI::_render_visualizer() {
 	trackCamera->set_viewport(vx, vy, vw, vh);
 
 	ImGui::Image((ImTextureID)(intptr_t)framebuffer.textureId, availableSize, ImVec2(0, 1), ImVec2(1, 0));
-
-	if (scaffoldModel && showScaffold) {
-		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-		const float PAD = 10.0f;
-		//const ImGuiViewport* viewport = ImGui::GetMainViewport();
-		//ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
-		//ImVec2 work_size = viewport->WorkSize;
-		ImVec2 window_pos, window_pos_pivot;
-		//ImVec2 work_pos;
-		window_pos.x = framebuffer.posx + framebuffer.width - PAD;
-		window_pos.y = framebuffer.posy - framebuffer.height;
-		window_pos_pivot.x = 1.0f;
-		window_pos_pivot.y = 1.0f;
-		ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-		//ImGui::SetNextWindowViewport(viewport->ID);
-		window_flags |= ImGuiWindowFlags_NoMove;
-		ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
-		if (ImGui::Begin("Example: Simple overlay", nullptr, window_flags))
-		{
-			ImGui::Text("Mesh Details");
-			ImGui::Separator();
-			ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
-			ImGui::Text("Mesh Vertices: %d", vertexNr);
-			ImGui::Text("Mesh Faces: %d", faceNr);
-			ImGui::Text("Volume: %.3f", scaffoldVolume);
-			ImGui::Text("Porosity: %.3f", scaffoldPorosity);
-			ImGui::End();
-		}
-	}
-
 
 	ImGui::End();
 

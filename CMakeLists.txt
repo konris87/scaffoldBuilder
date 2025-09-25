@@ -135,7 +135,45 @@ target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Set the directory where the executable will be located
 # set(SHADER_DEST_DIR "${CMAKE_BINARY_DIR}/shaders")
 
-# Create the directory and copy the shaders over after the build
-# file(MAKE_DIRECTORY ${SHADER_DEST_DIR})
-# file(COPY ${SHADER_SRC_DIR}/fShader.fragmentshader DESTINATION ${SHADER_DEST_DIR})
-# file(COPY ${SHADER_SRC_DIR}/vShader.vertexshader DESTINATION ${SHADER_DEST_DIR})
+# also copy the shaders and fonts to the build file during development
+file(COPY ${CMAKE_SOURCE_DIR}/src/shaders DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/share DESTINATION ${CMAKE_BINARY_DIR})
+
+# -----------------------------
+# Installation rules
+# -----------------------------
+
+# Install the main executable
+install(TARGETS scaffoldBuilder
+    RUNTIME DESTINATION bin           # Windows/Linux executable
+    BUNDLE DESTINATION .              # macOS bundle
+)
+
+# Install shader files (uncomment if needed)
+install(DIRECTORY src/shaders/ DESTINATION bin/shaders)
+install(DIRECTORY share/ DESTINATION bin/share)
+
+# Install other assets (examples, configs, etc.)
+# install(DIRECTORY assets/ DESTINATION share/scaffoldBuilder/assets)
+
+# -----------------------------
+# CPack setup (packaging)
+# -----------------------------
+include(InstallRequiredSystemLibraries)
+
+set(CPACK_PACKAGE_NAME "scaffoldBuilder")
+set(CPACK_PACKAGE_VENDOR "VVR")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffold Builder with VTK, ImGui, GLFW, Voro++")
+set(CPACK_PACKAGE_VERSION "0.0.5")
+set(CPACK_PACKAGE_CONTACT "krisvas@ece.upatras.gr")
+
+# Choose package formats depending on platform
+if(WIN32)
+    set(CPACK_GENERATOR "ZIP")     # Windows users like ZIP
+elseif(APPLE)
+    set(CPACK_GENERATOR "DragNDrop") # macOS .dmg
+else()
+    set(CPACK_GENERATOR "TGZ")     # Linux tar.gz
+endif()
+
+include(CPack)

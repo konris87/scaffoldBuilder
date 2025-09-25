@@ -10,8 +10,14 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <memory>
+#include <atomic>
+#include <thread>
+
+// vtk
 #include <vtkSmartPointer.h>
 #include <vtkPolyData.h>
+
+// custom
 #include <Model.h>
 #include <Visualize/VisualizeSeeds.h>
 #include "ScaffoldGenerator/ScaffoldGenerator.h"
@@ -171,6 +177,7 @@ private:
 
 	// 1a Camera Managment
 	// camera options
+	bool cameraUpdate{ false };
 	bool defCameraFlag{ false };
 	bool trackCameraFlag{ true };
 	// camera type
@@ -271,6 +278,10 @@ private:
 		scaffold, bone
 	};
 	meshType loadedMesh;
+
+	// thread handling
+	std::atomic<bool> scaffoldGenerating{ false };
+	std::thread scaffoldGenerationThread;
 
 	// ----------------------------------------------------------------------
 	// 4. Functions
