@@ -283,6 +283,9 @@ private:
 	std::atomic<bool> scaffoldGenerating{ false };
 	std::thread scaffoldGenerationThread;
 
+	//
+	std::array<float, 4> logColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+
 	// ----------------------------------------------------------------------
 	// 4. Functions
 

@@ -65,39 +65,58 @@ public:
 		else {
 			std::cerr << "Invalid format. Provide a proper .stl or .vtk mesh" << std::endl;
 		}
+
+		vtkSmartPointer<vtkFieldData> fieldData = polyData->GetFieldData();
+		if (fieldData) {
+
+			// Read Porosity
+			vtkDoubleArray* porosityArray = vtkDoubleArray::SafeDownCast(fieldData->GetArray("Porosity"));
+			if (porosityArray && porosityArray->GetNumberOfTuples() > 0)
+			{
+				porosity = porosityArray->GetValue(0);
+				std::cout << "Scaffold Porosity: " << porosity << std::endl;
+			}
+			else
+			{
+				std::cerr << "Porosity data not found!" << std::endl;
+			}
+		}
 	
 		setup_data();
 		setup_mesh();
 		setup_edges();
 	};
 
-	Model(vtkSmartPointer<vtkPolyData>& inputData) {
+	Model(vtkSmartPointer<vtkPolyData>& inputData) : polyData(inputData) {
 
-		vtkNew<vtkCleanPolyData> cleaner;
-		cleaner->SetInputData(inputData);
-		cleaner->Update();
+		//std::cout << "Number of points: " << polyData->GetNumberOfPoints() << std::endl;
+		//std::cout << "Number of cells: " << polyData->GetNumberOfCells() << std::endl;
 
-		vtkNew<vtkTriangleFilter> triangleFilter;
-		triangleFilter->SetInputConnection(cleaner->GetOutputPort());
-		triangleFilter->Update();
+		//int nrTriangles = 0;
+		//int nrLines = 0;
 
-		//vtkNew<vtkFillHolesFilter> fillHoles;
-		//fillHoles->SetInputConnection(triangleFilter->GetOutputPort());
-		//fillHoles->SetHoleSize(1e6);
-		//fillHoles->Update();
+		//for (vtkIdType i = 0; i < polyData->GetNumberOfCells(); ++i)
+		//{
+		//	int cellType = polyData->GetCellType(i);
 
-		vtkNew<vtkCleanPolyData> finalClean;
-		finalClean->SetInputConnection(triangleFilter->GetOutputPort());
-		finalClean->Update();
+		//	if (cellType == 3) {
+		//		nrLines++;
+		//	}
 
-		polyData = finalClean->GetOutput();
+		//	if (cellType == 5) {
+		//		nrTriangles++;
+		//	}
+		//}
+
+		//std::cout << "triangles: " << nrTriangles << std::endl;
+		//std::cout << "lines: " << nrLines << std::endl;
 
 		vtkNew<vtkMassProperties> massProperties;
 		massProperties->SetInputData(polyData);
 		massProperties->Update();
 
 		volume = massProperties->GetVolume();
-		std::cout << "Volume: " << volume << std::endl;
+		//std::cout << "Volume: " << volume << std::endl;
 
 		setup_data();
 		setup_mesh();
@@ -161,8 +180,6 @@ private:
 
 	void setup_data() {
 
-		//std::cout << "setup_data" << std::endl;
-
 		vtkSmartPointer<vtkPoints> points = polyData->GetPoints();
 		vtkSmartPointer<vtkCellArray> cells = polyData->GetPolys();
 
@@ -178,22 +195,6 @@ private:
 
 		//std::cout << "volume" << std::endl;
 		// get volume
-
-		vtkSmartPointer<vtkFieldData> fieldData = polyData->GetFieldData();
-		if (fieldData) {
-
-			// Read Porosity
-			vtkDoubleArray* porosityArray = vtkDoubleArray::SafeDownCast(fieldData->GetArray("Porosity"));
-			if (porosityArray && porosityArray->GetNumberOfTuples() > 0)
-			{
-				porosity = porosityArray->GetValue(0);
-				std::cout << "Scaffold Porosity: " << porosity << std::endl;
-			}
-			else
-			{
-				std::cerr << "Porosity data not found!" << std::endl;
-			}
-		}
 
 		double center[3];
 		polyData->GetCenter(center);
@@ -227,7 +228,6 @@ private:
 			indices.push_back(v1);
 			indices.push_back(v2);
 			indices.push_back(v3);
-			//std::cout << cell->GetId(0) << " " << cell->GetId(1) << " " << cell->GetId(2) << std::endl;
 
 			// push also edges, use a set to not save duplicates
 			std::pair<unsigned int, unsigned int> e1 = { std::min(v1, v2), std::max(v1, v2) };
@@ -256,9 +256,6 @@ private:
 
 		norms->SetInputData(polyData);
 		norms->ComputePointNormalsOn();
-		//norms->ComputeCellNormalsOn();
-		//norms->ConsistencyOn();
-		//norms->AutoOrientNormalsOn();
 		norms->Update();
 
 		// Get normals from the updated polydata
@@ -279,11 +276,6 @@ private:
 				vertexNormals.push_back(normal[2]);
 			}
 		}
-
-		//std::cout << "Loaded vertices: " << vertices.size() / 3 << std::endl;
-		//std::cout << "Loaded vertex normals: " << vertexNormals.size() << std::endl;
-		//std::cout << "Loaded faces (triangles): " << indices.size() / 3 << std::endl;
-		//std::cout << "Edge count: " << edgeIndices.size() / 2 << std::endl;
 
 		vertexSize = vertices.size() / 3;
 		cellSize = indices.size() / 3;

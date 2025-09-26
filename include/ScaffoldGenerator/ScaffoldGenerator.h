@@ -92,6 +92,8 @@ protected:
 
 	void regularize_voro(int regSteps, vtkSmartPointer<vtkPolyData>& containerMesh);
 
+	void print_cell_types();
+
 };
 
 // -----------------------------------------------------

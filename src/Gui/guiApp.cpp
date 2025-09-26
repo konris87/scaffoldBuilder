@@ -51,15 +51,36 @@ void myGUI::_init_opengl() {
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-	// create opengl window
-	window = glfwCreateWindow(width, height, "Scaffold Builder", NULL, NULL);
-	if (window == NULL)
-	{
+	// Get the primary monitor
+	GLFWmonitor* primary = glfwGetPrimaryMonitor();
+
+	// Get the video mode (resolution, refresh rate, etc.)
+	const GLFWvidmode* mode = glfwGetVideoMode(primary);
+
+	// Create a window the size of the monitor
+	window = glfwCreateWindow(mode->width, mode->height, "Scaffold Builder", NULL, NULL);
+	if (!window) {
 		glfwTerminate();
 		throw std::runtime_error(std::string(std::string("Failed to open GLFW window.") +
 			" If you have an Intel GPU, they are not 3.3 compatible." +
 			"Try the 2.1 version.\n"));
 	}
+
+	//glfwSetWindowPos(window, 0, 0);
+	//glfwMaximizeWindow(window);
+
+	width = mode->width;
+	height = mode->height;
+
+	//// create opengl window
+	//window = glfwCreateWindow(width, height, "Scaffold Builder", NULL, NULL);
+	//if (window == NULL)
+	//{
+	//	glfwTerminate();
+	//	throw std::runtime_error(std::string(std::string("Failed to open GLFW window.") +
+	//		" If you have an Intel GPU, they are not 3.3 compatible." +
+	//		"Try the 2.1 version.\n"));
+	//}
 
 	// create context
 	glfwMakeContextCurrent(window);
@@ -346,7 +367,7 @@ void myGUI::run() {
 			trackCamera->set_radius(sphereRadius);
 			//trackCamera->set_screen_size(0.3f * framebuffer.width, framebuffer.height, 0);
 			trackCamera->update();
-			Vec3 cameraPos = trackCamera->get_position();
+			//Vec3 cameraPos = trackCamera->get_position();
 			projection = trackCamera->get_projection_matrix();
 			view = trackCamera->get_view_matrix();
 			model = model;
@@ -377,14 +398,15 @@ void myGUI::run() {
 			scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
 			scaffoldPorosity = scaffoldVolume / domainVolume;
 
-			add_log(LogPriority::INFO, "Scaffold Ready");
+			add_log(LogPriority::SUCCESS, "Scaffold Ready");
 
 			scaffoldReady = false;
 
 			if (scaffoldGenerationThread.joinable()) {
-				scaffoldGenerationThread.join(); // safely clean up
+				scaffoldGenerationThread.join(); 
 			}
 		}
+
 		if (scaffoldModel){
 
 			uniManager.setUniform(scaffoldShader, "projection", projection);
@@ -408,6 +430,18 @@ void myGUI::run() {
 			if (showScaffold) {
 				scaffoldModel->draw();
 			}
+		}
+
+		if (ImGui::IsKeyPressed(ImGuiKey_M)) {
+			showEdges = !showEdges;
+		}
+
+		if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+			showGrid = !showGrid;
+		}
+
+		if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+			showNormals = !showNormals;
 		}
 
 		if (showEdges && scaffoldModel) {
@@ -501,8 +535,10 @@ void myGUI::run() {
 			distPlane->draw();
 		}
 
-		if (glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_PRESS) {
+		if (ImGui::IsKeyPressed(ImGuiKey::ImGuiKey_Delete)) {
 			
+			add_log(LogPriority::INFO, "Deleting everything!");
+
 			containerCenter[0] = 0.0;
 			containerCenter[1] = 0.0;
 			containerCenter[2] = 0.0;
@@ -524,35 +560,6 @@ void myGUI::run() {
 			//	add_log(LogPriority::INFO, "Deleting Everything");
 			//}
 		}
-
-		//if (scaffoldModel && showScaffold) {
-		//	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
-		//	const float PAD = 10.0f;
-		//	//const ImGuiViewport* viewport = ImGui::GetMainViewport();
-		//	//ImVec2 work_pos = viewport->WorkPos; // Use work area to avoid menu-bar/task-bar, if any!
-		//	//ImVec2 work_size = viewport->WorkSize;
-		//	ImVec2 window_pos, window_pos_pivot;
-		//	//ImVec2 work_pos;
-		//	window_pos.x = framebuffer.posx + framebuffer.width - PAD;
-		//	window_pos.y = framebuffer.posy - framebuffer.height;
-		//	window_pos_pivot.x = 1.0f;
-		//	window_pos_pivot.y = 1.0f;
-		//	ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, window_pos_pivot);
-		//	//ImGui::SetNextWindowViewport(viewport->ID);
-		//	window_flags |= ImGuiWindowFlags_NoMove;
-		//	ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
-		//	if (ImGui::Begin("Example: Simple overlay", nullptr, window_flags))
-		//	{
-		//		ImGui::Text("Mesh Details");
-		//		ImGui::Separator();
-		//		ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
-		//		ImGui::Text("Mesh Vertices: %d", vertexNr);
-		//		ImGui::Text("Mesh Faces: %d", faceNr);
-		//		ImGui::Text("Volume: %.3f", scaffoldVolume);
-		//		ImGui::Text("Porosity: %.3f", scaffoldPorosity);
-		//		ImGui::End();
-		//	}
-		//}
 
 		_render_axes_viewport();
 
@@ -646,7 +653,7 @@ void myGUI::_render_settings_panel() {
 
 				scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
 
-				add_log(LogPriority::INFO, "Loading Scaffold Succesfull");
+				add_log(LogPriority::SUCCESS, "Loading Scaffold Succesfull");
 			}
 
 			else if (loadedMesh == bone) {
@@ -722,7 +729,8 @@ std::string myGUI::_get_glsl_version() {
 		return "#version 130";  // Default fallback
 	}
 
-	std::cout << "OpenGL version: " << glVersion << std::endl;
+	//std::cout << "OpenGL version: " << glVersion << std::endl;
+	add_log(LogPriority::INFO, "OpenGL version: " + std::string(glVersion));
 
 	// Extract the major and minor OpenGL version numbers
 	int major, minor;
@@ -752,25 +760,49 @@ std::string myGUI::_get_glsl_version() {
 
 void myGUI::_render_console() {
 
-	// Ensure the console box is always scrolled to the bottom when a new message is added
-	//if (ImGui::Button("Clear")) {
-	//	log.clear();
-	//}
 
 	if (ImGui::Begin("Console", NULL)) {
 		// Start a scrolling region inside the console
-		ImGui::BeginChild("ScrollingConsole", ImVec2(0, 200), true, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
-		for (const auto& entry : logger.get_logs()) {
-			ImGui::TextUnformatted(entry.c_str());
+		ImGui::BeginChild("ScrollingConsole", ImVec2(0, 120), true, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
+
+		for (int i{ 0 }; i < logger.get_logs().size(); i ++){
+
+			ImVec4 color = {
+				logger.get_colors().at(i)[0],
+				logger.get_colors().at(i)[1],
+				logger.get_colors().at(i)[2],
+				logger.get_colors().at(i)[3],
+			};
+
+			ImGui::TextColored(color, logger.get_logs().at(i).c_str());
 		}
 		ImGui::EndChild();
+
+		if (ImGui::Button("Clear")) {
+			logger.clear();
+			add_log(LogPriority::INFO, "Cleared.");
+		}
+
 	}
 	ImGui::End();
 
 }
 
 void myGUI::add_log(LogPriority priority, const std::string& message) {
-	logger.log(priority, message);
+
+	if (priority == LogPriority::SUCCESS) {
+		logColor = { 0.0f, 1.0f, 0.0f, 1.0f };
+	}
+
+	else if (priority == LogPriority::ERROR) {
+		logColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+	}
+
+	else {
+		logColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+	}
+
+	logger.log(priority, message, logColor);
 }
 
 void myGUI::_generate_scaffold() {
@@ -904,12 +936,17 @@ void myGUI::_render_container_options(int& conOption) {
 //};
 
 void myGUI::_update_cameras() {
+	cameraUpdate = true;
 	cameraTarget = glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]);
 	cameraPos = cameraTarget - 20.0f * glm::vec3(0.0f, 0.0f, 1.0f);
 	defCamera->position = cameraPos;
 	defCamera->target = cameraTarget;
 	//trackCamera->position = cameraPos;
 	trackCamera->set_target(cameraTarget.x, cameraTarget.y, cameraTarget.z);
+	trackCamera->update();
+	projection = trackCamera->get_projection_matrix();
+	view = trackCamera->get_view_matrix();
+	cameraUpdate = false;
 }
 
 void myGUI::_update_bounds_center(int& conOption) {
@@ -1265,18 +1302,25 @@ void myGUI::_render_main_menu_bar() {
 
 		if (ImGui::Button("Create Scaffold")) {
 
-			add_log(LogPriority::INFO, "Generating Scaffold");
+			if (seeds.empty()) {
 
-			if (scaffoldGenerationThread.joinable()) {
-				scaffoldGenerationThread.join(); // join any previous thread first
+				add_log(LogPriority::ERROR, "First Populate Seeds");
+
 			}
+			else {
+				add_log(LogPriority::INFO, "Generating Scaffold");
 
-			scaffoldReady = false;
+				if (scaffoldGenerationThread.joinable()) {
+					scaffoldGenerationThread.join(); // join any previous thread first
+				}
 
-			scaffoldGenerationThread = std::thread([this]() {
-				_action_generate_scaffold();
-				scaffoldReady = true;
-			});
+				scaffoldReady = false;
+
+				scaffoldGenerationThread = std::thread([this]() {
+					_action_generate_scaffold();
+					scaffoldReady = true;
+				});
+			}			
 		}
 
 		selectFileButton("Export Scaffold", "../data/", "Export File", ".stl, .vtk");
@@ -1714,13 +1758,18 @@ void myGUI::_action_generate_seeds() {
 	//seedObj = new VisualizeSeeds(seeds);
 	seedObj = std::make_unique<VisualizeSeeds>(seeds);
 	showSeeds = true;
+
+	add_log(LogPriority::SUCCESS, "Seeds are ready.");
 };
 
 void myGUI::_action_generate_scaffold() {
 
-	//if (scaffoldGenerating) return;
-	//scaffoldGenerating = true;
-	//scaffoldGenerationThread = std::thread([this]() {
+	if (seeds.empty()) {
+
+		add_log(LogPriority::ERROR, "First Populate Seeds");
+
+		return;
+	}
 
 	if (conOption == 0) {
 		domainVolume = xDim * yDim * zDim;
@@ -1742,11 +1791,21 @@ void myGUI::_action_generate_scaffold() {
 	scaffoldFileName = std::string(version) + ".stl";
 
 	if (!runVolumeOptimization) {
+
 		if (conOption == 0 || conOption == 1) {
-			std::cout << "Generating Random Seeds Mesh inside rectangular" << std::endl;
+
+
+			//std::cout <<  << std::endl;
 			ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ }, edgeSize, scaleFactor);
 
-			if (conOption == 1) {
+			if (conOption == 0) {
+				add_log(LogPriority::INFO, "Generating scaffold inside rectangular container.");
+			}
+			else if (conOption == 1) {
+
+				add_log(LogPriority::INFO, "Generating scaffold inside cylindrical container.");
+
+
 				sgb.add_cylindrical_wall(
 					static_cast<double>(cylinderPt[0]),
 					static_cast<double>(cylinderPt[1]),
@@ -1771,7 +1830,10 @@ void myGUI::_action_generate_scaffold() {
 		}
 
 		else if (conOption == 2) {
-			std::cout << "Generating Random Seeds Mesh inside Container" << std::endl;
+
+			add_log(LogPriority::INFO, "Generating scaffold inside custom mesh container");
+
+			//std::cout <<  << std::endl;
 			//wallResolution = rMin / 2.0f;
 			ScaffoldGeneratorWall sgb(seeds, containerMesh, { nX, nY, nZ }, neighbors, wallResolution, edgeSize, scaleFactor);
 			sgb.generate_voro(regSteps);
@@ -1789,16 +1851,21 @@ void myGUI::_action_generate_scaffold() {
 	}
 
 	else if (runVolumeOptimization) {
-		std::cout << "Generating with Volume Optimization" << std::endl;
+		add_log(LogPriority::INFO, "Generating with Volume Optimization");
+
+		//std::cout << "Generating with Volume Optimization" << std::endl;
 
 		if (seeds.empty()) {
-			std::cerr << "First Populate Seeds" << std::endl;
+
+			add_log(LogPriority::ERROR, "First Populate Seeds");
+
+			return;
 		}
 		int seedSize = seeds.size();
 
 		wInit.resize(seedSize);
 		wInit.setZero();
-		std::cout << " -------------------- " << std::endl;
+		//std::cout << " -------------------- " << std::endl;
 
 		targetVols.resize(seedSize);
 
@@ -1828,19 +1895,21 @@ void myGUI::_action_generate_scaffold() {
 			for (int i{ 0 }; i < seeds.size(); i++) {
 				targetSum += targetVols[i];
 			}
-			std::cout << "domain volume: " << domainVolume << std::endl;
-			std::cout << "target volume sum: " << targetSum << std::endl;
+			//std::cout << "domain volume: " << domainVolume << std::endl;
+			//std::cout << "target volume sum: " << targetSum << std::endl;
 			// std::cerr << "Not implemented yet!" << std::endl;
 		}
 
 		else if (volOption == 2) {
-			std::cerr << "Not implemented yet!" << std::endl;
+			add_log(LogPriority::ERROR, "Not implemented yet!");
+			return;
+//;			std::cerr << "Not implemented yet!" << std::endl;
 		}
 
 		// just a simple box container
 		if (conOption == 0) {
-
-			std::cout << "Vol Opt inside rect Domain" << std::endl;
+			add_log(LogPriority::INFO, "Vol Opt inside Box");
+			//std::cout <<  << std::endl;
 			VolOpt vo(
 				seeds,
 				targetVols,
@@ -1860,8 +1929,9 @@ void myGUI::_action_generate_scaffold() {
 
 		// volume optimization inside a mesh wall
 		else if (conOption == 2) {
+			add_log(LogPriority::INFO, "Vol Opt inside custom mesh container.");
 
-			std::cout << "Vol Opt inside Mesh" << std::endl;
+			//std::cout << "Vol Opt inside Mesh" << std::endl;
 
 			VolOptWall vo(
 				seeds,
@@ -1922,6 +1992,38 @@ void myGUI::_render_visualizer() {
 	trackCamera->set_viewport(vx, vy, vw, vh);
 
 	ImGui::Image((ImTextureID)(intptr_t)framebuffer.textureId, availableSize, ImVec2(0, 1), ImVec2(1, 0));
+
+	if (scaffoldModel && showScaffold) {
+
+		ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav;
+
+		const float PAD = 10.0f;
+		ImVec2 window_pos, window_pos_pivot;
+		window_pos.x = framebuffer.posx + 0.75 * framebuffer.width;
+		window_pos.y = framebuffer.posy + 0.75 * framebuffer.height;
+
+		window_pos_pivot.x = 1.0f;
+		window_pos_pivot.y = 1.0f;
+		ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(0.2f * framebuffer.width, 0.2f * framebuffer.height));
+
+		//ImGui::SetNextWindowViewport(viewport->ID);
+		window_flags |= ImGuiWindowFlags_NoMove;
+		ImGui::SetNextWindowBgAlpha(0.35f); // Transparent background
+		if (ImGui::Begin("Mesh Properties", nullptr, window_flags))
+		{
+			ImGui::Text("Mesh Details");
+			ImGui::Separator();
+			ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
+			ImGui::Text("Mesh Vertices: %d", vertexNr);
+			ImGui::Text("Mesh Faces: %d", faceNr);
+			ImGui::Text("Volume: %.3f", scaffoldVolume);
+			ImGui::Text("Porosity: %.3f", scaffoldPorosity);
+			ImGui::Text("Interconnectivity: %.3f", "-");
+			ImGui::End();
+		}
+	}
+
 
 	ImGui::End();
 

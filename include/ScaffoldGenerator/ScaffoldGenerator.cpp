@@ -12,6 +12,7 @@
 #include <vtkSTLWriter.h>
 #include <vtkKdTreePointLocator.h>
 #include <vtkTriangle.h>
+#include <vtkTriangleFilter.h>
 #include <vtkTransform.h>
 #include <vtkTransformPolyDataFilter.h>
 #include <voro++.hh>
@@ -21,7 +22,7 @@
 void ScaffoldGenerator::generate_mesh(
 	const double& thickness, vtkSmartPointer<vtkPolyData>& finalPolyData, const std::vector<int>& res) {
 
-	std::cout << "generating mesh" << std::endl;
+	//std::cout << "generating mesh" << std::endl;
 
 	// first get the center of the scaffold mesh
 	double center[3] = { 0.0, 0.0, 0.0 };
@@ -85,9 +86,6 @@ void ScaffoldGenerator::generate_mesh(
 		dim[1] = res[1];
 		dim[2] = res[2];
 	}
-
-	std::cout << "Dims: " << dim[0] << " " << dim[1] << " " << dim[2] << std::endl;
-	std::cout << "Thickness: " << thickness << std::endl;
 	
 	// build along line
 	vtkNew<vtkImplicitModeller> implictModeller;
@@ -105,8 +103,6 @@ void ScaffoldGenerator::generate_mesh(
 
 	// update normals
 	vtkNew<vtkPolyDataNormals> norms;
-	//vtkPolyDataNormals* norms = vtkPolyDataNormals::New();
-
 	norms->SetInputConnection(isoFilter->GetOutputPort());
 	norms->ComputePointNormalsOff();
 	norms->ComputeCellNormalsOn();
@@ -114,28 +110,53 @@ void ScaffoldGenerator::generate_mesh(
 	norms->AutoOrientNormalsOn();
 	norms->Update();
 
-	vtkSmartPointer<vtkCleanPolyData> cleaner = vtkSmartPointer<vtkCleanPolyData>::New();
-	cleaner->SetInputData(norms->GetOutput());
+	// clean duplicated points
+	vtkNew<vtkCleanPolyData> cleaner;
+	cleaner->SetInputConnection(norms->GetOutputPort());
 	cleaner->Update();
-	finalPolyData = cleaner->GetOutput();
 
-	// use window sinc filter
-	//vtkNew<vtkWindowedSincPolyDataFilter> sincSmoother;
-	//sincSmoother->SetInputConnection(norms->GetOutputPort());
-	//sincSmoother->SetNumberOfIterations(30);
-	//sincSmoother->BoundarySmoothingOn();
-	//sincSmoother->FeatureEdgeSmoothingOff();
-	//sincSmoother->Update();
-	//finalPolyData = norms->GetOutput();
-	
-	std::cout << " Done " << std::endl;
-	//vtkNew<vtkSTLWriter> stlWriter;
-	//stlWriter->SetFileName(fileName.c_str());
-	////stlWriter->SetInputConnection(sincSmoother->GetOutputPort());
-	//stlWriter->SetInputConnection(norms->GetOutputPort());
-	//stlWriter->Write();
+	// force triangulation (removes strips, polys with >3 vertices, etc.)
+	vtkNew<vtkTriangleFilter> triFilter;
+	triFilter->SetInputConnection(cleaner->GetOutputPort());
+	triFilter->Update();
 
+	// final clean to drop verts/lines
+	vtkNew<vtkCleanPolyData> finalClean;
+	finalClean->SetInputConnection(triFilter->GetOutputPort());
+	finalClean->Update();
+
+	vtkSmartPointer<vtkPolyData> poly = finalClean->GetOutput();
+
+	// explicitly clear verts/lines just in case
+	poly->SetVerts(nullptr);
+	poly->SetLines(nullptr);
+	poly->SetStrips(nullptr);
+
+	// assign to output
+	finalPolyData = poly;
+
+	//// Debug: check composition
+	//std::cout << "Final polydata stats:\n"
+	//	<< "  Points: " << finalPolyData->GetNumberOfPoints() << "\n"
+	//	<< "  Cells: " << finalPolyData->GetNumberOfCells() << "\n"
+	//	<< "  Polys: " << finalPolyData->GetNumberOfPolys() << "\n"
+	//	<< "  Lines: " << finalPolyData->GetNumberOfLines() << "\n"
+	//	<< "  Verts: " << finalPolyData->GetNumberOfVerts() << "\n"
+	//	<< "  Strips: " << finalPolyData->GetNumberOfStrips() << std::endl;
 };
+
+//void ScaffoldGenerator::print_cell_types() {
+//	if (globalFaces[idx].size() != 3) {
+//		std::cerr << "Non-triangle face found! Face #" << idx
+//			<< " has " << globalFaces[idx].size() << " vertices." << std::endl;
+//	}
+//	else {
+//		cells->InsertNextCell(3);
+//		cells->InsertCellPoint(globalFaces[idx][0]);
+//		cells->InsertCellPoint(globalFaces[idx][1]);
+//		cells->InsertCellPoint(globalFaces[idx][2]);
+//	}
+//};
 
 // -------------------------------------------------------------------------------------
 // Scaffold Generator inside a rectangle
@@ -666,7 +687,7 @@ void ScaffoldGeneratorBox::generate_voro(const int regSteps) {
 		meshVertices.row(vrow) = row;
 	}
 
-	//// Create points
+	// Create points
 	vtkNew<vtkPoints> points;
 
 	if (meshVertices.cols() == 3) {
@@ -679,18 +700,37 @@ void ScaffoldGeneratorBox::generate_voro(const int regSteps) {
 			points->InsertNextPoint(meshVertices(i, 0), meshVertices(i, 1), 0.0);
 		}
 	}
+
 	vtkNew<vtkCellArray> cells;
+	//for (int idx{ 0 }; idx < globalFaces.size(); idx++) {
+	//	cells->InsertNextCell(3);
+	//	cells->InsertCellPoint(globalFaces[idx][0]);
+	//	cells->InsertCellPoint(globalFaces[idx][1]);
+	//	cells->InsertCellPoint(globalFaces[idx][2]);
+	//}
+
+	std::cout << " check " << std::endl;
+
 	for (int idx{ 0 }; idx < globalFaces.size(); idx++) {
-		cells->InsertNextCell(3);
-		cells->InsertCellPoint(globalFaces[idx][0]);
-		cells->InsertCellPoint(globalFaces[idx][1]);
-		cells->InsertCellPoint(globalFaces[idx][2]);
+		if (globalFaces[idx].size() != 3) {
+			std::cerr << "Non-triangle face found! Face #" << idx
+				<< " has " << globalFaces[idx].size() << " vertices." << std::endl;
+		}
+		else {
+			cells->InsertNextCell(3);
+			cells->InsertCellPoint(globalFaces[idx][0]);
+			cells->InsertCellPoint(globalFaces[idx][1]);
+			cells->InsertCellPoint(globalFaces[idx][2]);
+		}
 	}
 
 	// Update scaffold polydata object
 	scaffoldMesh = vtkSmartPointer<vtkPolyData>::New();
 	scaffoldMesh->SetPoints(points);
 	scaffoldMesh->SetPolys(cells);
+
+	scaffoldMesh->BuildCells();
+	scaffoldMesh->BuildLinks();
 };
 
 void ScaffoldGeneratorBox::add_cylindrical_wall(
