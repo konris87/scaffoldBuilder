@@ -104,6 +104,7 @@ public:
 	bool showScaffold{ true };
 	bool showContainer{ false };
 	bool showDistancePlane{ false };
+	bool showBinaryImageWindow{ false };
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -125,6 +126,7 @@ public:
 	// for console logging
 	//std::vector<std::string> log;
 	Logger& logger = Logger::get_instance();
+	bool scrollToBottom = false;
 
 	// pointers for seed generator
 	//Random* sgr;
@@ -280,7 +282,8 @@ private:
 	meshType loadedMesh;
 
 	// thread handling
-	std::atomic<bool> scaffoldGenerating{ false };
+	//std::atomic<bool> scaffoldGenerating{ false };
+	std::atomic<float> scaffoldProgress{ 0.0f };
 	std::thread scaffoldGenerationThread;
 
 	//
@@ -331,6 +334,10 @@ private:
 	
 	void _export_mesh();
 
+	void _export_binary_image(
+		const std::string& filepath,
+		const float& voxelSize, const int& backVal, const int& forVal);
+
 	void _render_mesh_settings();
 
 	void _render_axes_viewport();
@@ -346,6 +353,8 @@ private:
 	void _render_volume_optimization();
 	
 	void _render_scaffold_settings();
+
+	void _render_binary_image_window(const char* popupName, bool& showPopup);
 
 	void _action_generate_seeds();
 

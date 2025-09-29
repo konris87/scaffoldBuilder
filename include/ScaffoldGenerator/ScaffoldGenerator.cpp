@@ -255,7 +255,6 @@ void ScaffoldGeneratorBox::generate_voro(const int regSteps) {
 
 	// clear previous container
 	//con->clear();
-	std::cout << "Inserting Points " << std::endl;
 	for (int i{ 0 }; i < seeds.size(); i++) {
 		con->put(i, seeds[i][0], seeds[i][1], seeds[i][2]);
 	}
@@ -702,14 +701,6 @@ void ScaffoldGeneratorBox::generate_voro(const int regSteps) {
 	}
 
 	vtkNew<vtkCellArray> cells;
-	//for (int idx{ 0 }; idx < globalFaces.size(); idx++) {
-	//	cells->InsertNextCell(3);
-	//	cells->InsertCellPoint(globalFaces[idx][0]);
-	//	cells->InsertCellPoint(globalFaces[idx][1]);
-	//	cells->InsertCellPoint(globalFaces[idx][2]);
-	//}
-
-	std::cout << " check " << std::endl;
 
 	for (int idx{ 0 }; idx < globalFaces.size(); idx++) {
 		if (globalFaces[idx].size() != 3) {

@@ -17,3 +17,4 @@
 - Window size is decided by monitor size
 
 - Fixed overlay issues for mesh properties
+

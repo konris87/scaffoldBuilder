@@ -72,7 +72,7 @@ vtkSmartPointer<vtkActor> render_plane(
 
 double distance(const std::array<double, 3>& arr1, const std::array<double, 3>& arr2);
 
-void selectFileButton(const char* title, const std::string path, const char* dialogName, const char* fileExt);
+void select_file_button(const char* title, const std::string path, const char* dialogName, const char* fileExt);
 #endif
 
 void ensure_ccw(

@@ -12,11 +12,17 @@ find_package(VTK COMPONENTS
   CommonColor
   CommonCore
   CommonDataModel
+  CommonTransforms
+  FiltersGeneral
   FiltersSources
   FiltersCore
   FiltersGeometry
   FiltersHybrid
   IOGeometry
+  IOImage
+  IOCore
+  IOLegacy
+  IOXML
   InteractionStyle
   RenderingAnnotation
   RenderingContextOpenGL2
@@ -25,7 +31,7 @@ find_package(VTK COMPONENTS
   RenderingGL2PSOpenGL2
   RenderingOpenGL2
   RenderingLabel
-  IOXML
+  ImagingStencil
 )
 
 if (NOT VTK_FOUND)
@@ -146,15 +152,14 @@ file(COPY ${CMAKE_SOURCE_DIR}/share DESTINATION ${CMAKE_BINARY_DIR})
 # Install the main executable
 install(TARGETS scaffoldBuilder
     RUNTIME DESTINATION bin           # Windows/Linux executable
-    BUNDLE DESTINATION .              # macOS bundle
+    BUNDLE DESTINATION .   
+	LIBRARY DESTINATION	bin# macOS bundle
 )
 
 # Install shader files (uncomment if needed)
 install(DIRECTORY src/shaders/ DESTINATION bin/shaders)
 install(DIRECTORY share/ DESTINATION bin/share)
-
-# Install other assets (examples, configs, etc.)
-# install(DIRECTORY assets/ DESTINATION share/scaffoldBuilder/assets)
+install(DIRECTORY lib/vtk/ DESTINATION bin)
 
 # -----------------------------
 # CPack setup (packaging)
@@ -177,3 +182,18 @@ else()
 endif()
 
 include(CPack)
+
+# -----------------------------
+# Runtime library search paths
+# -----------------------------
+if(WIN32)
+    # Windows: we’ll use SetDllDirectory in code, so no RPATH
+elseif(APPLE)
+    # macOS: search in ./vtk next to executable
+    set(CMAKE_INSTALL_RPATH "@executable_path/vtk")
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+else()
+    # Linux: search in ./vtk next to executable
+    set(CMAKE_INSTALL_RPATH "$ORIGIN/vtk")
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+endif()

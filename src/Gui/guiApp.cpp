@@ -19,6 +19,10 @@
 #include <vtkXMLPolyDataWriter.h>
 #include <vtkXMLPolyDataReader.h>
 #include <vtkDoubleArray.h>
+#include <vtkImageData.h>
+#include <vtkPolyDataToImageStencil.h>
+#include <vtkImageStencil.h>
+#include <vtkMetaImageWriter.h>
 
 // custom
 #include "guiApp.h"
@@ -44,7 +48,7 @@ myGUI::myGUI(int width, int height) : width(width), height(height) {
 
 void myGUI::_init_opengl() {
 
-	std::cout << "starting opengl" << std::endl;
+	//std::cout << "starting opengl" << std::endl;
 
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -66,48 +70,31 @@ void myGUI::_init_opengl() {
 			"Try the 2.1 version.\n"));
 	}
 
-	//glfwSetWindowPos(window, 0, 0);
-	//glfwMaximizeWindow(window);
-
 	width = mode->width;
 	height = mode->height;
 
-	//// create opengl window
-	//window = glfwCreateWindow(width, height, "Scaffold Builder", NULL, NULL);
-	//if (window == NULL)
-	//{
-	//	glfwTerminate();
-	//	throw std::runtime_error(std::string(std::string("Failed to open GLFW window.") +
-	//		" If you have an Intel GPU, they are not 3.3 compatible." +
-	//		"Try the 2.1 version.\n"));
-	//}
-
 	// create context
 	glfwMakeContextCurrent(window);
-
-	//glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
 	// glad: load all OpenGL function pointers, these are OS-specific
 	// ----------------------------------------------------------------
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
-		std::cerr << "Failed to initialize GLAD" << std::endl;
+		add_log(LogPriority::ERROR, "Failed to initialize GLAD!");
+		//std::cerr << "Failed to initialize GLAD" << std::endl;
 		return;
 	}
 
 	// Now you can check the OpenGL version
-	const GLubyte* version = glGetString(GL_VERSION);
-	const GLubyte* glslVersion = glGetString(GL_SHADING_LANGUAGE_VERSION);
+	std::string version = std::string((const char*)glGetString(GL_VERSION));
+	std::string glsVersion = std::string((const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
 
 	// Print the OpenGL version
-	std::cout << "OpenGL Version: " << version << std::endl;
-	std::cout << "GLSL Version: " << glslVersion << std::endl;
+	add_log(LogPriority::INFO, "OpenGL Version: " + version);
+	add_log(LogPriority::INFO, "GLSL Version: " + glsVersion);
 
 	// Ensure we can capture the escape key being pressed below
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
-
-	// Hide the mouse and enable unlimited movement
-	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 	// Set the mouse at the center of the screen
 	glfwPollEvents();
@@ -129,9 +116,6 @@ void myGUI::_init_opengl() {
 	//glEnable(GL_CULL_FACE);
 	
 	// load shaders
-	
-	//std::cout << std::filesystem:: relative(std::filesystem::path("shaders/mainVShader.vertexshader")).string().c_str() << std::endl;
-
 	scaffoldShader = Shader(
 		std::filesystem::absolute(std::filesystem::path("shaders/mainVShader.vertexshader")).string().c_str(),
 		std::filesystem::absolute(std::filesystem::path("shaders/mainFShader.fragmentshader")).string().c_str(),
@@ -247,13 +231,10 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(frameShader, "view");
 	uniManager.add_uniform(frameShader, "model");
 	uniManager.add_uniform(frameShader, "outColor");
-	uniManager.add_uniform(frameShader, "screenSize");
 
-	std::cout << "Creating arrows: " << std::endl;
 	xArrow = std::make_unique<Arrow>();
 	yArrow = std::make_unique<Arrow>();
 	zArrow = std::make_unique<Arrow>();
-	std::cout << "Created arrows: " << std::endl;
 
 	float sphereRadius{ 0.0f };
 	if (width > height)
@@ -262,22 +243,15 @@ void myGUI::_init_opengl() {
 		sphereRadius = width * 0.5f;
 
 	defCamera = new defaultCamera(window, 0.3f, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
-	//trackCamera = new trackBallCamera(window, split, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0, 0.0, 20.0));
 	trackCamera = std::make_unique<TrackBall>(window, sphereRadius, framebuffer.width, framebuffer.height, 0, 0);
 
-	//defCamera.scroll_setup();
-	//framebuffer.width = width;
-	//framebuffer.height = height;
-
 	// create frame buffer
-
-	std::cout << "init opengl create buffer" << std::endl;
 	create_frame_buffer(framebuffer);
 };
 
 void myGUI::_init_imgui() {
 
-	std::cout << "Starting imgui" << std::endl;
+	//std::cout << "Starting imgui" << std::endl;
 
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
@@ -298,6 +272,8 @@ void myGUI::_init_imgui() {
 		style.WindowRounding = 0.0f;
 		style.Colors[ImGuiCol_WindowBg].w = 1.0f;
 	}
+
+	ImGui::LoadIniSettingsFromDisk("share/imgui.ini");
 
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init(glsl_version.c_str());
@@ -324,6 +300,10 @@ void myGUI::run() {
 		_render_settings_panel();
 
 		_render_console();
+
+		if (showBinaryImageWindow) {
+			_render_binary_image_window("Export Binary Image", showBinaryImageWindow);
+		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.id);
 		glViewport(0, 0, framebuffer.width, framebuffer.height);
@@ -524,7 +504,7 @@ void myGUI::run() {
 		}
 
 		if (showDistancePlane) {
-			std::cout << "Draw distance plane " << std::endl;
+			//std::cout << "Draw distance plane " << std::endl;
 			glm::mat4 modelDist = distPlane->tMatrix * distPlane->initMatrix * distPlane->rotMatrix;
 			cutShader.use();
 			uniManager.setUniform(cutShader, "projection", projection);
@@ -681,11 +661,12 @@ void myGUI::_render_settings_panel() {
 
 	_render_scaffold_settings();
 
-	if (ImGuiFileDialog::Instance()->Display("Export File")) {
+	if (ImGuiFileDialog::Instance()->Display("Export Scaffold")) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
 			_export_mesh();
+
 		}
 		ImGuiFileDialog::Instance()->Close();
 	}
@@ -730,7 +711,7 @@ std::string myGUI::_get_glsl_version() {
 	}
 
 	//std::cout << "OpenGL version: " << glVersion << std::endl;
-	add_log(LogPriority::INFO, "OpenGL version: " + std::string(glVersion));
+	//add_log(LogPriority::INFO, "OpenGL version: " + std::string(glVersion));
 
 	// Extract the major and minor OpenGL version numbers
 	int major, minor;
@@ -760,7 +741,6 @@ std::string myGUI::_get_glsl_version() {
 
 void myGUI::_render_console() {
 
-
 	if (ImGui::Begin("Console", NULL)) {
 		// Start a scrolling region inside the console
 		ImGui::BeginChild("ScrollingConsole", ImVec2(0, 120), true, ImGuiWindowFlags_AlwaysVerticalScrollbar | ImGuiWindowFlags_AlwaysHorizontalScrollbar);
@@ -776,14 +756,20 @@ void myGUI::_render_console() {
 
 			ImGui::TextColored(color, logger.get_logs().at(i).c_str());
 		}
+		
+		if (scrollToBottom) {
+			ImGui::SetScrollHereY(1.0f);  // scroll to bottom
+			scrollToBottom = false;
+		}
+		
 		ImGui::EndChild();
 
 		if (ImGui::Button("Clear")) {
 			logger.clear();
 			add_log(LogPriority::INFO, "Cleared.");
 		}
-
 	}
+
 	ImGui::End();
 
 }
@@ -803,13 +789,15 @@ void myGUI::add_log(LogPriority priority, const std::string& message) {
 	}
 
 	logger.log(priority, message, logColor);
+
+	scrollToBottom = true;
 }
 
 void myGUI::_generate_scaffold() {
 	
-	std::cout << wInit << std::endl;
-	std::cout << " -------------------- " << std::endl;
-	std::cout << targetVols << std::endl;
+	//std::cout << wInit << std::endl;
+	//std::cout << " -------------------- " << std::endl;
+	//std::cout << targetVols << std::endl;
 
 	// create scaffold builder object, use a lambda expression for 
 	// passing the logging function
@@ -841,13 +829,13 @@ void myGUI::_render_container_options(int& conOption) {
 		ImGui::RadioButton("Box Container", &conOption, 0);
 		ImGui::SameLine(); help_marker("An orthogonal box container");
 		if (conOption == 0) {
-			ImGui::SliderFloat("x Dimensions", &xDim, 0, 10);
+			ImGui::InputFloat("x Dimensions", &xDim, 0.1f, 100.0f);
 			ImGui::SameLine(); help_marker("Dimension of Scaffold Along X");
 
-			ImGui::SliderFloat("y Dimensions", &yDim, 0, 10);
+			ImGui::InputFloat("y Dimensions", &yDim, 0.1f, 100.0f);
 			ImGui::SameLine(); help_marker("Dimension of Scaffold Along Y.");
 
-			ImGui::SliderFloat("z Dimensions", &zDim, 0, 10);
+			ImGui::InputFloat("z Dimensions", &zDim, 0.1f, 100.0f);
 			ImGui::SameLine(); help_marker("Dimension of Scaffold Along Z.");
 		}
 
@@ -921,7 +909,7 @@ void myGUI::_render_container_options(int& conOption) {
 				}
 				ImGuiFileDialog::Instance()->Close();
 			}
-			selectFileButton("Select Geometry File", "../data/", "Select STL Container", ".stl");
+			select_file_button("Select Geometry File", "../data/", "Select STL Container", ".stl");
 			ImGui::InputInt("Neighbors", &neighbors, 1, 100);
 			ImGui::InputFloat("Wall Resolution", &wallResolution, 0.1f, 5.0f);
 		}
@@ -1106,6 +1094,80 @@ void myGUI::_export_mesh() {
 	}
 };
 
+void myGUI::_export_binary_image(
+	const std::string& filepath, const float& voxelSize, const int& backVal, const int& forVal) {
+
+	vtkSmartPointer<vtkImageData> blackImage = vtkSmartPointer<vtkImageData>::New();
+	double bounds[6];
+	scaffoldPolyData->GetBounds(bounds);
+
+	// set spacing
+	double spacing[3];
+	spacing[0] = voxelSize;
+	spacing[1] = voxelSize;
+	spacing[2] = voxelSize;
+	blackImage->SetSpacing(spacing);
+
+	// compute dimensions
+	int dim[3];
+	for (int i = 0; i < 3; i++)
+	{
+		dim[i] = static_cast<int>(
+			ceil((bounds[i * 2 + 1] - bounds[i * 2]) / spacing[i]));
+	}
+	blackImage->SetDimensions(dim);
+	blackImage->SetExtent(0, dim[0] - 1, 0, dim[1] - 1, 0, dim[2] - 1);
+
+	// set orgin
+	double origin[3];
+	origin[0] = bounds[0] + spacing[0] / 2;
+	origin[1] = bounds[2] + spacing[1] / 2;
+	origin[2] = bounds[4] + spacing[2] / 2;
+	blackImage->SetOrigin(origin);
+	blackImage->AllocateScalars(VTK_UNSIGNED_CHAR, 1);
+
+	// fill with black color
+	vtkIdType count = blackImage->GetNumberOfPoints();
+	for (vtkIdType i = 0; i < count; ++i)
+	{
+		blackImage->GetPointData()->GetScalars()->SetTuple1(i, forVal);
+	}
+
+	// polygonal data --> image stencil:
+	vtkNew<vtkPolyDataToImageStencil> pol2stenc;
+	pol2stenc->SetInputData(scaffoldPolyData);
+	pol2stenc->SetOutputOrigin(origin);
+	pol2stenc->SetOutputSpacing(spacing);
+	pol2stenc->SetOutputWholeExtent(blackImage->GetExtent());
+	pol2stenc->Update();
+
+	// Cut the corresponding white image and set the background:
+	vtkNew<vtkImageStencil> imgstenc;
+	imgstenc->SetInputData(blackImage);
+	imgstenc->SetStencilConnection(pol2stenc->GetOutputPort());
+	imgstenc->ReverseStencilOff();
+	imgstenc->SetBackgroundValue(backVal);
+	imgstenc->Update();
+
+	//// Overwrite "inside" with foreground value
+	//vtkImageData* result = imgstenc->GetOutput();
+	//unsigned char* ptr = static_cast<unsigned char*>(result->GetScalarPointer());
+	//vtkIdType nvox = result->GetNumberOfPoints();
+	//for (vtkIdType i = 0; i < nvox; ++i)
+	//{
+	//	// inside polydata
+	//	if (ptr[i] != backVal) {
+	//		std::cout << "Assign white" << std::endl;
+	//		ptr[i] = static_cast<unsigned char>(forVal);
+	//	}
+	//}
+
+	vtkNew<vtkMetaImageWriter> writer;
+	writer->SetFileName(filepath.c_str());
+	writer->SetInputData(imgstenc->GetOutput());
+	writer->Write();
+};
+
 void myGUI::_render_axes_viewport() {
 
 	int windowWidth{ 0 }, windowHeight{ 0 };
@@ -1139,7 +1201,6 @@ void myGUI::_render_axes_viewport() {
 	uniManager.setUniform(frameShader, "projection", frameProjection);
 	uniManager.setUniform(frameShader, "view", frameView);
 	uniManager.setUniform(frameShader, "model", glm::mat4(1.0f));
-	uniManager.setUniform(frameShader, "screenSize", glm::vec2(width, height));
 	uniManager.setUniform(frameShader, "height", height);
 	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
 	//uniManager.setUniform(frameShader, "model", glm::scale(glm::mat4(1.0), glm::vec3(2, 2, 2)));
@@ -1193,6 +1254,18 @@ void myGUI::_render_main_menu_bar() {
 			}
 
 			ImGui::SameLine(); help_marker("So far only .stl files are supported");
+
+			if (ImGui::MenuItem("Save Scaffold as geometry", "Export scaffold geometry.")) {
+				
+				IGFD::FileDialogConfig config;
+				config.path = "../data";
+				ImGuiFileDialog::Instance()->OpenDialog("Export Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
+
+			}
+
+			if (ImGui::MenuItem("Save Scaffold as binary image", "Export scaffold as binary image.")) {
+				showBinaryImageWindow = true;
+			}
 
 			ImGui::EndMenu();
 		}
@@ -1304,11 +1377,10 @@ void myGUI::_render_main_menu_bar() {
 
 			if (seeds.empty()) {
 
-				add_log(LogPriority::ERROR, "First Populate Seeds");
+				add_log(LogPriority::ERROR, "First Populate Seeds!");
 
 			}
 			else {
-				add_log(LogPriority::INFO, "Generating Scaffold");
 
 				if (scaffoldGenerationThread.joinable()) {
 					scaffoldGenerationThread.join(); // join any previous thread first
@@ -1317,13 +1389,14 @@ void myGUI::_render_main_menu_bar() {
 				scaffoldReady = false;
 
 				scaffoldGenerationThread = std::thread([this]() {
+					scaffoldProgress = 0.0f;
 					_action_generate_scaffold();
 					scaffoldReady = true;
 				});
 			}			
 		}
 
-		selectFileButton("Export Scaffold", "../data/", "Export File", ".stl, .vtk");
+		//selectFileButton("Export Scaffold", "../data/", "Export File", ".stl, .vtk");
 
 		// Close the menu bar
 		ImGui::EndMainMenuBar();
@@ -1482,11 +1555,18 @@ void myGUI::_render_seed_generator() {
 				ImGui::InputFloat("Max Radius", &rMax);
 				if (ImGui::TreeNode("Distance Metric")) {
 					ImGui::RadioButton("Distance From Plane", &distFunc, 0);
+					ImGui::SameLine();
+					help_marker("Estimate radius function as distance from a plane!");
 					if (distFunc == 0) {
 						ImGui::InputFloat3("Normal", distPlaneNormal);
 						ImGui::InputFloat3("Center", distPlaneCenter);
 					};
 					ImGui::RadioButton("Distance From Mesh Face", &distFunc, 1);
+					ImGui::SameLine();
+					help_marker("Estimate radius function as distance from the container face!");
+					ImGui::RadioButton("Distance From Point", &distFunc, 2);
+					ImGui::SameLine();
+					help_marker("Estimate radius function as distance from a single point!");
 					ImGui::TreePop();
 				}
 				if (ImGui::TreeNode("Distance - Radius Function")) {
@@ -1766,7 +1846,7 @@ void myGUI::_action_generate_scaffold() {
 
 	if (seeds.empty()) {
 
-		add_log(LogPriority::ERROR, "First Populate Seeds");
+		add_log(LogPriority::ERROR, "First Populate Seeds!");
 
 		return;
 	}
@@ -1799,11 +1879,11 @@ void myGUI::_action_generate_scaffold() {
 			ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ }, edgeSize, scaleFactor);
 
 			if (conOption == 0) {
-				add_log(LogPriority::INFO, "Generating scaffold inside rectangular container.");
+				add_log(LogPriority::INFO, "Generating scaffold inside rectangular container. Please wait...");
 			}
 			else if (conOption == 1) {
 
-				add_log(LogPriority::INFO, "Generating scaffold inside cylindrical container.");
+				add_log(LogPriority::INFO, "Generating scaffold inside cylindrical container. Please wait...");
 
 
 				sgb.add_cylindrical_wall(
@@ -1831,10 +1911,8 @@ void myGUI::_action_generate_scaffold() {
 
 		else if (conOption == 2) {
 
-			add_log(LogPriority::INFO, "Generating scaffold inside custom mesh container");
+			add_log(LogPriority::INFO, "Generating scaffold inside custom mesh container. Please wait...");
 
-			//std::cout <<  << std::endl;
-			//wallResolution = rMin / 2.0f;
 			ScaffoldGeneratorWall sgb(seeds, containerMesh, { nX, nY, nZ }, neighbors, wallResolution, edgeSize, scaleFactor);
 			sgb.generate_voro(regSteps);
 			sgb.get_seeds(seeds);
@@ -1851,13 +1929,13 @@ void myGUI::_action_generate_scaffold() {
 	}
 
 	else if (runVolumeOptimization) {
-		add_log(LogPriority::INFO, "Generating with Volume Optimization");
+		add_log(LogPriority::INFO, "Generating with Volume Optimization. Please wait...");
 
 		//std::cout << "Generating with Volume Optimization" << std::endl;
 
 		if (seeds.empty()) {
 
-			add_log(LogPriority::ERROR, "First Populate Seeds");
+			add_log(LogPriority::ERROR, "First Populate Seeds!");
 
 			return;
 		}
@@ -1999,8 +2077,8 @@ void myGUI::_render_visualizer() {
 
 		const float PAD = 10.0f;
 		ImVec2 window_pos, window_pos_pivot;
-		window_pos.x = framebuffer.posx + 0.75 * framebuffer.width;
-		window_pos.y = framebuffer.posy + 0.75 * framebuffer.height;
+		window_pos.x = framebuffer.posx + 0.77 * framebuffer.width;
+		window_pos.y = framebuffer.posy + 0.77 * framebuffer.height;
 
 		window_pos_pivot.x = 1.0f;
 		window_pos_pivot.y = 1.0f;
@@ -2014,11 +2092,17 @@ void myGUI::_render_visualizer() {
 		{
 			ImGui::Text("Mesh Details");
 			ImGui::Separator();
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
 			ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
 			ImGui::Text("Mesh Vertices: %d", vertexNr);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
 			ImGui::Text("Mesh Faces: %d", faceNr);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
 			ImGui::Text("Volume: %.3f", scaffoldVolume);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
 			ImGui::Text("Porosity: %.3f", scaffoldPorosity);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
 			ImGui::Text("Interconnectivity: %.3f", "-");
 			ImGui::End();
 		}
@@ -2026,5 +2110,54 @@ void myGUI::_render_visualizer() {
 
 
 	ImGui::End();
+
+};
+
+void myGUI::_render_binary_image_window(const char* popupName, bool& showPopup) {
+	
+	if (showPopup) {
+		ImGui::OpenPopup(popupName);
+	}
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
+	if (ImGui::BeginPopup(popupName, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static float voxelSize{ 0.05f };
+		static int backVal = { 0 };
+		static int forVal = { 255 };
+		static std::string name = "";
+
+		ImGui::InputFloat("Voxel Size", &voxelSize, 0.05, 10.0f);
+		ImGui::InputInt("Background Value", &backVal, 1, 10.0f);
+		ImGui::InputInt("Foreground", &forVal, 1, 10.0f);
+
+		backVal = std::clamp(backVal, 0, 255);
+		forVal = std::clamp(forVal, 0, 255);
+
+
+		if (ImGui::Button("Save")) {
+			IGFD::FileDialogConfig config;
+			config.path = "..//data";
+			ImGuiFileDialog::Instance()->OpenDialog("Export Binary Scaffold", "Export Binary", ".mhd", config);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close")) {
+			showPopup = false;
+			ImGui::CloseCurrentPopup();
+		}
+
+		if (ImGuiFileDialog::Instance()->Display("Export Binary Scaffold")) {
+			if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+				scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
+				scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+				_export_binary_image(scaffoldFilePath,
+					 voxelSize, backVal, forVal);
+			}
+			ImGuiFileDialog::Instance()->Close();
+		}
+
+		ImGui::EndPopup();
+	}
 
 };

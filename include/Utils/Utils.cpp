@@ -400,7 +400,7 @@ double distance(const std::array<double, 3>& arr1, const std::array<double, 3>& 
 	return sqrt(pow(arr2[0] - arr1[0], 2) + pow(arr2[1] - arr1[1], 2) + pow(arr2[2] - arr1[2], 2));
 };
 
-void selectFileButton(const char* title, const std::string path, const char* dialogName, const char* fileExt) {
+void select_file_button(const char* title, const std::string path, const char* dialogName, const char* fileExt) {
 
 	if (ImGui::Button(title)) {
 		IGFD::FileDialogConfig config;
