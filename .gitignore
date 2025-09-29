@@ -1,3 +1,5 @@
 /build
 /data
 backup.txt
+/_CPack_Packages
+/*.zip
