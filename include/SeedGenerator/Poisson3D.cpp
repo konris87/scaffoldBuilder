@@ -311,7 +311,8 @@ void Poisson3D::generate_seeds(DistanceEstimator& distEstimator, RadiusFunction&
 		std::array<int, 3> centralIdx{ 0, 0, 0 };
 		grid[centralIdx].seedIdx = N;
 
-		// finally push in the neighbors the index of the seed! The number of neighbors is determined
+		// finally push in the neighbors the index of the seed! 
+		// The number of neighbors is determined
 		// based on the corresponding radius
 		double rxi = rMin;
 		int n = ceil(rxi / rMin) + 1;
@@ -372,9 +373,13 @@ void Poisson3D::generate_seeds(DistanceEstimator& distEstimator, RadiusFunction&
 				// get the index of the point under consideration
 				std::array<int, 3> ptIdx = getGridIndex(pt, cellSize);
 				//std::cout << pt[0] << " " << pt[1] << " " << pt[2] << std::endl;
-				if (pt[0] < xMin || pt[0] > xMax ||
-					pt[1] < yMin || pt[1] > yMax ||
-					pt[2] < zMin || pt[2] > zMax) {
+				//if (pt[0] < xMin || pt[0] > xMax ||
+				//	pt[1] < yMin || pt[1] > yMax ||
+				//	pt[2] < zMin || pt[2] > zMax) {
+				//	continue;
+				//}
+
+				if (!is_inside(pt)) {
 					continue;
 				}
 
@@ -403,11 +408,6 @@ void Poisson3D::generate_seeds(DistanceEstimator& distEstimator, RadiusFunction&
 						dists.push_back(dist);
 					}
 				}
-				//std::cout << "find min dist" << std::endl;
-				//if (dists.empty()) {
-				//	std::cout << "empty" << std::endl;
-				//}
-
 				double minDist = *min_element(dists.begin(), dists.end());
 
 				// if all neighbors are valid push the candidate to the seeds

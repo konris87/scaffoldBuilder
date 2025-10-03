@@ -169,7 +169,7 @@ include(InstallRequiredSystemLibraries)
 set(CPACK_PACKAGE_NAME "scaffoldBuilder")
 set(CPACK_PACKAGE_VENDOR "VVR")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffold Builder with VTK, ImGui, GLFW, Voro++")
-set(CPACK_PACKAGE_VERSION "0.0.5")
+set(CPACK_PACKAGE_VERSION "0.5")
 set(CPACK_PACKAGE_CONTACT "krisvas@ece.upatras.gr")
 
 # Choose package formats depending on platform

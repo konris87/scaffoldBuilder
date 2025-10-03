@@ -46,7 +46,7 @@ void RandomGenerator::generate_seeds(
 
 	Eigen::Vector3d y = axis.cross(x);
 
-		std::mt19937 gen(std::random_device{}());
+	std::mt19937 gen(std::random_device{}());
 	std::uniform_real_distribution<double> distAngle(0, 2 * M_PI);
 	std::uniform_real_distribution<double> distHeight(0, height);
 	std::uniform_real_distribution<double> distRadius(0, 1);

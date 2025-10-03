@@ -49,7 +49,6 @@ myGUI::myGUI(int width, int height) : width(width), height(height) {
 void myGUI::_init_opengl() {
 
 	//std::cout << "starting opengl" << std::endl;
-
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -420,7 +419,7 @@ void myGUI::run() {
 			showGrid = !showGrid;
 		}
 
-		if (ImGui::IsKeyPressed(ImGuiKey_G)) {
+		if (ImGui::IsKeyPressed(ImGuiKey_N)) {
 			showNormals = !showNormals;
 		}
 
@@ -1113,7 +1112,7 @@ void myGUI::_export_binary_image(
 	for (int i = 0; i < 3; i++)
 	{
 		dim[i] = static_cast<int>(
-			ceil((bounds[i * 2 + 1] - bounds[i * 2]) / spacing[i]));
+			std::ceil((bounds[i * 2 + 1] - bounds[i * 2]) / voxelSize));
 	}
 	blackImage->SetDimensions(dim);
 	blackImage->SetExtent(0, dim[0] - 1, 0, dim[1] - 1, 0, dim[2] - 1);
@@ -1136,8 +1135,8 @@ void myGUI::_export_binary_image(
 	// polygonal data --> image stencil:
 	vtkNew<vtkPolyDataToImageStencil> pol2stenc;
 	pol2stenc->SetInputData(scaffoldPolyData);
-	pol2stenc->SetOutputOrigin(origin);
-	pol2stenc->SetOutputSpacing(spacing);
+	pol2stenc->SetOutputOrigin(blackImage->GetOrigin());
+	pol2stenc->SetOutputSpacing(blackImage->GetSpacing());
 	pol2stenc->SetOutputWholeExtent(blackImage->GetExtent());
 	pol2stenc->Update();
 
@@ -1148,19 +1147,6 @@ void myGUI::_export_binary_image(
 	imgstenc->ReverseStencilOff();
 	imgstenc->SetBackgroundValue(backVal);
 	imgstenc->Update();
-
-	//// Overwrite "inside" with foreground value
-	//vtkImageData* result = imgstenc->GetOutput();
-	//unsigned char* ptr = static_cast<unsigned char*>(result->GetScalarPointer());
-	//vtkIdType nvox = result->GetNumberOfPoints();
-	//for (vtkIdType i = 0; i < nvox; ++i)
-	//{
-	//	// inside polydata
-	//	if (ptr[i] != backVal) {
-	//		std::cout << "Assign white" << std::endl;
-	//		ptr[i] = static_cast<unsigned char>(forVal);
-	//	}
-	//}
 
 	vtkNew<vtkMetaImageWriter> writer;
 	writer->SetFileName(filepath.c_str());
@@ -1774,7 +1760,6 @@ void myGUI::_action_generate_seeds() {
 						{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
 						cylinderRadius, zDim);
 				};
-
 			}
 
 			Poisson3D sg(
@@ -2077,13 +2062,13 @@ void myGUI::_render_visualizer() {
 
 		const float PAD = 10.0f;
 		ImVec2 window_pos, window_pos_pivot;
-		window_pos.x = framebuffer.posx + 0.77 * framebuffer.width;
-		window_pos.y = framebuffer.posy + 0.77 * framebuffer.height;
+		window_pos.x = framebuffer.posx + 0.82 * framebuffer.width;
+		window_pos.y = framebuffer.posy + 0.76 * framebuffer.height;
 
 		window_pos_pivot.x = 1.0f;
 		window_pos_pivot.y = 1.0f;
 		ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always);
-		ImGui::SetNextWindowSize(ImVec2(0.2f * framebuffer.width, 0.2f * framebuffer.height));
+		ImGui::SetNextWindowSize(ImVec2(0.15f * framebuffer.width, 0.23f * framebuffer.height));
 
 		//ImGui::SetNextWindowViewport(viewport->ID);
 		window_flags |= ImGuiWindowFlags_NoMove;
@@ -2092,17 +2077,17 @@ void myGUI::_render_visualizer() {
 		{
 			ImGui::Text("Mesh Details");
 			ImGui::Separator();
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Mesh Name: %s", scaffoldFileName.c_str());
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Mesh Vertices: %d", vertexNr);
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Mesh Faces: %d", faceNr);
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Volume: %.3f", scaffoldVolume);
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Porosity: %.3f", scaffoldPorosity);
-			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.9);
+			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Interconnectivity: %.3f", "-");
 			ImGui::End();
 		}
