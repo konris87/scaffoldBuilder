@@ -5,6 +5,7 @@
 #include <sstream>
 #include <iostream>
 #include <fstream>
+#include <chrono>
 #include "buildScaffold.h"
 #include <Optimization/bfgs.h>
 #include <Optimization/Objective.h>

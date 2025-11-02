@@ -5,8 +5,10 @@
 #include <fstream> 
 #include <json.hpp>
 #include <cmath>
-#include <functional>
 #include <filesystem>
+#include <chrono>
+#include <sstream>
+#include <iomanip> 
 
 // vtk
 #include <vtkBox.h>
@@ -20,6 +22,7 @@
 #include <vtkXMLPolyDataReader.h>
 #include <vtkDoubleArray.h>
 #include <vtkImageData.h>
+#include <vtkImageData.h>
 #include <vtkPolyDataToImageStencil.h>
 #include <vtkImageStencil.h>
 #include <vtkMetaImageWriter.h>
@@ -31,9 +34,9 @@
 #include "Utils/Utils.h"
 #include "ScaffoldGenerator/ScaffoldGenerator.h"
 #include "SeedGenerator/DistanceCalculator.h"
-#include "Model.h"
-#include "SeedGenerator/Random.h"
-#include "SeedGenerator/Poisson3D.h"
+#include "OpenGlRender/Model.h"
+//#include "SeedGenerator/Random.h"
+//#include "SeedGenerator/Poisson3D.h"
 #include "Logger/Logger.h"
 
 
@@ -99,9 +102,6 @@ void myGUI::_init_opengl() {
 	glfwPollEvents();
 	glfwSetCursorPos(window, width / 2, height / 2);
 
-	// scroll camera
-	//glfwSetScrollCallback(window, scroll_callback);
-
 	// Gray background color
 	glClearColor(fontColor[0], fontColor[1], fontColor[2], fontColor[3]);
 
@@ -112,7 +112,7 @@ void myGUI::_init_opengl() {
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	//glEnable(GL_CULL_FACE);
+	glEnable(GL_CULL_FACE);
 	
 	// load shaders
 	scaffoldShader = Shader(
@@ -131,12 +131,17 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(scaffoldShader, "objectColor");
 	uniManager.add_uniform(scaffoldShader, "lightPosWorld");
 	uniManager.add_uniform(scaffoldShader, "Ka");
+	uniManager.add_uniform(scaffoldShader, "Ks");
 
-	//// pass light
 	scaffoldShader.use();
+	// pass light
 	uniManager.setUniform(scaffoldShader, "lightColor", lightColor[0], lightColor[1], lightColor[2]);
-	uniManager.setUniform(scaffoldShader, "lightPosWorld", lightPosCamera[0], lightPosCamera[1], lightPosCamera[2]);
+	uniManager.setUniform(scaffoldShader,
+		"lightPosWorld", lightPosCamera[0], lightPosCamera[1], lightPosCamera[2]);
+	uniManager.setUniform(scaffoldShader,
+		"objectColor", scaffoldColor[0], scaffoldColor[1], scaffoldColor[2], scaffoldColor[3]);
 	uniManager.setUniform(scaffoldShader, "Ka", Ka);
+	uniManager.setUniform(scaffoldShader, "Ks", Ks);
 
 	normalShader = Shader(
 		"shaders/normalVShader.vs",
@@ -159,6 +164,7 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(edgeShader, "projection");
 	uniManager.add_uniform(edgeShader, "cutPlaneCoeffs");
 	uniManager.add_uniform(edgeShader, "cutPlane");
+	uniManager.add_uniform(edgeShader, "edgeColor");
 
 	gridShader = Shader(
 		"shaders/gridVShader.vs",
@@ -213,11 +219,6 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(containerShader, "lightPosWorld");
 	uniManager.add_uniform(containerShader, "Ka");
 
-	containerShader.use();
-	uniManager.setUniform(containerShader, "lightColor", lightColor[0], lightColor[1], lightColor[2]);
-	uniManager.setUniform(containerShader, "lightPosWorld", lightPosCamera[0], lightPosCamera[1], lightPosCamera[2]);
-	uniManager.setUniform(containerShader, "Ka", Ka);
-
 	frameShader = Shader(
 		std::filesystem::relative(std::filesystem::path("shaders/frameVShader.vs")).string().c_str(),
 		std::filesystem::relative(std::filesystem::path("shaders/frameFShader.fs")).string().c_str(),
@@ -243,6 +244,11 @@ void myGUI::_init_opengl() {
 
 	defCamera = new defaultCamera(window, 0.3f, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
 	trackCamera = std::make_unique<TrackBall>(window, sphereRadius, framebuffer.width, framebuffer.height, 0, 0);
+	
+	scaffoldShader.use();
+	Vec3 cameraPos = trackCamera->get_position();
+	uniManager.setUniform(scaffoldShader, "lightPosWorld", cameraPos.x, cameraPos.y, cameraPos.z);
+
 
 	// create frame buffer
 	create_frame_buffer(framebuffer);
@@ -310,7 +316,9 @@ void myGUI::run() {
 		glClearColor(fontColor[0], fontColor[1], fontColor[2], fontColor[3]);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-		_render_visualizer();
+		if (showVisualizer) {
+			_render_visualizer();
+		}
 
 		double xPos, yPos;
 		glfwGetCursorPos(window, &xPos, &yPos);
@@ -346,15 +354,23 @@ void myGUI::run() {
 			trackCamera->set_radius(sphereRadius);
 			//trackCamera->set_screen_size(0.3f * framebuffer.width, framebuffer.height, 0);
 			trackCamera->update();
-			//Vec3 cameraPos = trackCamera->get_position();
+			Vec3 cameraPos = trackCamera->get_position();
 			projection = trackCamera->get_projection_matrix();
 			view = trackCamera->get_view_matrix();
 			model = model;
 		}
 
 		scaffoldShader.use();
+		// pass light
+		uniManager.setUniform(scaffoldShader, "lightColor", lightColor[0], lightColor[1], lightColor[2]);
+		uniManager.setUniform(scaffoldShader, "lightPosWorld", lightPosCamera[0], lightPosCamera[1], lightPosCamera[2]);
+		//uniManager.setUniform(scaffoldShader, "lightPosWorld", cameraPos.x, cameraPos.y, cameraPos.z);
+		uniManager.setUniform(scaffoldShader, "Ka", Ka);
+		uniManager.setUniform(scaffoldShader, "Ks", Ks);
 
 		if (showCutPlane) {
+
+			glDisable(GL_CULL_FACE);
 
 			float offset = cutPlane->offset;
 			glm::vec3 normal = cutPlane->normal;
@@ -365,6 +381,8 @@ void myGUI::run() {
 
 			uniManager.setUniform(scaffoldShader, "cutPlane", 1);
 			uniManager.setUniform(scaffoldShader, "cutPlaneCoeffs", planeCoeffs);
+
+			glEnable(GL_CULL_FACE);
 		}
 		else {
 			uniManager.setUniform(scaffoldShader, "cutPlane", 0);
@@ -372,7 +390,6 @@ void myGUI::run() {
 
 		if (scaffoldReady) {
 
-			//if (scaffoldReady) {
 			scaffoldModel = std::make_unique<Model>(scaffoldPolyData);
 			scaffoldModel->get_details(faceNr, vertexNr, edgeNr, scaffoldVolume, scaffoldPorosity);
 			scaffoldPorosity = scaffoldVolume / domainVolume;
@@ -391,7 +408,8 @@ void myGUI::run() {
 			uniManager.setUniform(scaffoldShader, "projection", projection);
 			uniManager.setUniform(scaffoldShader, "view", view);
 			uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
-			uniManager.setUniform(scaffoldShader, "objectColor", scaffoldColor[0], scaffoldColor[1], scaffoldColor[2]);
+			uniManager.setUniform(
+				scaffoldShader, "objectColor", scaffoldColor[0], scaffoldColor[1], scaffoldColor[2], scaffoldColor[3]);
 			glEnable(GL_POLYGON_OFFSET_FILL);
 			glPolygonOffset(1.0f, 1.0f);
 			if (showScaffold) {
@@ -437,8 +455,33 @@ void myGUI::run() {
 			uniManager.setUniform(edgeShader, "projection", projection);
 			uniManager.setUniform(edgeShader, "view", view);
 			uniManager.setUniform(edgeShader, "model", model);
+			uniManager.setUniform(edgeShader, "edgeColor", 0.0f, 0.0f, 0.0f, 1.0f);
 			if (showScaffold) {
 				scaffoldModel->draw_edges();
+			}
+		}
+
+		if (showPoreNetwork) {
+
+			if (activePoreNetworkIndex != -1) {
+				auto pnw = &poreNetworkList[activePoreNetworkIndex];
+
+				glDepthFunc(GL_LEQUAL);
+				glLineWidth(renderSettings.poreNetworkLineSize);
+				edgeShader.use();
+				uniManager.setUniform(edgeShader, "projection", projection);
+				uniManager.setUniform(edgeShader, "view", view);
+				uniManager.setUniform(edgeShader, "model", model);
+				uniManager.setUniform(edgeShader, "cutPlane", 0);
+				uniManager.setUniform(
+					edgeShader,
+					"edgeColor",
+					renderSettings.poreNetworkColor[0], 
+					renderSettings.poreNetworkColor[1],
+					renderSettings.poreNetworkColor[2],
+					renderSettings.poreNetworkColor[3]
+				);
+				pnw->model->draw();
 			}
 		}
 
@@ -473,23 +516,37 @@ void myGUI::run() {
 			box->draw();
 		}
 
-		if (showContainer && containerModel) {
-			if (conOption == 0) {
+		if (showContainer) {
+			if (conOption == 0 || conOption == 1) {
+				//auto cb = static_cast<BoxContainer*>(container.obj);
 				bboxShader.use();
 				uniManager.setUniform(bboxShader, "projection", projection);
 				uniManager.setUniform(bboxShader, "view", view);
 				uniManager.setUniform(bboxShader, "model", model);
-				box->draw();
+				activeContainer->render();
 			}
-			else if (conOption == 2) {
+			else{
 				containerShader.use();
 				uniManager.setUniform(containerShader, "projection", projection);
 				uniManager.setUniform(containerShader, "view", view);
 				uniManager.setUniform(containerShader, "model", model);
+				containerShader.use();
+				uniManager.setUniform(containerShader, "lightColor", lightColor[0], lightColor[1], lightColor[2]);
+				uniManager.setUniform(containerShader, "lightPosWorld", lightPosCamera[0], lightPosCamera[1], lightPosCamera[2]);
+				uniManager.setUniform(containerShader, "Ka", Ka);
 				uniManager.setUniform(
 					containerShader, "objectColor",
 					containerColor[0], containerColor[1], containerColor[2], containerColor[3]);
-				containerModel->draw();
+				activeContainer->render();
+				//if (conOption == 1) {
+				//	//auto cc = static_cast<CylinderContainer*>(container.obj);
+				//	//cc->model->draw();
+				//	activeContainer->render();
+				//}
+				//else {
+				//	auto cc = static_cast<MeshContainer*>(container.obj);
+				//	cc->model->draw();
+				//}
 			}
 		}
 
@@ -518,9 +575,7 @@ void myGUI::run() {
 			
 			add_log(LogPriority::INFO, "Deleting everything!");
 
-			containerCenter[0] = 0.0;
-			containerCenter[1] = 0.0;
-			containerCenter[2] = 0.0;
+			container.obj = nullptr;
 			_update_cameras();
 			if (scaffoldModel) {
 				scaffoldModel->clean();
@@ -535,6 +590,9 @@ void myGUI::run() {
 				seedObj.reset();
 				showSeeds = false;
 			}
+
+			activePoreNetworkIndex = -1;
+			poreNetworkList.clear();
 			//if (glfwGetKey(window, GLFW_KEY_DELETE) == GLFW_RELEASE) {
 			//	add_log(LogPriority::INFO, "Deleting Everything");
 			//}
@@ -606,8 +664,6 @@ void myGUI::_render_settings_panel() {
 			// Process the file, open, load etc.
 			if (loadedMesh == scaffold) {
 
-				//scaffoldMesh = new Mesh(filePath);
-				//scaffoldModel = new Model(filePath);
 				scaffoldModel = std::make_unique<Model>(filePath);
 				xMin = scaffoldModel->xMin;
 				xMax = scaffoldModel->xMax;
@@ -621,12 +677,22 @@ void myGUI::_render_settings_panel() {
 
 				//scaffoldReady = true;
 				scaffoldFilePath = filePath;
-				float xc = static_cast<float>((xMax + xMin) * 0.5f);
-				float yc = static_cast<float>((yMax + yMin) * 0.5f);
-				float zc = static_cast<float>((zMax + zMin) * 0.5f);
-				containerCenter[0] = xc;
-				containerCenter[1] = yc;
-				containerCenter[2] = zc;
+				//float xc = static_cast<float>((xMax + xMin) * 0.5f);
+				//float yc = static_cast<float>((yMax + yMin) * 0.5f);
+				//float zc = static_cast<float>((zMax + zMin) * 0.5f);
+
+				//float dx = xMax - xMin;
+				//float dy = yMax - yMin;
+				//float dz = zMax - zMin;
+				//float diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
+				//float distance = 1.1f * diagonal;
+
+				//containerCenter[0] = xc;
+				//containerCenter[1] = yc;
+				//containerCenter[2] = zc;
+
+				//trackCamera->set_position(xc, yc, zc + distance);
+
 				// change camera target and camera position
 				_update_cameras();
 
@@ -827,94 +893,29 @@ void myGUI::_render_container_options(int& conOption) {
 
 		ImGui::RadioButton("Box Container", &conOption, 0);
 		ImGui::SameLine(); help_marker("An orthogonal box container");
-		if (conOption == 0) {
-			ImGui::InputFloat("x Dimensions", &xDim, 0.1f, 100.0f);
-			ImGui::SameLine(); help_marker("Dimension of Scaffold Along X");
-
-			ImGui::InputFloat("y Dimensions", &yDim, 0.1f, 100.0f);
-			ImGui::SameLine(); help_marker("Dimension of Scaffold Along Y.");
-
-			ImGui::InputFloat("z Dimensions", &zDim, 0.1f, 100.0f);
-			ImGui::SameLine(); help_marker("Dimension of Scaffold Along Z.");
-		}
 
 		ImGui::RadioButton("Cylindrical Container", &conOption, 1);
 		ImGui::SameLine(); help_marker("A cylindrical container, starting from (0, 0, 0). Select Axis, Radius. The Height depends on the Bounds");
 
-		if (conOption == 1) {
-			ImGui::RadioButton("X", &cylinderDir, 0);
-			ImGui::SameLine(); ImGui::RadioButton("Y", &cylinderDir, 1);
-			ImGui::SameLine(); ImGui::RadioButton("Z", &cylinderDir, 2);
-
-			if (cylinderDir == 0) {
-				cylinderAxis[0] = 1.0;
-				cylinderAxis[1] = 0.0;
-				cylinderAxis[2] = 0.0;
-				cylinderHeight = std::abs(xMax - xMin);
-			}
-			else if (cylinderDir == 1) {
-				cylinderAxis[0] = 0.0;
-				cylinderAxis[1] = 1.0;
-				cylinderAxis[2] = 0.0;
-				cylinderHeight = std::abs(yMax - yMin);
-			}
-			else if (cylinderDir == 2) {
-				cylinderAxis[0] = 0.0;
-				cylinderAxis[1] = 0.0;
-				cylinderAxis[2] = 1.0;
-				cylinderHeight = std::abs(zMax - zMin);
-			}
-
-			ImGui::InputDouble("Cylinder Radius", &cylinderRadius, 0.1, 0.0, "%.3f");
-			ImGui::SameLine(); help_marker("The radius of the cylinder.");
-			//ImGui::InputDouble("Cylinder Height", &cylinderHeight, 0.1, 1.0, "%.3f");
-			//ImGui::SameLine(); help_marker("The height of the cylinder.");
-		}
-
 		ImGui::RadioButton("STL Mesh", &conOption, 2);
 		ImGui::SameLine(); help_marker("A custom container geometry. In this case the bounding box of the mesh is used for the voro++ container and the scaffold is built inside the mesh domain");
 
-		if (conOption == 2) {
-
-			if (ImGuiFileDialog::Instance()->Display("Select STL Container")) {
-				if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
-					std::string filePathName = ImGuiFileDialog::Instance()->GetFilePathName();
-					containerFile = filePathName;
-					std::cout << containerFile << std::endl;
-
-					containerMesh = vtkSmartPointer<vtkPolyData>::New();
-					vtkSmartPointer<vtkSTLReader> reader = vtkSmartPointer<vtkSTLReader>::New();
-					reader->SetFileName(containerFile.c_str());
-					reader->Update();
-					containerMesh = reader->GetOutput();
-
-					double bounds[6];
-					containerMesh->GetBounds(bounds);
-					xMin = bounds[0] - 1.0;
-					xMax = bounds[1] + 1.0;
-					yMin = bounds[2] - 1.0;
-					yMax = bounds[3] + 1.0;
-					zMin = bounds[4] - 1.0;
-					zMax = bounds[5] + 1.0;
-
-					// set also the mesh center as the camera pos
-					float xc = (xMax + xMin) * 0.5f;
-					float yc = (yMax + yMin) * 0.5f;
-					float zc = (zMax + zMin) * 0.5f;
-					containerCenter[0] = xc;
-					containerCenter[1] = yc;
-					containerCenter[2] = zc;
-
-				}
-				ImGuiFileDialog::Instance()->Close();
+		if (conOption != prevConOption) {
+			switch(conOption){
+			case 0: {
+				activeContainer = &boxContainer; 
+				break;
 			}
-			select_file_button("Select Geometry File", "../data/", "Select STL Container", ".stl");
-			ImGui::InputInt("Neighbors", &neighbors, 1, 100);
-			ImGui::InputFloat("Wall Resolution", &wallResolution, 0.1f, 5.0f);
+			case 1: activeContainer = &cylContainer; break;
+			case 2: activeContainer = &meshContainer; break;
+			}
+			activeContainer->create();
+			_update_cameras();
+			prevConOption = conOption;
 		}
+		activeContainer->gui_setup();
 	}
 	ImGui::End();
-		
 };
 
 //void myGUI::framebuffer_size_callback_imp(int width, int height) {
@@ -923,13 +924,28 @@ void myGUI::_render_container_options(int& conOption) {
 //};
 
 void myGUI::_update_cameras() {
+
+	float xc = static_cast<float>((xMax + xMin) * 0.5f);
+	float yc = static_cast<float>((yMax + yMin) * 0.5f);
+	float zc = static_cast<float>((zMax + zMin) * 0.5f);
+
+	float dx = xMax - xMin;
+	float dy = yMax - yMin;
+	float dz = zMax - zMin;
+	float diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
+	float distance = 1.1f * diagonal;
+
+	container.center[0] = xc;
+	container.center[1] = yc;
+	container.center[2] = zc;
+
 	cameraUpdate = true;
-	cameraTarget = glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]);
-	cameraPos = cameraTarget - 20.0f * glm::vec3(0.0f, 0.0f, 1.0f);
+	cameraTarget = glm::vec3(container.center[0], container.center[1], container.center[2]);
 	defCamera->position = cameraPos;
 	defCamera->target = cameraTarget;
 	//trackCamera->position = cameraPos;
 	trackCamera->set_target(cameraTarget.x, cameraTarget.y, cameraTarget.z);
+	trackCamera->set_position(xc, yc, zc + distance);
 	trackCamera->update();
 	projection = trackCamera->get_projection_matrix();
 	view = trackCamera->get_view_matrix();
@@ -938,80 +954,18 @@ void myGUI::_update_cameras() {
 
 void myGUI::_update_bounds_center(int& conOption) {
 
-	if (conOption == 0 ) {
-		xMin = 0.0;
-		xMax = xDim;
-		yMin = 0.0;
-		yMax = yDim;
-		zMin = 0.0;
-		zMax = zDim;
+	const Bounds bounds = activeContainer->compute_bounds();
 
-		containerCenter[0] = xDim / 2.0f;
-		containerCenter[1] = yDim / 2.0f;
-		containerCenter[2] = zDim / 2.0f;
-	}
+	xMin = bounds.xMin; xMax = bounds.xMax;
+	yMin = bounds.yMin; yMax = bounds.yMax;
+	zMin = bounds.zMin; zMax = bounds.zMax;
 
-	else if (conOption == 1) {
-
-		// if the cylinder is along the x axis
-		if (cylinderDir == 0) {
-
-			xMin = 0.0;
-			xMax = xDim;
-			yMin = -cylinderRadius;
-			yMax = cylinderRadius;
-			zMin = -cylinderRadius;
-			zMax = cylinderRadius;
-
-			containerCenter[0] = xDim * 0.5;
-			containerCenter[1] = 0.0;
-			containerCenter[2] = 0.0;
-		}
-		else if (cylinderDir == 1) {
-
-			xMin = -cylinderRadius;
-			xMax = cylinderRadius;
-			yMin = 0.0;
-			yMax = yDim;
-			zMin = -cylinderRadius;
-			zMax = cylinderRadius;
-
-			containerCenter[0] = 0.0;
-			containerCenter[1] = yDim * 0.5;
-			containerCenter[2] = 0.0;
-		}
-		else if (cylinderDir == 2) {
-
-			xMin = -cylinderRadius;
-			xMax = cylinderRadius;
-			yMin = -cylinderRadius;
-			yMax = cylinderRadius;
-			zMin = 0.0;
-			zMax = zDim;
-
-			containerCenter[0] = 0.0;
-			containerCenter[1] = 0.0;
-			containerCenter[2] = zDim * 0.5;
-		}
-	}
-
-	else if(conOption == 2) {
-
-		double bounds[6];
-		containerMesh->GetBounds(bounds);
-
-		xMin = bounds[0];
-		xMax = bounds[1];
-		yMin = bounds[2];
-		yMax = bounds[3];
-		zMin = bounds[4];
-		zMax = bounds[5];
-
-		containerCenter[0] = static_cast<double>((xMin + xMax) * 0.5f);
-		containerCenter[1] = static_cast<double>((yMin + yMax) * 0.5f);
-		containerCenter[2] = static_cast<double>((zMin + zMax) * 0.5f);
-	}
-}
+	container.center = {
+		static_cast<double>(bounds.center[0]),
+		static_cast<double>(bounds.center[1]),
+		static_cast<double>(bounds.center[2]),
+	};
+};
 
 void myGUI::_render_mesh_settings() {
 
@@ -1035,7 +989,6 @@ void myGUI::_render_mesh_settings() {
 
 				if (picked == 0) {
 					ImGui::Text("Resolution Settings");
-					ImGui::Checkbox("Custom", &customResolutionFlag);
 					ImGui::InputInt("x Res", &resolution[0]);
 					ImGui::InputInt("y Res", &resolution[1]);
 					ImGui::InputInt("z Res", &resolution[2]);
@@ -1287,6 +1240,17 @@ void myGUI::_render_main_menu_bar() {
 				showContainer = !showContainer;
 			}
 
+			if (ImGui::MenuItem("Show Pore Network", NULL, showPoreNetwork)) {
+				showPoreNetwork = !showPoreNetwork;
+			}
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Window")) {
+			if (ImGui::MenuItem("Visualizer Window", NULL, showVisualizer)) {
+				showVisualizer = !showVisualizer;
+			}
 			ImGui::EndMenu();
 		}
 
@@ -1344,10 +1308,10 @@ void myGUI::_render_main_menu_bar() {
 					showCutPlane = true;
 					//cutPlane = new CutPlane(5.0f);
 					cutPlane = std::make_unique<CutPlane>(5.0f);
-					cutPlane->center = glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]);
+					cutPlane->center = glm::vec3(container.center[0], container.center[1], container.center[2]);
 					cutPlane->initMatrix = glm::translate(
 						glm::mat4(1.0),
-						glm::vec3(containerCenter[0], containerCenter[1], containerCenter[2]));
+						glm::vec3(container.center[0], container.center[1], container.center[2]));
 				}
 			}
 
@@ -1357,6 +1321,14 @@ void myGUI::_render_main_menu_bar() {
 		if (ImGui::Button("Generate Seeds")) {
 
 			_action_generate_seeds();
+		}
+
+		if (ImGui::Button("Update Voronoi")) {
+			_action_update_voronoi();
+		}
+
+		if (ImGui::Button("Estimate Threshold")) {
+			_action_estimate_connectivity();
 		}
 
 		if (ImGui::Button("Create Scaffold")) {
@@ -1375,9 +1347,29 @@ void myGUI::_render_main_menu_bar() {
 				scaffoldReady = false;
 
 				scaffoldGenerationThread = std::thread([this]() {
+
+					// keep time
+					auto start_time = std::chrono::steady_clock::now();
+
 					scaffoldProgress = 0.0f;
 					_action_generate_scaffold();
 					scaffoldReady = true;
+
+					// --- TIMER END & LOGGING ---
+					auto end_time = std::chrono::steady_clock::now();
+
+					// Calculate the duration in milliseconds
+					auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
+					// Format the output string
+					std::ostringstream oss;
+					oss << "Scaffold creation finished in "
+						<< std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+						<< duration_ms.count() / 1000.0   // Convert ms to seconds
+						<< " seconds.";
+
+					// Add the formatted string to your log
+					add_log(LogPriority::INFO, oss.str());
 				});
 			}			
 		}
@@ -1406,6 +1398,7 @@ void myGUI::_render_display_settings() {
 			if (ImGui::Selectable("Lighting", pickedItem == 3)) pickedItem = 3;
 			if (ImGui::Selectable("Linear Function", pickedItem == 4)) pickedItem = 4;
 			if (ImGui::Selectable("Container", pickedItem == 5)) pickedItem = 5;
+			if (ImGui::Selectable("Pore Network", pickedItem == 6)) pickedItem = 6;
 			ImGui::EndChild();
 		}
 		ImGui::SameLine();
@@ -1418,12 +1411,12 @@ void myGUI::_render_display_settings() {
 
 				if (pickedItem == 0) {
 					ImGui::Text("Mesh Settings");
-					ImGui::ColorEdit3("Mesh Color", (float*)&scaffoldColor);
+					ImGui::ColorEdit4("Mesh Color", (float*)&scaffoldColor);
 				}
 				else if (pickedItem == 1) {
 					ImGui::Text("Seed Settings");
 					ImGui::ColorEdit3("Seed Color", (float*)&seedColor);
-					ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
+					ImGui::InputFloat("Point Size", &seedSize, 0.001f, 1.0f);
 				}
 				else if (pickedItem == 2) {
 					ImGui::Text("Grid Settings");
@@ -1436,9 +1429,8 @@ void myGUI::_render_display_settings() {
 					ImGui::ColorEdit3("Light Color", (float*)&lightColor);
 					ImGui::ColorEdit3("Font Color", (float*)&fontColor);
 					ImGui::ColorEdit3("Normal Color", (float*)&normalColor);
-					ImGui::InputFloat("Ambient Strength", &Ka);
-					ImGui::InputFloat("Specular Strength", &Ks);
-					//ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
+					ImGui::InputFloat("Ambient Strength", &Ka, 0.01f, 100.0f);
+					ImGui::InputFloat("Specular Strength", &Ks, 0.01f, 100.0f);
 				}
 				else if (pickedItem == 4) {
 					ImGui::Text("Linear Function Settings");
@@ -1447,6 +1439,12 @@ void myGUI::_render_display_settings() {
 				if (pickedItem == 5) {
 					ImGui::Text("Container Settings");
 					ImGui::ColorEdit4("Container Color", (float*)&containerColor);
+				}
+
+				if (pickedItem == 6) {
+					ImGui::Text("Pore Network Display Settings");
+					ImGui::ColorEdit4("Line Color", renderSettings.poreNetworkColor.data());
+					ImGui::InputFloat("Line Size", &renderSettings.poreNetworkLineSize, 0.1f);
 				}
 
 				ImGui::EndChild();
@@ -1531,26 +1529,36 @@ void myGUI::_render_seed_generator() {
 
 			ImGui::RadioButton("Uniform Radius", &radiusOpt, 0);
 			if (radiusOpt == 0) {
+				ImGui::SetNextItemWidth(200);
 				ImGui::InputFloat("Radius", &rMin);
 			}
 
 			ImGui::RadioButton("Varied Radius", &radiusOpt, 1);
 
 			if (radiusOpt == 1) {
+				ImGui::SetNextItemWidth(200);
 				ImGui::InputFloat("Min Radius", &rMin);
+				ImGui::SetNextItemWidth(200);
 				ImGui::InputFloat("Max Radius", &rMax);
 				if (ImGui::TreeNode("Distance Metric")) {
 					ImGui::RadioButton("Distance From Plane", &distFunc, 0);
 					ImGui::SameLine();
 					help_marker("Estimate radius function as distance from a plane!");
 					if (distFunc == 0) {
+						ImGui::SetNextItemWidth(200);
 						ImGui::InputFloat3("Normal", distPlaneNormal);
+						ImGui::SetNextItemWidth(200);
 						ImGui::InputFloat3("Center", distPlaneCenter);
 					};
 					ImGui::RadioButton("Distance From Mesh Face", &distFunc, 1);
 					ImGui::SameLine();
 					help_marker("Estimate radius function as distance from the container face!");
+
 					ImGui::RadioButton("Distance From Point", &distFunc, 2);
+					if (distFunc == 2) {
+						ImGui::SetNextItemWidth(200);
+						ImGui::InputFloat3("Point", distPoint);
+					}
 					ImGui::SameLine();
 					help_marker("Estimate radius function as distance from a single point!");
 					ImGui::TreePop();
@@ -1629,11 +1637,18 @@ void myGUI::_render_scaffold_settings() {
 		ImGui::InputInt("Regularization Steps", &regSteps, 1, 1000);
 		ImGui::SameLine(); help_marker("More regularization steps lead to a more regular voronoi grid");
 
+		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat("Thickness", &thickness, 0.1f, 1.0f, "%.3f");
 		ImGui::SameLine(); help_marker("Thickness of Scaffold");
 
-		ImGui::InputDouble("Hole Scale Factor", &scaleFactor, 0.1, 0.99, "%.3f");
-		ImGui::SameLine(); help_marker("To create holes to each face we estimate the maximum inscribed circle, this factor scales its radius. Default value is 0.5");
+		ImGui::SetNextItemWidth(200);
+		ImGui::SliderFloat("Connectivity Threshold", &connectivityThreshold, 0.0f, 1.0f, "%.3f");
+		ImGui::SameLine(); help_marker("0 full face open - 1 maximum pullback");
+
+		connectivityThreshold = std::clamp(connectivityThreshold, 0.001f, 0.999f);
+
+		//ImGui::InputDouble("Hole Scale Factor", &scaleFactor, 0.1, 0.99, "%.3f");
+		//ImGui::SameLine(); help_marker("To create holes to each face we estimate the maximum inscribed circle, this factor scales its radius. Default value is 0.5");
 	}
 	ImGui::End();
 };
@@ -1646,373 +1661,626 @@ void myGUI::_action_generate_seeds() {
 	// decide boundaries and center of domain
 	_update_bounds_center(conOption);
 
-	if (radiusOpt == 0) {
-		rMax = rMin;
+	std::array<float, 6> bounds = { xMin, xMax, yMin, yMax, zMin, zMax };
+
+	ContainerAdapter adapter = { *activeContainer, xDim, yDim, zDim };
+
+	// the configuration struct
+	RunConfig cfg;
+
+	// decide the message to the console
+	switch (conOption) {
+	case 0: {
+		suffix = "Inside Box.";
+		break;
 	}
-
-	// check if distance function is defined from a plane
-	if (distFunc == 0) {
-
-		planeDistance = PlaneDistEstimator(
-			{ distPlaneCenter[0], distPlaneCenter[1], distPlaneCenter[2] },
-			{ distPlaneNormal[0], distPlaneNormal[1], distPlaneNormal[2] });
+	case 1: {
+		suffix = "Inside Cylinder.";
+		break;
 	}
-
-	// or from the container surface
-	else if (distFunc == 1) {
-
-		// if conOption is just a box
-		if (conOption == 0) {
-			vtkSmartPointer<vtkBox> box = vtkSmartPointer<vtkBox>::New();
-			std::cout << xMin << " " << xMax << std::endl;
-			box->SetBounds(xMin, xMax, yMin, yMax, zMin, zMax);
-			containerDistance = ImplicitFunctionDistEstimator(box);
-		}
-		else if (conOption == 1) {
-			vtkSmartPointer<vtkCylinder> cylinder = vtkSmartPointer<vtkCylinder>::New();
-			cylinder->SetRadius(cylinderRadius);
-
-			double center[3] = {
-				cylinderHeight * cylinderAxis[0] * 0.5,
-				cylinderHeight * cylinderAxis[1] * 0.5,
-				cylinderHeight * cylinderAxis[2] * 0.5,
-			};
-
-			std::cout << "Center: " << center[0] << " " << center[1] << " " << center[2] << std::endl;
-
-			cylinder->SetCenter(center);
-
-			double axis[3] = {
-				cylinderAxis[0], cylinderAxis[1], cylinderAxis[2]
-			};
-			cylinder->SetAxis(axis);
-			containerDistance = ImplicitFunctionDistEstimator(cylinder);
-		}
-		else {
-			meshDistance = MeshDistEstimator(containerMesh);
-		}
+	case 2: {
+		suffix = "Inside Mesh Container.";
+		break;
 	}
+	};
 
-	// Random seed generation
+	// just random
 	if (generateOption == 0) {
 
-		if (conOption == 0) {
+		add_log(LogPriority::INFO, "Generating Random Seeds " + suffix);
 
-			add_log(LogPriority::INFO, "Generating Random Seeds Inside Box.");
-			RandomGenerator rg(
-				{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
-			);
-			rg.generate_seeds();
-			_update_cameras();
-			rg.get_seeds(seeds);
-		}
-		else if (conOption == 1) {
+		// create the seeds using the adapter
+		Random rnd(seedNr);
+		rnd.run(adapter, seeds);
+		_update_cameras();
+	}
+	else {
+		// uniform sampling
+		if (radiusOpt == 0) {
 
-			add_log(LogPriority::INFO, "Generating Random Seeds Inside Cylinder.");
-			RandomGenerator rg(
-				{ xMin, xMax, yMin, yMax, zMin, zMax }, seedNr
-			);
-			rg.generate_seeds(
-				{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
-				{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
-				cylinderRadius);
+			add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D " + suffix);
+
+			// create the generator
+			Poisson3D gnr(rMin, rMax, { container.center[0], container.center[1], container.center[2] }, 30);
+			gnr.run(adapter, seeds);
 			_update_cameras();
-			rg.get_seeds(seeds);
 		}
+		// varied sampling
 		else {
 
-			add_log(LogPriority::INFO, "Generating Random Seeds Inside Mesh Container.");
+			// get the distance from container
+			switch (radiusFunc) {
+			// linear radius function
+			case 0: {
+				cfg.rad = std::make_shared<LinearFunction>();
+				break;
+				}
+			case 1: {
+				//cfg.rad = std::make_shared<QuadraticFunction>();
+				break;
+				}
+			case 2: {
+				cfg.rad = std::make_shared<ConstantRadiusFunction>();
+				break;
+				}
+			}
 
-			RandomGeneratorWall sg(seedNr, containerMesh);
-			sg.generate_seeds();
+			add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D " + suffix);
+
+			Poisson3D gnr(rMin, rMax, { container.center[0], container.center[1], container.center[2] }, 30);
+			
+			switch (distFunc) {
+			// distance from plane
+			case 0: {
+				std::array<double, 3> center = { distPlaneCenter[0], distPlaneCenter[1], distPlaneCenter[2] };
+				std::array<double, 3> normal = { distPlaneNormal[0], distPlaneNormal[1], distPlaneNormal[2] };
+				cfg.dist = std::make_shared<PlaneDistEstimator>(center, normal);
+				break;
+				}
+			// distance from container surface
+			case 1: {
+				cfg.dist = activeContainer->get_distance_estimator();
+				break;
+				}
+			// distance from point
+			case 2: {
+
+				std::array<double, 3> point = {
+					distPoint[0], distPoint[1], distPoint[2]
+				};
+
+				cfg.dist = std::make_shared<PointDistEstimator>(point);
+				break; 
+				}
+			}
+			
+			gnr.run(adapter, seeds, cfg);
 			_update_cameras();
-			sg.get_seeds(seeds);
 		}
 	}
 
-	// Poisson 3D seed generation
-	else if (generateOption == 1) {
+	//if (radiusOpt == 0) {
+	//	rMax = rMin;
+	//}
 
-		if (conOption == 0 || conOption == 1) {
-			// determine function to check if a point is inside a container
-			std::function<bool(const std::array<double, 3>&)> inside_check;
+	//// check if distance function is defined from a plane
+	//if (distFunc == 0) {
 
-			// a string to print messages
-			std::string suffix{ "" };
+	//	planeDistance = PlaneDistEstimator(
+	//		{ distPlaneCenter[0], distPlaneCenter[1], distPlaneCenter[2] },
+	//		{ distPlaneNormal[0], distPlaneNormal[1], distPlaneNormal[2] });
+	//}
 
-			if (conOption == 0) {
+	//// or from the container surface
+	//else if (distFunc == 1) {
 
-				suffix += " inside a Box.";
 
-				inside_check = [&](const std::array<double, 3>& pt) {
-					return is_inside_box(pt, { xMin, xMax, yMin, yMax, zMin, zMax });
-				};
+	//	switch (conOption) {
+	//	case 0: {
+	//		vtkSmartPointer<vtkBox> box = vtkSmartPointer<vtkBox>::New();
+	//		box->SetBounds(xMin, xMax, yMin, yMax, zMin, zMax);
+	//		containerDistance = ImplicitFunctionDistEstimator(box);
+	//		break;
+	//	}
+	//	case 1: {
+	//		vtkSmartPointer<vtkCylinder> cylinder = vtkSmartPointer<vtkCylinder>::New();
+	//		cylinder->SetRadius(cylinderRadius);
+	//		
+	//		break;
+	//	}
+	//	case 2: {
 
-			}
-			else if (conOption == 1) {
+	//		break;
+	//	}
 
-				suffix += " inside a Cylinder.";
 
-				inside_check = [&](const std::array<double, 3>& pt) {
-					return is_inside_cylinder(
-						pt,
-						{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
-						{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
-						cylinderRadius, zDim);
-				};
-			}
+	//	// if conOption is just a box
+	//	if (conOption == 0) {
+	//		vtkSmartPointer<vtkBox> box = vtkSmartPointer<vtkBox>::New();
+	//		box->SetBounds(xMin, xMax, yMin, yMax, zMin, zMax);
+	//		containerDistance = ImplicitFunctionDistEstimator(box);
+	//	}
+	//	else if (conOption == 1) {
+	//		vtkSmartPointer<vtkCylinder> cylinder = vtkSmartPointer<vtkCylinder>::New();
+	//		cylinder->SetRadius(cylinderRadius);
 
-			Poisson3D sg(
-				rMin, rMax,
-				{ containerCenter[0], containerCenter[1], containerCenter[2] },
-				{ 0, xDim, 0.0, yDim, 0.0, zDim },
-				inside_check
-			);
+	//		double center[3] = {
+	//			cylinderHeight * cylinderAxis[0] * 0.5,
+	//			cylinderHeight * cylinderAxis[1] * 0.5,
+	//			cylinderHeight * cylinderAxis[2] * 0.5,
+	//		};
 
-			if (radiusOpt == 0) {
-				add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D " + suffix);
-				sg.generate_seeds();
-			}
-			else if (radiusOpt == 1 && distFunc == 0) {
-				//std::cout << "generating with Poisson 3D and dist from plane" << std::endl;
-				std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from plane.";
-				add_log(LogPriority::INFO, tag);
-				sg.generate_seeds(planeDistance, linearFunc);
-			}
-			else if (radiusOpt == 1 && distFunc == 1) {
-				std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from mesh outer face.";
-				add_log(LogPriority::INFO, tag);
-				sg.generate_seeds(containerDistance, linearFunc);
-			}
-			_update_cameras();
-			sg.get_seeds(seeds);
-		}
+	//		std::cout << "Center: " << center[0] << " " << center[1] << " " << center[2] << std::endl;
 
-		// Poisson 3d inside a container
-		if (conOption == 2) {
-			Poisson3DWall sg(containerMesh, rMin, rMax, neighbors, { 10, 10, 10 }, wallResolution);
-			if (radiusOpt == 0) {
-				add_log(LogPriority::INFO, "Generating seeds using Uniform Poisson 3D inside Mesh Container");
-				sg.generate_seeds();
-			}
-			else if (radiusOpt == 1 && distFunc == 0) {
-				add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from plane.");
-				sg.generate_seeds(planeDistance, linearFunc);
-			}
-			else if (radiusOpt == 1 && distFunc == 1) {
-				add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from mesh outer face.");
-				std::cout << "generating with Poisson 3D and dist from mesh" << std::endl;
-				sg.generate_seeds(meshDistance, linearFunc);
-			}
-			_update_cameras();
-			sg.get_radii(radii);
-			sg.get_seeds(seeds);
-		}
-	}
+	//		cylinder->SetCenter(center);
+
+	//		double axis[3] = {
+	//			cylinderAxis[0], cylinderAxis[1], cylinderAxis[2]
+	//		};
+	//		cylinder->SetAxis(axis);
+	//		containerDistance = ImplicitFunctionDistEstimator(cylinder);
+	//	}
+	//	else {
+	//		meshDistance = MeshDistEstimator(containerMesh);
+	//	}
+	//}
+
+	//// Random seed generation
+	//if (generateOption == 0) {
+
+	//	if (conOption == 0) {
+
+	//		inside_check = [&](const std::array<double, 3>& pt) {
+	//			return is_inside_box(pt, bounds);
+	//		};
+
+	//		add_log(LogPriority::INFO, "Generating Random Seeds Inside Box.");
+	//		auto rg = std::make_unique<RandomGenerator>(
+	//			bounds, seedNr
+	//		);
+	//		//rg.generate_seeds();
+	//		//_update_cameras();
+	//		//rg.get_seeds(seeds);
+	//		seedGenerator = std::move(rg);
+	//	}
+
+	//	else if (conOption == 1) {
+
+	//		auto cc = static_cast<CylinderContainer*>(container.obj);
+
+	//		inside_check = [&](const std::array<double, 3>& pt) {
+	//			return is_inside_cylinder(
+	//				pt,
+	//				{ cc->cylinderPt[0], cc->cylinderPt[1], cc->cylinderPt[2] },
+	//				{ cc->cylinderAxis[0], cc->cylinderAxis[1], cc->cylinderAxis[2] },
+	//				cc->cylinderRadius, zDim);
+	//		};
+
+	//		add_log(LogPriority::INFO, "Generating Random Seeds Inside Cylinder.");
+	//		auto rg = std::make_unique<RandomGeneratorCylinder>(
+	//			bounds, seedNr
+	//		);
+	//		//rg.generate_seeds(
+	//		//	{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
+	//		//	{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
+	//		//	cylinderRadius);
+	//		_update_cameras();
+	//		//rg.get_seeds(seeds);
+	//		seedGenerator = std::move(rg);
+	//	}
+	//	else {
+
+	//		add_log(LogPriority::INFO, "Generating Random Seeds Inside Mesh Container.");
+	//		auto con = static_cast<MeshContainer*>(container.obj);
+	//		auto rg = std::make_unique<RandomGeneratorWall>(seedNr, con->containerMesh);
+	//		_update_cameras();
+	//	}
+	//}
+
+	//// Poisson 3D seed generation
+	//else if (generateOption == 1) {
+
+	//	if (conOption == 0 || conOption == 1) {
+
+	//		// a string to print messages
+	//		std::string suffix{ "" };
+
+	//		if (conOption == 0) {
+
+	//			suffix += " inside a Box.";
+
+	//			inside_check = [&](const std::array<double, 3>& pt) {
+	//				return is_inside_box(pt, { xMin, xMax, yMin, yMax, zMin, zMax });
+	//			};
+
+	//		}
+	//		else if (conOption == 1) {
+
+	//			suffix += " inside a Cylinder.";
+
+	//			inside_check = [&](const std::array<double, 3>& pt) {
+	//				return is_inside_cylinder(
+	//					pt,
+	//					{ cylinderPt[0], cylinderPt[1], cylinderPt[2] },
+	//					{ cylinderAxis[0], cylinderAxis[1], cylinderAxis[2] },
+	//					cylinderRadius, zDim);
+	//			};
+	//		}
+
+	//		Poisson3D sg(
+	//			rMin, rMax,
+	//			{ containerCenter[0], containerCenter[1], containerCenter[2] },
+	//			{ 0, xDim, 0.0, yDim, 0.0, zDim },
+	//			inside_check
+	//		);
+
+	//		if (radiusOpt == 0) {
+	//			add_log(LogPriority::INFO, "Generating Seeds Using Uniform Poisson 3D " + suffix);
+	//			sg.generate_seeds();
+	//		}
+	//		else if (radiusOpt == 1 && distFunc == 0) {
+	//			//std::cout << "generating with Poisson 3D and dist from plane" << std::endl;
+	//			std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from plane.";
+	//			add_log(LogPriority::INFO, tag);
+	//			sg.generate_seeds(planeDistance, linearFunc);
+	//		}
+	//		else if (radiusOpt == 1 && distFunc == 1) {
+	//			std::string tag = "Generating Seeds Using Varied Poisson 3D " + suffix + " Distance is measured from mesh outer face.";
+	//			add_log(LogPriority::INFO, tag);
+	//			sg.generate_seeds(containerDistance, linearFunc);
+	//		}
+	//		_update_cameras();
+	//		sg.get_seeds(seeds);
+	//		if (!seeds.empty()) {
+	//			seedNr = seeds.size();
+	//		}
+	//	}
+
+	//	// Poisson 3d inside a container
+	//	if (conOption == 2) {
+	//		Poisson3DWall sg(containerMesh, rMin, rMax, neighbors, { 10, 10, 10 }, wallResolution);
+	//		if (radiusOpt == 0) {
+	//			add_log(LogPriority::INFO, "Generating seeds using Uniform Poisson 3D inside Mesh Container");
+	//			sg.generate_seeds();
+	//		}
+	//		else if (radiusOpt == 1 && distFunc == 0) {
+	//			add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from plane.");
+	//			sg.generate_seeds(planeDistance, linearFunc);
+	//		}
+	//		else if (radiusOpt == 1 && distFunc == 1) {
+	//			add_log(LogPriority::INFO, "Generating Seeds Using Varied Poisson 3D Inside Mesh Container. Distance is measured from mesh outer face.");
+	//			std::cout << "generating with Poisson 3D and dist from mesh" << std::endl;
+	//			sg.generate_seeds(meshDistance, linearFunc);
+	//		}
+	//		_update_cameras();
+	//		sg.get_radii(radii);
+	//		sg.get_seeds(seeds);
+	//		if (!seeds.empty()) {
+	//			seedNr = seeds.size();
+	//		}
+	//	} 
+	//}
+	//seedGenerator->run_generate_seeds();
+	//seedGenerator->run_get_seeds(seeds);
 
 	// create a bounding box
-	//box = new BBox(xMin, xMax, yMin, yMax, zMin, zMax);
-	box = std::make_unique<BBox>(xMin, xMax, yMin, yMax, zMin, zMax);
 
 	// create the container if it is a mesh
-	if (conOption == 2) {
-		//containerModel = new Model(containerFile);
-		containerModel = std::make_unique<Model>(containerFile);
-	}
+	//if (conOption == 2) {
+	//	//containerModel = new Model(containerFile);
+	//	container.model = std::make_unique<Model>(containerFile);
+	//}
 
 	//seedObj = new VisualizeSeeds(seeds);
-	seedObj = std::make_unique<VisualizeSeeds>(seeds);
-	showSeeds = true;
+seedObj = std::make_unique<VisualizeSeeds>(seeds);
+showSeeds = true;
 
-	add_log(LogPriority::SUCCESS, "Seeds are ready.");
+add_log(LogPriority::SUCCESS, "Seeds are ready.");
+};
+
+void myGUI::_action_update_voronoi() {
+
+	if (seeds.empty()) {
+		add_log(LogPriority::ERROR, "First Populate Seeds!");
+		return;
+	}
+
+	//switch (conOption) {
+	//default:
+	//	domainVolume = (xDim - 2.0f * thickness) * (yDim - 2.0f * thickness) * (zDim - 2.0f * thickness);
+	//	break;
+	//case 1:
+	//	domainVolume = std::pow(cylinderRadius, 2) * 3.14f * cylinderHeight;
+	//	break;
+	//case 2:
+	//	vtkNew<vtkMassProperties> massProperties;
+	//	massProperties->SetInputData(containerMesh);
+	//	massProperties->Update();
+	//	domainVolume = massProperties->GetVolume();
+	//	break;
+	//}
+
+	//std::cout << "Domain Volume: " << domainVolume << std::endl;
+
+	if (!runVolumeOptimization) {
+
+		Bounds bounds = activeContainer->compute_bounds();
+
+		std::array<float, 6> bnds{
+				static_cast<float>(bounds.xMin),
+				static_cast<float>(bounds.xMax),
+				static_cast<float>(bounds.yMin),
+				static_cast<float>(bounds.yMax),
+				static_cast<float>(bounds.zMin),
+				static_cast<float>(bounds.zMax)
+		};
+
+		std::array<int, 3> blockDim{ nX, nY, nZ };
+
+		switch (conOption){
+			case 0: {
+				auto* box = dynamic_cast<const BoxContainer*>(activeContainer);
+				
+				domainVolume = (
+					box->xDim - 2.0f * thickness) * 
+					(box->yDim - 2.0f * thickness) *
+					(box->zDim - 2.0f * thickness);
+
+				auto sgb = std::make_unique<ScaffoldGeneratorBox>(
+					seeds, bnds, blockDim, thickness, connectivityThreshold, box->is_inside()
+				);
+
+				generator = std::move(sgb);
+				_update_cameras();
+
+				//add_log(LogPriority::INFO, "Generating scaffold inside rectangular container. Please wait...");
+				break;
+			}
+			case 1: {
+
+				auto* cylinder = dynamic_cast<const CylinderContainer*>(activeContainer);
+				
+				auto sgb = std::make_unique<ScaffoldGeneratorBox>(
+					seeds, bnds, blockDim, thickness, connectivityThreshold, cylinder->is_inside()
+				);
+
+				sgb->add_cylindrical_wall(
+					cylinder->cylinderPt[0], cylinder->cylinderPt[1], cylinder->cylinderPt[2],
+					cylinder->cylinderAxis[0], cylinder->cylinderAxis[1], cylinder->cylinderAxis[2],
+					cylinder->cylinderRadius
+				);
+
+				domainVolume = std::pow(cylinder->cylinderRadius, 2) * 3.14f * cylinder->cylinderHeight;
+				
+				generator = std::move(sgb);
+				_update_cameras();
+				break;
+			}
+			case 2: {
+
+				auto* mesh = dynamic_cast<const MeshContainer*>(activeContainer);
+
+				vtkSmartPointer<vtkPolyData> container = mesh->containerMesh;
+
+				auto sgb = std::make_unique<ScaffoldGeneratorWall>(
+					seeds,
+					container,
+					blockDim,
+					mesh->neighbors,
+					wallResolution,
+					thickness,
+					connectivityThreshold,
+					mesh->is_inside()
+				);
+
+				vtkNew<vtkMassProperties> massProperties;
+				massProperties->SetInputData(mesh->containerMesh);
+				massProperties->Update();
+				domainVolume = massProperties->GetVolume();
+
+				generator = std::move(sgb);
+				_update_cameras();
+
+				break;
+			}
+		}
+
+
+
+		//if (conOption == 0 || conOption == 1) {
+
+
+
+		//	auto sgb = std::make_unique<ScaffoldGeneratorBox>(
+		//		seeds, bnds, blockDim, thickness, connectivityThreshold, inside_check
+		//	);
+
+		//	if (conOption == 0) {
+
+		//		domainVolume = (xDim - 2.0f * thickness) * (yDim - 2.0f * thickness) * (zDim - 2.0f * thickness);
+
+		//		//add_log(LogPriority::INFO, "Generating scaffold inside rectangular container. Please wait...");
+		//	}
+		//	else if (conOption == 1) {
+		//		auto* cyl = dynamic_cast<const CylinderContainer*>(activeContainer);
+
+		//		add_log(LogPriority::INFO, "Generating scaffold inside cylindrical container. Please wait...");
+
+		//		sgb->add_cylindrical_wall(
+		//			cyl->cylinderPt[0], cyl->cylinderPt[1], cyl->cylinderPt[2],
+		//			cyl->cylinderAxis[0], cyl->cylinderAxis[1], cyl->cylinderAxis[2],
+		//			cyl->cylinderRadius
+		//		);
+
+		//		domainVolume = std::pow(cyl->cylinderRadius, 2) * 3.14f * cyl->cylinderHeight;
+		//	}
+
+		//	generator = std::move(sgb);
+		//	_update_cameras();
+		//}
+
+	//	else if (conOption == 2) {
+
+	//		add_log(LogPriority::INFO, "Generating scaffold inside custom mesh container. Please wait...");
+	//		
+	//		auto* mesh = dynamic_cast<const MeshContainer*>(activeContainer);
+	//		
+	//		vtkSmartPointer<vtkPolyData> container = mesh->containerMesh;
+
+	//		auto sgb = std::make_unique<ScaffoldGeneratorWall>(
+	//			seeds,
+	//			container,
+	//			blockDim,
+	//			mesh->neighbors,
+	//			wallResolution,
+	//			thickness,
+	//			connectivityThreshold,
+	//			mesh->is_inside()
+	//		);
+
+	//		vtkNew<vtkMassProperties> massProperties;
+	//		massProperties->SetInputData(mesh->containerMesh);
+	//		massProperties->Update();
+	//		domainVolume = massProperties->GetVolume();
+
+	//		//ScaffoldGeneratorWall sgb(seeds, containerMesh, { nX, nY, nZ }, neighbors, wallResolution, edgeSize, scaleFactor);
+	////		//sgb.generate_voro(regSteps);
+	////		//sgb.get_seeds(seeds);
+	////		//sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
+	////		//seedObj = std::make_unique<VisualizeSeeds>(seeds);
+
+	//		generator = std::move(sgb);
+	//		_update_cameras();
+	//	}
+	}
+
+	generator->run_generate_voro(regSteps);
+	add_log(LogPriority::INFO, "Generating Voronoi with " + std::to_string(regSteps) + " regularization steps");
+};
+
+void myGUI::_action_estimate_connectivity() {
+
+	if (!generator) {
+		add_log(LogPriority::ERROR, "First Create Seeds");
+		return;
+	}
+
+	scaffoldConnectivity = generator->run_estimate_connectivity();
+	std::vector<float> vertices = generator->run_get_connected_vertices();
+	std::vector<unsigned int> indices = generator->run_get_connected_edges();
+
+	poreNetworkObject poreNetwork;
+	poreNetwork.model = std::make_unique<PoreNetwork>(vertices, indices);
+	poreNetwork.name += std::to_string(poreNetworkList.size());
+	poreNetworkList.push_back(std::move(poreNetwork));
+	activePoreNetworkIndex = static_cast<int>(poreNetworkList.size() - 1);
+	
+	add_log(LogPriority::INFO, "Estimated Connectivity " + std::to_string(scaffoldConnectivity));
 };
 
 void myGUI::_action_generate_scaffold() {
 
-	if (seeds.empty()) {
+	add_log(LogPriority::INFO, "Generating Scaffold " + suffix + " Please Wait...");
 
-		add_log(LogPriority::ERROR, "First Populate Seeds!");
-
-		return;
-	}
-
-	if (conOption == 0) {
-		domainVolume = xDim * yDim * zDim;
-	}
-
-	else if (conOption == 1) {
-		domainVolume = std::pow(cylinderRadius, 2) * 3.14f * cylinderHeight;
-	}
-
-	else {
-		vtkNew<vtkMassProperties> massProperties;
-		massProperties->SetInputData(containerMesh);
-		massProperties->Update();
-		domainVolume = massProperties->GetVolume();
-	}
-
-	// define the model file name
-	scaffoldFilePath = "../data/" + std::string(version) + ".stl";
-	scaffoldFileName = std::string(version) + ".stl";
+	std::array<int, 3> blockDim = { resolution[0], resolution[1], resolution[2] };
 
 	if (!runVolumeOptimization) {
 
-		if (conOption == 0 || conOption == 1) {
-
-
-			//std::cout <<  << std::endl;
-			ScaffoldGeneratorBox sgb(seeds, { xMin, xMax, yMin, yMax, zMin, zMax }, { nX, nY, nZ }, edgeSize, scaleFactor);
-
-			if (conOption == 0) {
-				add_log(LogPriority::INFO, "Generating scaffold inside rectangular container. Please wait...");
-			}
-			else if (conOption == 1) {
-
-				add_log(LogPriority::INFO, "Generating scaffold inside cylindrical container. Please wait...");
-
-
-				sgb.add_cylindrical_wall(
-					static_cast<double>(cylinderPt[0]),
-					static_cast<double>(cylinderPt[1]),
-					static_cast<double>(cylinderPt[2]),
-					static_cast<double>(cylinderAxis[0]),
-					static_cast<double>(cylinderAxis[1]),
-					static_cast<double>(cylinderAxis[2]),
-					cylinderRadius
-				);
-			}
-
-			sgb.generate_voro(regSteps);
-			sgb.get_seeds(seeds);
-			//sgb.generate_mesh(thickness, scaffoldFilePath);
-			if (customResolutionFlag) {
-				sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
-			}
-			else {
-				sgb.generate_mesh(thickness, scaffoldPolyData, {});
-			}
-			_update_cameras();
-		}
-
-		else if (conOption == 2) {
-
-			add_log(LogPriority::INFO, "Generating scaffold inside custom mesh container. Please wait...");
-
-			ScaffoldGeneratorWall sgb(seeds, containerMesh, { nX, nY, nZ }, neighbors, wallResolution, edgeSize, scaleFactor);
-			sgb.generate_voro(regSteps);
-			sgb.get_seeds(seeds);
-			//sgb.generate_mesh(thickness, scaffoldFilePath);
-			if (customResolutionFlag) {
-				sgb.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
-			}
-			else {
-				sgb.generate_mesh(thickness, scaffoldPolyData, {});
-			}
-			seedObj = std::make_unique<VisualizeSeeds>(seeds);
-			_update_cameras();
-		}
+		generator->run_get_seeds(seeds);
+		generator->run_process_faces();
+		generator->run_generate_mesh(thickness, scaffoldPolyData, blockDim);
 	}
 
-	else if (runVolumeOptimization) {
-		add_log(LogPriority::INFO, "Generating with Volume Optimization. Please wait...");
-
-		//std::cout << "Generating with Volume Optimization" << std::endl;
-
-		if (seeds.empty()) {
-
-			add_log(LogPriority::ERROR, "First Populate Seeds!");
-
-			return;
-		}
-		int seedSize = seeds.size();
-
-		wInit.resize(seedSize);
-		wInit.setZero();
-		//std::cout << " -------------------- " << std::endl;
-
-		targetVols.resize(seedSize);
-
-		// case 1: volumes all equal -> divide domain volume per seed nr
-		if (volOption == 0) {
-
-			for (int i = 0; i < seedSize; i++) {
-				targetVols[i] = domainVolume / seedSize;
-			}
-		}
-
-		// case 2: volumes are decided from Poisson 3d radii 
-
-		else if (volOption == 1) {
-
-			double volSum{ 0.0 };
-			for (int i{ 0 }; i < radii.size(); i++) {
-				targetVols[i] = std::pow(radii[i], 3);
-				volSum += targetVols[i];
-			}
-			// Normalize
-			for (int i{ 0 }; i < seeds.size(); i++) {
-				targetVols[i] = (targetVols[i] / volSum) * domainVolume;
-			}
-
-			double targetSum = 0;
-			for (int i{ 0 }; i < seeds.size(); i++) {
-				targetSum += targetVols[i];
-			}
-			//std::cout << "domain volume: " << domainVolume << std::endl;
-			//std::cout << "target volume sum: " << targetSum << std::endl;
-			// std::cerr << "Not implemented yet!" << std::endl;
-		}
-
-		else if (volOption == 2) {
-			add_log(LogPriority::ERROR, "Not implemented yet!");
-			return;
-//;			std::cerr << "Not implemented yet!" << std::endl;
-		}
-
-		// just a simple box container
-		if (conOption == 0) {
-			add_log(LogPriority::INFO, "Vol Opt inside Box");
-			//std::cout <<  << std::endl;
-			VolOpt vo(
-				seeds,
-				targetVols,
-				wInit,
-				{ xMin, xMax, yMin, yMax, zMin, zMax }
-			);
-			vo.loop(regSteps);
-			vo.get_seeds(seeds);
-			//vo.generate_mesh(thickness, scaffoldFilePath);
-			if (customResolutionFlag) {
-				vo.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
-			}
-			else {
-				vo.generate_mesh(thickness, scaffoldPolyData, {});
-			}
-		}
-
-		// volume optimization inside a mesh wall
-		else if (conOption == 2) {
-			add_log(LogPriority::INFO, "Vol Opt inside custom mesh container.");
-
-			//std::cout << "Vol Opt inside Mesh" << std::endl;
-
-			VolOptWall vo(
-				seeds,
-				targetVols,
-				wInit,
-				containerMesh
-			);
-			vo.loop(regSteps);
-			vo.get_seeds(seeds);
-			if (customResolutionFlag) {
-				vo.generate_mesh(thickness, scaffoldFilePath, { resolution[0], resolution[1], resolution[2] });
-			}
-			else {
-				vo.generate_mesh(thickness, scaffoldFilePath, {});
-			}
-		}
-
-	}
+//	else {
+//		add_log(LogPriority::INFO, "Generating with Volume Optimization. Please wait...");
+//
+//		//std::cout << "Generating with Volume Optimization" << std::endl;
+//
+//		if (seeds.empty()) {
+//
+//			add_log(LogPriority::ERROR, "First Populate Seeds!");
+//
+//			return;
+//		}
+//		int seedSize = seeds.size();
+//
+//		wInit.resize(seedSize);
+//		wInit.setZero();
+//		//std::cout << " -------------------- " << std::endl;
+//
+//		targetVols.resize(seedSize);
+//
+//		// case 1: volumes all equal -> divide domain volume per seed nr
+//		if (volOption == 0) {
+//
+//			for (int i = 0; i < seedSize; i++) {
+//				targetVols[i] = domainVolume / seedSize;
+//			}
+//		}
+//
+//		// case 2: volumes are decided from Poisson 3d radii 
+//
+//		else if (volOption == 1) {
+//
+//			double volSum{ 0.0 };
+//			for (int i{ 0 }; i < radii.size(); i++) {
+//				targetVols[i] = std::pow(radii[i], 3);
+//				volSum += targetVols[i];
+//			}
+//			// Normalize
+//			for (int i{ 0 }; i < seeds.size(); i++) {
+//				targetVols[i] = (targetVols[i] / volSum) * domainVolume;
+//			}
+//
+//			double targetSum = 0;
+//			for (int i{ 0 }; i < seeds.size(); i++) {
+//				targetSum += targetVols[i];
+//			}
+//			//std::cout << "domain volume: " << domainVolume << std::endl;
+//			//std::cout << "target volume sum: " << targetSum << std::endl;
+//			// std::cerr << "Not implemented yet!" << std::endl;
+//		}
+//
+//		else if (volOption == 2) {
+//			add_log(LogPriority::ERROR, "Not implemented yet!");
+//			return;
+////;			std::cerr << "Not implemented yet!" << std::endl;
+//		}
+//
+//		// just a simple box container
+//		if (conOption == 0) {
+//			add_log(LogPriority::INFO, "Vol Opt inside Box");
+//			//std::cout <<  << std::endl;
+//			VolOpt vo(
+//				seeds,
+//				targetVols,
+//				wInit,
+//				{ xMin, xMax, yMin, yMax, zMin, zMax }
+//			);
+//			vo.loop(regSteps);
+//			vo.get_seeds(seeds);
+//			//vo.generate_mesh(thickness, scaffoldFilePath);
+//			vo.generate_mesh(thickness, scaffoldPolyData, { resolution[0], resolution[1], resolution[2] });
+//		}
+//
+//		// volume optimization inside a mesh wall
+//		else if (conOption == 2) {
+//			add_log(LogPriority::INFO, "Vol Opt inside custom mesh container.");
+//
+//			//std::cout << "Vol Opt inside Mesh" << std::endl;
+//
+//			VolOptWall vo(
+//				seeds,
+//				targetVols,
+//				wInit,
+//				containerMesh
+//			);
+//			vo.loop(regSteps);
+//			vo.get_seeds(seeds);
+//			vo.generate_mesh(thickness, scaffoldFilePath, { resolution[0], resolution[1], resolution[2] });
+//		}
+//
+//	}
 
 	// update the thread status
 	//scaffoldGenerating = false;
@@ -2029,13 +2297,13 @@ void myGUI::_create_dockspace() {
 
 void myGUI::_render_visualizer() {
 
-	ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_Once);
-	ImGui::Begin("Visualizer");
+	ImGui::SetNextWindowSize(ImVec2(framebuffer.width, framebuffer.height), ImGuiCond_Once);
+	ImGui::Begin("Visualizer", &showVisualizer);
 	
 	cameraUpdate = (ImGui::IsWindowHovered() && ImGui::IsWindowFocused()) ? true : false;
 
-	ImVec2 availableSize = ImGui::GetWindowSize();
-	ImVec2 pos = ImGui::GetWindowPos();
+	ImVec2 availableSize = ImGui::GetContentRegionAvail();
+	ImVec2 pos = ImGui::GetCursorScreenPos();
 
 	if ((int)availableSize.x != framebuffer.width || (int)availableSize.y != framebuffer.height) {
 
@@ -2088,7 +2356,7 @@ void myGUI::_render_visualizer() {
 			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
 			ImGui::Text("Porosity: %.3f", scaffoldPorosity);
 			ImGui::SetNextItemWidth(ImGui::GetFontSize() * 0.8);
-			ImGui::Text("Interconnectivity: %.3f", "-");
+			ImGui::Text("Interconnectivity: %.3f", scaffoldConnectivity);
 			ImGui::End();
 		}
 	}
@@ -2109,21 +2377,21 @@ void myGUI::_render_binary_image_window(const char* popupName, bool& showPopup) 
 	if (ImGui::BeginPopup(popupName, ImGuiWindowFlags_AlwaysAutoResize)) {
 
 		static float voxelSize{ 0.05f };
-		static int backVal = { 0 };
-		static int forVal = { 255 };
+		static float backVal = { 0 };
+		static float forVal = { 1 };
 		static std::string name = "";
 
-		ImGui::InputFloat("Voxel Size", &voxelSize, 0.05, 10.0f);
-		ImGui::InputInt("Background Value", &backVal, 1, 10.0f);
-		ImGui::InputInt("Foreground", &forVal, 1, 10.0f);
+		ImGui::InputFloat("Voxel Size", &voxelSize, 0.01f, 10.0f);
+		ImGui::InputFloat("Background Value", &backVal, 0.01f, 10.0f);
+		ImGui::InputFloat("Foreground", &forVal, 0.01f, 10.0f);
 
-		backVal = std::clamp(backVal, 0, 255);
-		forVal = std::clamp(forVal, 0, 255);
-
+		backVal = std::clamp(backVal, 0.0f, 1.0f);
+		forVal = std::clamp(forVal, 0.0f, 1.0f);
 
 		if (ImGui::Button("Save")) {
 			IGFD::FileDialogConfig config;
 			config.path = "..//data";
+			config.flags = ImGuiFileDialogFlags_Modal;
 			ImGuiFileDialog::Instance()->OpenDialog("Export Binary Scaffold", "Export Binary", ".mhd", config);
 		}
 		ImGui::SameLine();
@@ -2132,7 +2400,9 @@ void myGUI::_render_binary_image_window(const char* popupName, bool& showPopup) 
 			ImGui::CloseCurrentPopup();
 		}
 
-		if (ImGuiFileDialog::Instance()->Display("Export Binary Scaffold")) {
+		ImVec2 maxSize = ImVec2(width, height);  
+		ImVec2 minSize = ImVec2(500.0f, 500.0f); 
+		if (ImGuiFileDialog::Instance()->Display("Export Binary Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 			if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 				scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
 				scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();

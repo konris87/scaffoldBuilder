@@ -9,6 +9,8 @@ set(CMAKE_CXX_STANDARD 17)
 # --------------------------
 # VTK
 find_package(VTK COMPONENTS 
+  AcceleratorsVTKmCore
+  AcceleratorsVTKmFilters
   CommonColor
   CommonCore
   CommonDataModel
@@ -16,8 +18,12 @@ find_package(VTK COMPONENTS
   FiltersGeneral
   FiltersSources
   FiltersCore
+  FiltersSources
+  FiltersParallel
   FiltersGeometry
   FiltersHybrid
+  FiltersModeling
+  FiltersPoints
   IOGeometry
   IOImage
   IOCore
@@ -91,10 +97,11 @@ set(SOURCES
 	src/OpenGlSetup/Misc.cpp
 	include/Utils/Utils.cpp
 	include/Wall/Wall.cpp
-	include/SeedGenerator/Random.cpp
-	include/SeedGenerator/Poisson3D.cpp
+	# include/SeedGenerator/Random.cpp
+	# include/SeedGenerator/Poisson3D.cpp
 	include/ScaffoldGenerator/ScaffoldGenerator.cpp
-	# include/ScaffoldGenerator/Poisson3D.cpp
+	include/OpenGlRender/Model.cpp
+	include/SeedGenerator/SeedGenerator.cpp
 	
 	# imgui
 	${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
@@ -114,7 +121,7 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    ${OPENGL_LIBRARIES}
+	${OPENGL_LIBRARIES}
 	glfw
 	${VTK_LIBRARIES}
 )

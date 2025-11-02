@@ -20,30 +20,23 @@ out vec4 FragColor;
 void main()
 {
 	
-	// 1. ambient light
-	vec4 ambientColor = vec4(1.0, 1.0, 1.0, 1.0); 
-	vec4 diffuseColor = vec4(1.0, 1.0, 1.0, 1.0); 
-	vec4 specularColor = vec4(1.0, 1.0, 1.0, 1.0); 
-	
-	ambientColor = Ka * vec4(lightColor, 1.0);
-	
-	// 2. diffuse color
-	// 2.1 ensure that the vertex normals from the vertex shader is normal :)
-	vec4 normals = normalize(vec4(vertexNormCamera.xyz, 0.0));
-	
-	// 2.2 normalized light direction
-	vec4 direction = normalize(lightPosCamera - vertexPosCamera);
-	
-	// 2.3 compute the cos using the dot product
-	float cosTheta = max(dot(normals, direction), 0.0);
-	// cosTheta = clamp(cosTheta, 0, 1);
-	
-	// calculate diffuse
-	diffuseColor = vec4(lightColor, 1.0) * cosTheta;	
-	
-	// final fragment color
-	vec4 outColor = (ambientColor + diffuseColor) * vec4(objectColor, 1.0);
-	FragColor = vec4(outColor.xyz, 1.0);
+    // Ambient
+    vec3 ambient = Ka * lightColor;
+
+    // Diffuse
+    vec3 N = normalize(vertexNormCamera.xyz);
+    vec3 L = normalize((lightPosCamera - vertexPosCamera).xyz);
+    float cosTheta = max(dot(N, L), 0.0);
+    vec3 diffuse = lightColor * cosTheta;
+
+    // Specular (optional, using camera position (0,0,0,1) in view space)
+    vec3 V = normalize(-vertexPosCamera.xyz);
+    vec3 R = reflect(-L, N);
+    float cosAlpha = max(dot(V, R), 0.0);
+    vec3 specular = Ks * lightColor * pow(cosAlpha, 32.0);
+
+    vec3 lighting = ambient + diffuse + specular;
+    FragColor = vec4(lighting, 1.0) * objectColor;
 	
 	if (cutPlane){
 		float d = dot(cutPlaneCoeffs, vertexPosWorld);

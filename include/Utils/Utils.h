@@ -13,8 +13,31 @@
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <limits>
 #include <cmath>
+#include <iostream>
+#include <unordered_set>
+#include <unordered_map>
 #include <ImGuiFileDialog/ImGuiFileDialog.h>
+
+struct Bounds {
+	double xMin, xMax, yMin, yMax, zMin, zMax;
+	std::array<double, 3> center;
+};
+
+struct PolygonWidth {
+	double minWidth, maxWidth;
+};
+
+// create a class to control seed generator using the strategy pattern
+class SeedGeneratorInterface {
+public:
+	virtual ~SeedGeneratorInterface() = default;
+	virtual void run_generate_seeds() = 0;
+	virtual void run_get_seeds(std::vector<std::array<double, 3>>& outSeeds) const = 0;
+	virtual void run_generate_seeds(
+		const std::array<float, 3>&, const std::array<float, 3>&, double) = 0;
+};
 
 bool ray_intersection(
 	const Eigen::Vector3d& p,
@@ -47,6 +70,10 @@ bool is_inside_box(
 	const std::array<double, 3>& pt,
 	const std::array<float, 6>& bounds);
 
+Eigen::Vector3d unit_axis_from_dir(int dir);
+
+bool is_inside_box(const std::array<double, 3>& p, const Bounds& b);
+
 bool is_inside_cylinder(
 
 	const std::array<double, 3>& querryPt,
@@ -73,11 +100,14 @@ vtkSmartPointer<vtkActor> render_plane(
 double distance(const std::array<double, 3>& arr1, const std::array<double, 3>& arr2);
 
 void select_file_button(const char* title, const std::string path, const char* dialogName, const char* fileExt);
-#endif
 
 void ensure_ccw(
 	std::vector<int>& faceIdxs,
 	Eigen::MatrixXd& vertices);
+
+Eigen::MatrixXd vector_to_matrix3D(const std::vector<double>& verts);
+
+//void face_metrics(double& area, double& perimeter, double& minWidth);
 
 void project_vertices_on_plane(
 	const std::vector<double>& vertices,
@@ -87,6 +117,13 @@ void project_vertices_on_plane(
 	Eigen::MatrixXd& vertices2D
 );
 
+void project_vertices_on_plane(
+	Eigen::MatrixXd& verts,
+	Eigen::Vector3d& origin,
+	Eigen::Vector3d& u,
+	Eigen::Vector3d& v,
+	Eigen::MatrixXd& vertices2D
+);
 
 // create an argsort function
 // taken by https://stackoverflow.com/questions/1577475/c-sorting-and-keeping-track-of-indexes
@@ -116,7 +153,15 @@ bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertice
 
 bool is_inside_triangle(const Eigen::Vector2d& vPrev, const Eigen::Vector2d& vCurr, const Eigen::Vector2d& vNext, const Eigen::Vector2d& vTest);
 
-double distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices);
+double min_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludedIdx);
+
+double max_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludedIdx);
+
+double polygon_min_width(const Eigen::MatrixXd& vertices);
+
+double polygon_max_width(const Eigen::MatrixXd& vertices);
+
+double polygon_average_edge_length(const Eigen::MatrixXd& vertices);
 
 void interpolate_edges(
 	const Eigen::MatrixXd& vertices,
@@ -139,6 +184,67 @@ double catmull_rom_get_t(const Eigen::Vector2d& p1, const Eigen::Vector2d& p2, d
 
 void chaikin_subdivision(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, int num = 5);
 
+// @brief this functions returns a struct that holds the minimum and maximum width of a polygon face
+// @brief for each edge we project all vertices to its normal. the width is projMax - projMin.  
+PolygonWidth get_polygon_width(const Eigen::MatrixXd& verts2D);
+
+// @brief function to decide if a polygon will be totally closed if we erode all edges by a factor
+bool polygon_is_open(
+	const std::vector<Eigen::Vector3d>& normals,
+	const std::vector<double>& d,
+	const Eigen::MatrixXd& faceVertices,
+	int fIdx,
+	double erosion,
+	double eps = 1e-6
+);
+
+double erosion_margin_for_face(
+	int f,
+	const std::vector<Eigen::Vector3d>& normals,
+	const std::vector<double>& planeB,
+	const Eigen::Matrix<double, 3, 2>& U,
+	const Eigen::Vector3d& x0,
+	const Eigen::MatrixXd& verts2D, // N x 2
+	double delta,                   // pullback
+	double eps = 1e-9
+);
+
+//@brief struct for holding the half space properties normal, and offset
+struct HalfSpace {
+	Eigen::Vector2d n;
+	double d;
+};
+
+// @function for half space clipping using the Sutherland - Hodgman Algorithm
+Eigen::MatrixXd clip_polygon(
+	const Eigen::MatrixXd& verts2D,
+	const Eigen::Vector2d normal,
+	const double d
+);
+
+// @function to find intersection of lines
+Eigen::Vector2d intersection_of_lines(
+	const Eigen::Vector2d& p,
+	const Eigen::Vector2d& q,
+	const Eigen::Vector2d& normal,
+	double d
+);
+
+// @function to test if a clipping by all shifted inward edges by a factor delta returns a polygon
+bool clipping_is_valid(
+	const Eigen::MatrixXd& verts2D,
+	const std::vector<HalfSpace> hspaces,
+	double delta,
+	Eigen::MatrixXd* outPoly = nullptr
+);
+
+// @function to get the half spaces for a polygon
+std::vector<HalfSpace> get_poly_half_spaces(const Eigen::MatrixXd& verts2D);
+
+// @brief function to find the max inset radius of a polygon using bisection
+double polygon_inradius(const Eigen::MatrixXd& verts2D);
+
+// --------------------------------------------------------------------------------------------------------------
 // create a node struct
 class Node {
 
@@ -288,3 +394,48 @@ public:
 	Node* head;
 };
 
+struct EdgeData {
+	float dstar;   // margin (world units)
+	float delta;   // in-plane pullback actually used when computing d*
+};
+
+class Graph {
+private:
+	std::unordered_map<int, std::unordered_map<int, EdgeData>> adjList;
+
+public:
+	Graph() {};	
+	~Graph() {};
+
+	// copy constructor
+	Graph(const Graph& otherGraph) = default;
+
+	bool add_vertex(const int idx);
+
+	//bool add_edge(const int vertex1, const int vertex2, const float weight);
+	bool add_edge(const int vertex1, const int vertex2, const EdgeData& edge);
+
+	bool remove_edge(const int vertex1, const int vertex2);
+
+	bool remove_vertex(const int vertex1);
+
+	void remove_edges_below(const float weight);
+
+	void remove_edges_above(const float weight);
+
+	void dfs_traversal(int startNode, std::set<int>& visited);
+
+	int find_longest_network();
+
+	int get_vertex_count();
+
+	//float get_edge_width(const int vertex1, const int vertex2);
+	EdgeData Graph::get_edge_width(const int vertex1, const int vertex2);
+
+	std::unordered_map<int, std::unordered_map<int, EdgeData>> get_adj_list();
+
+	void print();
+
+};
+
+#endif

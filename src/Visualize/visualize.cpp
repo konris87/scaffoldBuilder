@@ -25,7 +25,6 @@
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkVertexGlyphFilter.h>
-#include <vtkIdFilter.h>
 #include <vtkLabeledDataMapper.h>
 #include <vtkActor2D.h>
 #include <vtkTextProperty.h>

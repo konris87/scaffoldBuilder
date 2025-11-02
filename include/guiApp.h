@@ -12,13 +12,16 @@
 #include <memory>
 #include <atomic>
 #include <thread>
+#include <functional>
 
 // vtk
 #include <vtkSmartPointer.h>
 #include <vtkPolyData.h>
 
 // custom
-#include <Model.h>
+#include <OpenGlRender/Model.h>
+#include <SeedGenerator/Container.h>
+#include <SeedGenerator/SeedGenerator.h>
 #include <Visualize/VisualizeSeeds.h>
 #include "ScaffoldGenerator/ScaffoldGenerator.h"
 #include "SeedGenerator/DistanceCalculator.h"
@@ -28,9 +31,33 @@
 #include "OpenGlSetup/UniformManager.h"
 #include "OpenGlSetup/Grid.h"
 #include "Shader.h"
-#include "SeedGenerator/Poisson3D.h"
+//#include "SeedGenerator/Poisson3D.h"
 #include "Logger/Logger.h"
 #include "OpenGlSetup/Misc.h"
+
+struct poreNetworkObject {
+	std::unique_ptr<PoreNetwork> model;
+	std::array<float, 4> lineColor{ 0.0f, 0.0f, 0.0f, 1.0f };
+	std::string name = "PoreNetwork_";
+	float lineSize = 1.0f;
+};
+
+struct scaffoldObject {
+	std::unique_ptr<Model> model;
+	std::array<float, 4> objectColor{1.0f, 0.5f, 0.5f, 1.0f};
+	std::string name = "Scaffold_";
+};
+
+struct RenderSettings {
+	std::array<float, 4> poreNetworkColor = { 0.0f, 0.0f, 0.0f, 1.0f };
+	float poreNetworkLineSize = 1.0f;
+};
+
+struct ContainerModel {
+	void* obj = nullptr;
+	bool show = true;
+	std::array<double, 3> center = { 0.0, 0.0, 0.0 };
+};
 
 class myGUI {
 
@@ -48,32 +75,36 @@ public:
 	float normalColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
 
 	// lighting
-	float lightColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	float lightColor[3] = { 1.0f, 1.0f, 1.0f };
 	float lightPosCamera[3] = { 0.0f, 5.0f, 10.0f };
 	float Ka{ 0.2f };
 	float Ks{ 2.0f };
 
 	// mesh objects
+	std::vector<poreNetworkObject> poreNetworkList;
+	int activePoreNetworkIndex{ -1 };
+
 	vtkSmartPointer<vtkPolyData> scaffoldPolyData;
 	std::unique_ptr<Model> scaffoldModel;
-	//Model* containerModel{ nullptr };
-	std::unique_ptr<Model> containerModel;
 	std::vector<std::array<double, 3>> seeds;
-	//VisualizeSeeds* seedObj{ nullptr };
 	std::unique_ptr<VisualizeSeeds> seedObj;
-	//CutPlane* cutPlane{ nullptr };
 	std::unique_ptr<CutPlane> cutPlane;
-	//BBox* box;
 	std::unique_ptr<BBox> box;
-	//BBox* container;
-	std::unique_ptr<BBox> container;
-	//Grid* grid;
 	std::unique_ptr<Grid> grid;
-	//CutPlane* distPlane;
 	std::unique_ptr<CutPlane> distPlane;
 	std::unique_ptr<Arrow> xArrow;
 	std::unique_ptr<Arrow> yArrow;
 	std::unique_ptr<Arrow> zArrow;
+	std::unique_ptr<PoreNetwork> poreNetwork;
+
+	// containers
+	CylinderContainer cylContainer;
+	BoxContainer boxContainer;
+	MeshContainer meshContainer;
+	ContainerModel container;
+
+	// create the active container and initialize it to a box container
+	IContainer* activeContainer = &boxContainer;
 
 	PlaneDistEstimator planeDistance;
 	MeshDistEstimator meshDistance;
@@ -103,8 +134,10 @@ public:
 	bool showGrid{ false };
 	bool showScaffold{ true };
 	bool showContainer{ false };
+	bool showPoreNetwork{ true };
 	bool showDistancePlane{ false };
 	bool showBinaryImageWindow{ false };
+	bool showVisualizer{ true };
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -128,8 +161,11 @@ public:
 	Logger& logger = Logger::get_instance();
 	bool scrollToBottom = false;
 
-	// pointers for seed generator
-	//Random* sgr;
+	// a variable for adding some message to the log
+	std::string suffix{ "" };
+
+	// rendering settings
+	RenderSettings renderSettings;
 
 	// constructor
 	myGUI() {};
@@ -217,10 +253,11 @@ private:
 
 	// -----------------------------------------------------------
 	// 2. Seed Generator
-	//RandomGenerator* randomGenerator;
+	std::unique_ptr<SeedGeneratorInterface> seedGenerator;
 
 	// -----------------------------------------------------------
 	// 3. Scaffold settings
+	std::unique_ptr<GeneratorInterface> generator;
 	char version[256]{ "model" };
 	float xDim{ 10.0 };
 	float yDim{ 10.0 };
@@ -228,16 +265,21 @@ private:
 	int seedNr{ 100 };
 	float xMin{ 0 }, xMax{ 0 }, yMin{ 0 }, yMax{ 0 }, zMin{ 0 }, zMax{ 0 };
 	float thickness{ 0.3 };
+	float scaffoldConnectivity{ 0.0 };
+	float connectivityThreshold{ 0.5f };
 	int conOption{ 0 };
+	int prevConOption{ -1 };
 	int generateOption{ 0 };
 	int distFunc{ 0 };
 	int radiusFunc{ 0 };
 	int radiusOpt{ 0 };
 	int regSteps{ 0 };
 	int nX{ 10 }, nY{ 10 }, nZ{ 10 };
-	std::array<int, 3> resolution = {};
-	bool customResolutionFlag{ false };
+	std::array<int, 3> resolution = {75, 75, 75};
 	float wallResolution{ 1.0f };
+
+	// determine function to check if a point is inside a container
+	std::function<bool(const std::array<double, 3>&)> inside_check;
 
 	// model details
 	double scaffoldPorosity{ 50.0 };
@@ -248,17 +290,10 @@ private:
 	double domainVolume{ 0.0 };
 
 	// container file
-	std::string containerFile{ "" };
-	int neighbors{ 1 };
-	vtkSmartPointer<vtkPolyData> containerMesh;
-	double containerCenter[3]{ 0.0, 0.0, 0.0 };
+
 
 	// Cylinder Container
-	int cylinderDir{ 0 };
-	float cylinderPt[3] = { 0.0f, 0.0f, 0.0f };
-	float cylinderAxis[3] = {0.0f, 0.0f, 1.0f};
-	double cylinderRadius{ 2.0f };
-	double cylinderHeight{ 1.0f };
+
 
 	// Poisson3d
 	float rMin{ 0.8f };
@@ -267,6 +302,7 @@ private:
 	double maxDist{ 5.0 };
 	float distPlaneCenter[3] = { 0.0f, 0.0f, 0.0f };
 	float distPlaneNormal[3] = { 0.0f, 0.0f, 1.0f };
+	float distPoint[3] = {0.0f, 0.0f, 0.0f};
 	std::vector<float> radii;
 
 	// Volume Optimization
@@ -355,6 +391,10 @@ private:
 	void _render_scaffold_settings();
 
 	void _render_binary_image_window(const char* popupName, bool& showPopup);
+
+	void _action_update_voronoi();
+
+	void _action_estimate_connectivity();
 
 	void _action_generate_seeds();
 

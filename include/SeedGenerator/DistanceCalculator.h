@@ -18,24 +18,32 @@ public:
 
 class PlaneDistEstimator : public DistanceEstimator {
 public:
-	PlaneDistEstimator() {};
+	PlaneDistEstimator() = default;
 	~PlaneDistEstimator() {};
-	PlaneDistEstimator(const std::array<double, 3>& originVec, const std::array<double, 3>& normalVec) : normal(normalVec.data()), origin(originVec.data()) {
-	
-		normalNormSquared = normal.squaredNorm();
-		
+	explicit PlaneDistEstimator(
+		const std::array<double, 3>& originVec,
+		const std::array<double, 3>& normalVec) : origin(originVec.data()){
+
+		Eigen::Vector3d n(normalVec.data());
+		const double norm = n.norm();
+		if (norm == 0.0) {
+			normal.setZero();
+			dot = 0.0;
+		}
+		else {
+			normal = n / norm;
+			dot = normal.dot(Eigen::Vector3d(origin.data()));
+		}		
 	};
 	
 	double compute_distance(const std::array<double, 3>& point) const override {
-		Eigen::Vector3d pt(point.data());
-		return std::abs((pt- origin).dot(normal)) / std::sqrt(normalNormSquared);
-		
+		return std::abs(normal.dot(Eigen::Vector3d(point.data())) - dot);
 	};
 
 private:
-    Eigen::Vector3d normal;
+	Eigen::Vector3d normal{0.0, 0.0, 1.0};
     Eigen::Vector3d origin;
-	double normalNormSquared;
+	double dot = { 0.0 };
 };
 
 class MeshDistEstimator : public DistanceEstimator {
@@ -43,14 +51,10 @@ class MeshDistEstimator : public DistanceEstimator {
 public:
 	MeshDistEstimator() {};
 	~MeshDistEstimator() {};
-	MeshDistEstimator(
-		vtkSmartPointer<vtkPolyData>& containerMesh) {
-		
-		container = vtkSmartPointer<vtkPolyData>::New();
-		container = containerMesh;
-
+	explicit MeshDistEstimator(
+		vtkSmartPointer<vtkPolyData> containerMesh) : container(std::move(containerMesh)) {
 		distanceCalculator = vtkSmartPointer<vtkImplicitPolyDataDistance>::New();
-		distanceCalculator->SetInput(containerMesh);
+		distanceCalculator->SetInput(container);
 	};
 
 	double compute_distance(const std::array<double, 3>& point) const override {
@@ -62,62 +66,32 @@ private:
 	vtkSmartPointer<vtkImplicitPolyDataDistance> distanceCalculator;
 };
 
-//class BoxDistEstimator : public DistanceEstimator {
-//
-//public:
-//	BoxDistEstimator() {};
-//	~BoxDistEstimator() {};
-//	BoxDistEstimator(
-//		vtkSmartPointer<vtkBox>& box) {
-//
-//		container = vtkSmartPointer<vtkBox>::New();
-//		container = box;
-//	};
-//
-//	double compute_distance(const std::array<double, 3>& point) const override {
-//		return std::abs(container->EvaluateFunction(point[0], point[1], point[2]));
-//	};
-//
-//private:
-//	vtkSmartPointer<vtkBox> container;
-//};
-//
-//// Cylinder box
-//class CylinderDistEstimator : public DistanceEstimator {
-//
-//public:
-//	CylinderDistEstimator() {};
-//	~CylinderDistEstimator() {};
-//	CylinderDistEstimator(
-//		vtkSmartPointer<vtkCylinder>& cylinder) {
-//
-//		container = vtkSmartPointer<vtkCylinder>::New();
-//		container = cylinder;
-//	};
-//
-//	double compute_distance(const std::array<double, 3>& point) const override {
-//		return std::abs(container->EvaluateFunction(point[0], point[1], point[2]));
-//	};
-//
-//private:
-//	vtkSmartPointer<vtkCylinder> container;
-//};
-
 class ImplicitFunctionDistEstimator : public DistanceEstimator {
 public:
 	ImplicitFunctionDistEstimator() = default;
 	~ImplicitFunctionDistEstimator() override = default;
 
 	ImplicitFunctionDistEstimator(vtkSmartPointer<vtkImplicitFunction> implicitFunc)
-		: container(implicitFunc) {
+		: func(std::move(implicitFunc)) {
 	}
 
 	double compute_distance(const std::array<double, 3>& point) const override {
-		return std::abs(container->EvaluateFunction(point[0], point[1], point[2]));
+		return std::abs(func->EvaluateFunction(point[0], point[1], point[2]));
 	}
 
 private:
-	vtkSmartPointer<vtkImplicitFunction> container;
+	vtkSmartPointer<vtkImplicitFunction> func;
+};
+
+class PointDistEstimator : public DistanceEstimator {
+public:
+	explicit PointDistEstimator(const std::array<double, 3>& q) : Q(q.data()) {}
+	double compute_distance(const std::array<double, 3>& p) const override {
+		Eigen::Vector3d P(p.data());
+		return (P - Q).norm();
+	}
+private:
+	Eigen::Vector3d Q{ 0,0,0 };
 };
 
 #endif

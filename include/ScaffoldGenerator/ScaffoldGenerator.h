@@ -10,6 +10,26 @@
 #include <Eigen/Dense>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
+#include <Utils/Utils.h>
+
+
+//Implementing the strategy pattern
+//@brief class to act as the interface
+class GeneratorInterface {
+public:
+	virtual ~GeneratorInterface() = default;
+	virtual void run_generate_voro(int regSteps) = 0;
+	virtual float run_estimate_connectivity() = 0;
+	virtual void run_generate_mesh(
+		const double& thickness, 
+		vtkSmartPointer<vtkPolyData>& finalPolyData,
+		const std::array<int, 3>& res = {}) = 0;
+	virtual void run_get_seeds(std::vector<std::array<double, 3>>& outseeds) = 0;
+	virtual void run_process_faces() = 0;
+	virtual std::vector<float> run_get_connected_vertices() = 0;
+	virtual std::vector<unsigned int> run_get_connected_edges() = 0;
+};
 
 // hash function to compute hash from key
 struct GlobalVertex {
@@ -31,19 +51,16 @@ struct GlobalVertex {
 struct GlobalVertexHash {
 
 	std::size_t operator()(const GlobalVertex& v) const {
-		const double scale = 1e-6;
-		std::size_t h1 = std::hash<int>{}(static_cast<int>(v.coords[0] * scale));
-		std::size_t h2 = std::hash<int>{}(static_cast<int>(v.coords[1] * scale));
-		std::size_t h3 = std::hash<int>{}(static_cast<int>(v.coords[2] * scale));
+		const double inv_tol = 1e6;
+		int x = static_cast<int>(std::llround(v.coords[0] * inv_tol));
+		int y = static_cast<int>(std::llround(v.coords[1] * inv_tol));
+		int z = static_cast<int>(std::llround(v.coords[2] * inv_tol));
 
-		std::size_t seed = h1;
-		seed ^= h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-		seed ^= h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-		return seed;
+		return static_cast<std::size_t>(
+			(x * 73856093) ^ (y * 19349663) ^ (z * 83492791)
+			);
 	}
 };
-
-// Map for global faces
 
 // function to create the key
 struct GlobalFaceKey {
@@ -64,36 +81,112 @@ struct GlobalFaceInside {
 
 };
 
+struct CellFace {
+	std::vector<double> vertices;
+	std::vector<int> localFace;
+	bool createHole = true;
+	float delta{ 0.0f };
+};
 
-class ScaffoldGenerator{
+struct NewFace {
+	Eigen::MatrixXd vertices;
+	std::vector<std::vector<int>> faces;
+};
+
+class ScaffoldGenerator : public GeneratorInterface{
 public:
-	
 	virtual ~ScaffoldGenerator() {};
 	ScaffoldGenerator(
 		std::vector<std::array<double, 3>>& seeds,
 		const std::array<float, 6>& bounds,
-		const std::array<int, 3>& blockDim
-	) : seeds(seeds), bounds(bounds), blockDim(blockDim) {};
+		const std::array<int, 3>& blockDim,
+		const double thickness,
+		const double pullbackRatio,
+		std::function<bool(const std::array<double, 3>&)> is_inside
+	) : seeds(seeds), bounds(bounds), blockDim(blockDim), thickness(thickness), pullbackRatio(pullbackRatio), is_inside(is_inside) {};
 	
-	void generate_mesh(const double& thickness, vtkSmartPointer<vtkPolyData>& finalPolyData, const std::vector<int>& res = {});
-	virtual void generate_voro(const int regSteps) = 0;
+	void generate_mesh(
+		const double& thickness,
+		vtkSmartPointer<vtkPolyData>& finalPolyData,
+		const std::array<int, 3>& res = {});
+
+	void run_generate_mesh(
+		const double& thickness,
+		vtkSmartPointer<vtkPolyData>& finalPolyData,
+		const std::array<int, 3>& res = {}) override {
+		this->generate_mesh(thickness, finalPolyData, res);
+	}
+
+	float estimate_connectivity();
+
+	float run_estimate_connectivity() override {
+		return this->estimate_connectivity();
+	}
+
 	void get_seeds(std::vector<std::array<double, 3>>& outseeds) { seeds = outseeds; };
+	void run_get_seeds(std::vector<std::array<double, 3>>& outSeeds) override {
+		this->get_seeds(outSeeds);
+	};
+
+	void process_faces();
+
+	void run_process_faces() override {
+		this->process_faces();
+	};
+
+	std::vector<float> get_connected_vertices();
+	std::vector<float> run_get_connected_vertices() {
+		return this->get_connected_vertices();
+	}
+
+	std::vector<unsigned int> get_connected_edges();
+	std::vector<unsigned int> run_get_connected_edges() {
+		return this->get_connected_edges();
+	};
+
 
 protected:
 	std::vector<std::array<double, 3>>& seeds;
 	std::array<float, 6> bounds;
 	std::array<int, 3> blockDim;
+
+	// connectivity network
+	std::vector<float> connectedVertices;
+	std::vector<unsigned int> connectedIndices;
 	
 	// voro container
-	voro::container* con;
+	voro::container* con = nullptr;
 
 	// vtk scaffold mesh
 	vtkSmartPointer<vtkPolyData> scaffoldMesh;
 
-	void regularize_voro(int regSteps, vtkSmartPointer<vtkPolyData>& containerMesh);
+	double thickness{ 0.0 };
+	double pullbackRatio{ 0.0 };
 
-	void print_cell_types();
+	std::vector<int> globalIndices;
+	std::vector<std::array<double, 3>> globalVertices;
+	std::vector<std::vector<int>> globalFaces;
+	std::vector<CellFace> allCellFaces;
 
+	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalVertexMap;
+
+	// this map is only used for the faces that consist of the vertices of voro cells
+	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
+
+	std::unordered_map <int, int> localToGlobal;
+
+	int globalPolyIndex{ 0 };
+	int globalIndex{ 0 };
+
+	std::function<bool(const std::array<double, 3>&)> is_inside;
+
+	std::unique_ptr<Graph> graph;
+
+	std::unordered_map<int, std::unordered_map<int, Eigen::Vector3d>> centroids;
+
+	//std::unordered_map<int, std::vector<Eigen::Vector3d
+
+	void regularize_voro(int regSteps);
 };
 
 // -----------------------------------------------------
@@ -107,11 +200,20 @@ public:
 		std::vector<std::array<double, 3>>& seeds,
 		const std::array<float, 6>& bounds,
 		const std::array<int, 3>& blockDim,
-		const double edgeSize, const double scaleFactor
+		const double thickness,
+		const double pullbackRatio,
+		std::function<bool(const std::array<double, 3>&)> is_inside
 	);
 
 	~ScaffoldGeneratorBox() override {};
-	void generate_voro(const int regSteps) override;
+
+	void populate_voro(const int regSteps);
+
+	// update the interface 
+	void run_generate_voro(const int regSteps) override {
+		this->populate_voro(regSteps);
+	}
+
 	void add_cylindrical_wall(
 		const double pt0, const double pt1, const double pt2,
 		const double axis0,
@@ -123,16 +225,8 @@ protected:
 
 	double minHoleRadius{ 0.0 };
 	double maxHoleRadius{ 0.0 };
-	double edgeSize{ 0.0 };
-	double scaleFactor{ 0.0 };
 
 private:
-	std::vector<int> globalIndices;
-	std::vector<std::array<double, 3>> globalVertices;
-	std::vector<std::vector<int>> globalFaces;
-
-	int globalPolyIndex{ 0 };
-	int globalIndex{ 0 };
 
 	std::unique_ptr<voro::wall> wall;
 
@@ -157,11 +251,16 @@ public:
 		const std::array<int, 3>& blockDim,
 		const int neighbors,
 		const float minDist,
-		const double edgeSize,
-		const double scaleFactor
+		const double thickness,
+		const double pullbackRatio,
+		std::function<bool(const std::array<double, 3>&)> is_inside
 	);
 
-	void generate_voro(const int regSteps) override;
+	void generate_voro(const int regSteps);
+
+	void run_generate_voro(const int regSteps) override {
+		this->generate_voro(regSteps);
+	}
 
 private:
 
@@ -170,26 +269,9 @@ private:
 	vtkSmartPointer<vtkPolyData> containerMesh;
 	float minDist{ 0.0 };
 	int neighbors{ 1 };
-	double edgeSize{ 1.0 };
-	double scaleFactor{ 0.5 };
-
-	std::vector<int> globalIndices;
-	std::vector<std::array<double, 3>> globalVertices;
-	std::vector<std::vector<int>> globalFaces;
-
-	int globalPolyIndex{ 0 };
-	int globalIndex{ 0 };
-
-	std::unordered_map<GlobalVertex, int, GlobalVertexHash> globalVertexMap;
-
-	// this map is only used for the faces that consist of the vertices of voro cells
-	std::unordered_set<std::vector<int>, GlobalFaceKey, GlobalFaceInside> globalFaceMap;
-
-	std::unordered_map <int, int> localToGlobal;
 
 	void _process_triangles();
 	void check_global_vertices(const Eigen::MatrixXd& vertices, std::vector<int>* face = nullptr);
-
 };
 
 
@@ -215,8 +297,8 @@ public:
 	void generate_mesh(
 		const double& thickness,
 		vtkSmartPointer<vtkPolyData>& finalPolyData,
-		const std::vector<int>& res);
-		//const std::string& fileName);
+		const std::array<int, 3>& res);
+
 	void get_seeds(std::vector<std::array<double, 3>>& outseeds);
 
 private:
@@ -251,7 +333,7 @@ public:
 	void generate_mesh(
 		const double& thickness,
 		const std::string& fileName,
-		const std::vector<int>& res);
+		const std::array<int, 3>& res);
 	void get_seeds(std::vector<std::array<double, 3>>& outseeds) {
 		outseeds = currSeeds;
 	};

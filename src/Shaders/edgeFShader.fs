@@ -3,10 +3,10 @@ out vec4 FragColor;
 
 uniform vec4 cutPlaneCoeffs;
 uniform bool cutPlane;
+uniform vec4 edgeColor;
 
 //uniform vec4 vertexColor;
 in vec4 vertexPosWorld;
-in vec3 outColor;
 
 void main()
 {
@@ -22,6 +22,5 @@ void main()
 		}
 	}
 	
-	    FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-	
+	FragColor = edgeColor;
 } 

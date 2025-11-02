@@ -20,6 +20,7 @@
 #include <vtkTransform.h>
 #include <vtkTransformPolyDataFilter.h>
 #include <vtkTriangleFilter.h>
+#include <cmath>
 
 bool is_inside_mesh(
 	const vtkSmartPointer<vtkPolyData>& mesh,
@@ -105,6 +106,18 @@ bool is_inside_box(const std::array<double, 3>& pt, const std::array<float, 6>& 
 		return true;
 	}
 
+}
+
+bool is_inside_box(const std::array<double, 3>& p, const Bounds& b) {
+	return (p[0] >= b.xMin && p[0] <= b.xMax) &&
+		(p[1] >= b.yMin && p[1] <= b.yMax) &&
+		(p[2] >= b.zMin && p[2] <= b.zMax);
+};
+
+Eigen::Vector3d unit_axis_from_dir(int dir) {
+	Eigen::Vector3d a(0, 0, 0);
+	if (dir == 0) a[0] = 1; else if (dir == 1) a[1] = 1; else a[2] = 1;
+	return a;
 }
 
 bool is_inside_cylinder(
@@ -440,6 +453,18 @@ void ensure_ccw(
 	vertices = orderedVertices;
 };
 
+Eigen::MatrixXd vector_to_matrix3D(const std::vector<double>& verts) {
+	assert(verts.size() % 3 == 0 && "Vertex list must have multiple of 3 elements.");
+	int n = static_cast<int>(verts.size() / 3);
+	Eigen::MatrixXd mat(n, 3);
+	for (int i = 0; i < n; ++i) {
+		mat(i, 0) = verts[3 * i + 0];
+		mat(i, 1) = verts[3 * i + 1];
+		mat(i, 2) = verts[3 * i + 2];
+	}
+	return mat;
+};
+
 void project_vertices_on_plane(
 	const std::vector<double>& vertices,
 	Eigen::Vector3d& origin,
@@ -448,6 +473,8 @@ void project_vertices_on_plane(
 	Eigen::MatrixXd& vertices2D
 ){
 	int vertNr = static_cast<int>(vertices.size() / 3);
+
+	vertices2D.resize(vertNr, 2);
 
 	// create an Eigen matrix for the vertices
 	Eigen::MatrixXd verts(vertNr, 3);
@@ -460,6 +487,99 @@ void project_vertices_on_plane(
 			vertices[3 * i + 2]
 		};
 	}	
+
+	//render_vtk_points(verts, "Initial");
+
+	// create a local reference frame using two edges and the normal
+	Eigen::Vector3d edge1 = verts.row(1) - verts.row(0);
+
+	Eigen::Vector3d edge2 = verts.row(2) - verts.row(0);
+
+	// get the cross product
+	Eigen::Vector3d normal = edge1.cross(edge2).normalized();
+
+	// u axis is 
+	Eigen::Vector3d ue = edge1.normalized();
+
+	// v axis
+	Eigen::Vector3d ve = normal.cross(ue).normalized();
+
+	// get the projected vertices
+	u = ue;
+	v = ve;
+
+	// use the centroid as center
+	Eigen::Vector3d center = verts.colwise().mean();
+	origin = center;
+
+	// use the center as origin
+	Eigen::MatrixXd centeredVertices = verts.rowwise() - center.transpose();
+
+	// create a matrix with columns the unit vector
+	Eigen::MatrixXd unitVecs(2, 3);
+
+	unitVecs.row(0) = ue.transpose();
+	unitVecs.row(1) = ve.transpose();
+
+	vertices2D = (unitVecs * centeredVertices.transpose()).transpose();
+};
+
+double erosion_margin_for_face(
+	int f,
+	const std::vector<Eigen::Vector3d>& normals,
+	const std::vector<double>& planeB,
+	const Eigen::Matrix<double, 3, 2>& U,
+	const Eigen::Vector3d& x0,
+	const Eigen::MatrixXd& verts2D, // N x 2
+	double delta,                   // pullback
+	double eps
+) {
+	double dstar = std::numeric_limits<double>::infinity();
+
+	for (int j = 0; j < (int)normals.size(); ++j) {
+		if (j == f) continue;
+
+		Eigen::Vector2d m = U.transpose() * normals[j];      // in-plane direction
+		double m2 = m.squaredNorm();
+		if (m2 < 1e-16) continue;                            // plane parallel to face
+
+		double cj = planeB[j] - normals[j].dot(x0);
+
+		// support over polygon in direction m
+		double maxDot = -std::numeric_limits<double>::infinity();
+		for (int k = 0; k < verts2D.rows(); ++k) {
+			double val = m.dot(verts2D.row(k));
+			if (val > maxDot) maxDot = val;
+		}
+
+		// d*_j = (c_j - supp_P(m)) + delta * ||m||
+		double dstar_j = (cj - maxDot) + delta * std::sqrt(m2);
+		if (dstar_j < dstar) dstar = dstar_j;
+	}
+	return (dstar > eps) ? dstar : 0.0;
+}
+
+
+void project_vertices_on_plane(
+	Eigen::MatrixXd& verts,
+	Eigen::Vector3d& origin,
+	Eigen::Vector3d& u,
+	Eigen::Vector3d& v,
+	Eigen::MatrixXd& vertices2D
+) {
+	//int vertNr = static_cast<int>(verts.size() / 3);
+
+	//// create an Eigen matrix for the vertices
+	//Eigen::MatrixXd verts(vertNr, 3);
+
+	//// populate it
+	//for (int i{ 0 }; i < vertNr; i++) {
+	//	verts.row(i) = Eigen::Vector3d{
+	//		vertices[3 * i],
+	//		vertices[3 * i + 1],
+	//		vertices[3 * i + 2]
+	//	};
+	//}
 
 	//render_vtk_points(verts, "Initial");
 
@@ -597,6 +717,62 @@ void chaikin_subdivision(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& i
 	}
 }
 
+PolygonWidth get_polygon_width(const Eigen::MatrixXd& verts2D) {
+
+	PolygonWidth stats = { 0.0, 0.0 };
+
+	const int vertNr = verts2D.rows();
+
+	if (vertNr < 3) {
+		return stats;
+	}
+
+	double minWidth = std::numeric_limits<double>::infinity();
+	double maxWidth = 0.0;
+
+	// loop for each edge
+	for (int i{ 0 }; i < vertNr; i++) {
+		int j = (i + 1) % vertNr;
+
+		Eigen::Vector2d p1 = verts2D.row(i);
+		Eigen::Vector2d p2 = verts2D.row(j);
+
+		Eigen::Vector2d edge = p2 - p1;
+
+		// check if the edge is very small
+		double edgeNorm = edge.norm();
+
+		if (edgeNorm < 1e-20) continue;
+
+		// estimate the normal of the edge
+		Eigen::Vector2d normal(-edge.y() / edgeNorm, edge.x() / edgeNorm);
+
+		// now for all vertices estimate the scalar projections
+		double smin = std::numeric_limits<double>::infinity();
+		double smax = -std::numeric_limits<double>::infinity();
+
+		for (int v{ 0 }; v < vertNr; v++) {
+
+			Eigen::Vector2d p = verts2D.row(v);
+			double sp = normal.dot(p);
+			smin = std::min(smin, sp);
+			smax = std::max(smax, sp);
+		}
+
+		// estimate the width
+		double width = smax - smin;
+		minWidth = std::min(minWidth, width);
+		maxWidth = std::max(maxWidth, width);
+	}
+
+	// check if minWidth is not changed
+	if (minWidth == std::numeric_limits<double>::infinity()) minWidth = 0.0;
+
+	stats.minWidth = minWidth;
+	stats.maxWidth = maxWidth;
+
+	return stats;
+};
 
 void sample_face_polygon(
 	const Eigen::MatrixXd& verts2D,
@@ -618,6 +794,7 @@ void sample_face_polygon(
 
 	// 3. now loop for each point and find the biggest radius estimating distance from edges
 	double maxDist{ 0.0 };
+	int ptIdx = 0;
 	for (auto xi : x) {
 		for (auto yi : y) {
 
@@ -628,7 +805,7 @@ void sample_face_polygon(
 
 				// 5. find distance from edges, the minimum corresponds to the radius
 				// we also use a scale factor to have some space between the hole and the face edges
-				double distance = scale * distance_from_edges(pt, verts2D);
+				double distance = scale * min_distance_from_edges(pt, verts2D, ptIdx);
 
 				// 6. if the distance is larger than maxDist then this point is the center
 				// of the largest circle
@@ -638,6 +815,7 @@ void sample_face_polygon(
 				}
 			}
 		}
+		ptIdx++;
 	}
 	radius1 = maxDist;
 };
@@ -715,17 +893,21 @@ bool is_inside_triangle(const Eigen::Vector2d& vPrev, const Eigen::Vector2d& vCu
 
 };
 
+double min_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludeIdx) {
 
-double distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices) {
-
-	double minDist = 1e100;
+	double minDist = std::numeric_limits<double>::infinity();
 
 	// 1. loop for each edge
 	for (int i{ 0 }; i < vertices.rows(); i++) {
 
+		int j = (i + 1) % vertices.rows();
+
+		// dont check the edges that contain the vertex idx
+		if (i == excludeIdx || j == excludeIdx) continue;
+
 		// 2. get the two points of the edge
 		Eigen::VectorXd p1 = vertices.row(i);
-		Eigen::VectorXd p2 = vertices.row((i + 1) % vertices.rows());
+		Eigen::VectorXd p2 = vertices.row(j);
 
 		// 3. estimate a vector for the edge
 		Eigen::Vector2d edge = p2 - p1;
@@ -752,6 +934,98 @@ double distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& ver
 	return minDist;
 
 };
+
+double max_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludeIdx) {
+
+	double maxDist = std::numeric_limits<double>::infinity();
+
+	// 1. loop for each edge
+	for (int i{ 0 }; i < vertices.rows(); i++) {
+
+		int j = (i + 1) % vertices.rows();
+
+		// dont check the edges that contain the vertex idx
+		if (i == excludeIdx || j == excludeIdx) continue;
+
+		// 2. get the two points of the edge
+		Eigen::VectorXd p1 = vertices.row(i);
+		Eigen::VectorXd p2 = vertices.row(j);
+
+		// 3. estimate a vector for the edge
+		Eigen::Vector2d edge = p2 - p1;
+
+		// 4. estimate the vector from p1 to pt
+		Eigen::Vector2d toPt = pt - p1;
+
+		// 5. we get the projection of the pt to the edge
+		double t = edge.dot(toPt) / edge.squaredNorm();
+
+		// 6. clamp it to be on the segment
+		t = std::clamp(t, 0.0, 1.0);
+
+		// 7. the vector projection is 
+		Eigen::Vector2d projection = p1 + t * edge;
+
+		// 8. the distance is the norm of the vertical vector
+		double dist = (pt - projection).norm();
+
+		// 9. check if the dist is smaller than minDists
+		maxDist = std::max(maxDist, dist);
+	}
+
+	return maxDist;
+
+};
+
+double polygon_min_width(const Eigen::MatrixXd& vertices) {
+
+	double minWidth = std::numeric_limits<double>::infinity();
+
+	for (int i{ 0 }; i < vertices.rows(); i++) {
+
+		double width = min_distance_from_edges(vertices.row(i), vertices, i);
+
+		minWidth = std::min(minWidth, width);
+	}
+
+	return minWidth;
+};
+
+double polygon_max_width(const Eigen::MatrixXd& vertices) {
+
+	double maxWidth = -1.0;
+
+	for (int i{ 0 }; i < vertices.rows(); i++) {
+
+		double width = max_distance_from_edges(vertices.row(i), vertices, i);
+
+		maxWidth = std::max(maxWidth, width);
+	}
+
+	return maxWidth;
+};
+
+double polygon_average_edge_length(const Eigen::MatrixXd& vertices) {
+
+	double avgLength{ 0.0 };
+
+	if (vertices.rows() < 2) return 0.0;
+
+	for (int i{ 0 }; i < vertices.rows(); i++) {
+
+		int j = (i + 1) % vertices.rows();
+
+		// 2. get the two points of the edge
+		Eigen::VectorXd p1 = vertices.row(i);
+		Eigen::VectorXd p2 = vertices.row(j);
+
+		// 3. estimate edge length
+		avgLength += (p2 - p1).norm();
+	}
+
+	return avgLength / vertices.rows();
+};
+
 
 void interpolate_edges(
 	const Eigen::MatrixXd& vertices,
@@ -934,5 +1208,384 @@ bool ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs,
 	//std::cout << "..." << std::endl;
 };
 
+bool polygon_is_open(
+	const std::vector<Eigen::Vector3d>& normals,
+	const std::vector<double>& d,
+	const Eigen::MatrixXd& faceVertices,
+	int fIdx,
+	double erosion,
+	double eps
+) {
+	// loop for all face vertices
+	//double dstar = std::numeric_limits<double>::infinity();
 
+	for (int i{ 0 }; i < faceVertices.rows(); i++) {
+
+		// get the vertex coords
+		Eigen::Vector3d p = faceVertices.row(i);
+
+		// now loop for all other faces
+		for (int j{ 0 }; j < static_cast<int>(normals.size()); j++) {
+			if (j == fIdx) continue;
+
+			// now check if the vertex will be above or below the eroded plane
+			// we will accept if normal_j * p > d_j - erosion + eps
+			double diff = d[j] - normals[j].dot(p);
+			if (normals[j].dot(p) < d[j] - erosion + eps) return false;
+			//dstar = std::min(dstar, diff);
+		}
+	}
+	//return (dstar > eps) ? dstar : 0.0;
+	return true;
+	//return (dstar > eps) ? dstar : 0.0;
+};
+
+
+// @function for half space clipping using the Sutherland - Hodgman Algorithm
+Eigen::MatrixXd clip_polygon(
+	const Eigen::MatrixXd& verts2D,
+	const Eigen::Vector2d normal,
+	const double d
+) {
+
+	// if it is empty return it
+	if (verts2D.rows() == 0) {
+		return verts2D;
+	}
+
+	// result
+	std::vector<Eigen::Vector2d> temp;
+
+	for (int i{ 0 }; i < verts2D.rows(); i++) {
+
+		// test the edge between two consecutive points
+		Eigen::Vector2d p = verts2D.row(i);
+		Eigen::Vector2d q = verts2D.row((i+1)%verts2D.rows());
+		
+		// check if these are inside the halfspace
+		bool pInside = (p.dot(normal) <= d + 1e-12);
+		bool qInside = (q.dot(normal) <= d + 1e-12);
+
+		// if both inside keep q
+		if (pInside && qInside) { 
+			temp.push_back(q); 
+		}
+		// if first inside and second out push the intersection
+		else if (pInside && !qInside) {
+			temp.push_back(intersection_of_lines(p, q, normal, d));
+		}
+		else if (!pInside && qInside) {
+			temp.push_back(intersection_of_lines(p, q, normal, d));
+			temp.push_back(q);
+		}
+	}
+	
+	// return a matrix
+	Eigen::MatrixXd result(temp.size(), 2);
+	for (int j{ 0 }; j < temp.size(); j++) {
+		result.row(j) = temp[j];
+	}
+	return result;
+};
+
+// @function to find intersection of lines
+Eigen::Vector2d intersection_of_lines(
+	const Eigen::Vector2d& p,
+	const Eigen::Vector2d& q,
+	const Eigen::Vector2d& normal,
+	double d
+) {
+
+	double denom = normal.dot(q - p);
+	if (std::abs(denom) > 1e-15) return q;
+
+	double t = (d - p.dot(normal)) / denom;
+
+	return p + t * (q - p);
+};
+
+bool clipping_is_valid(
+	const Eigen::MatrixXd& verts2D,
+	const std::vector<HalfSpace> hspaces,
+	double delta,
+	Eigen::MatrixXd* outPoly
+) {
+	Eigen::MatrixXd poly = verts2D;
+	for (const auto& hs : hspaces) {
+		poly = clip_polygon(poly, hs.n, hs.d - delta);
+
+		// if the resulted polygon has fewer that 3 vertices then
+		// it is degenerated
+		if (poly.rows() < 3) {
+			if (outPoly) outPoly->resize(0, 2);
+			return false;
+		}
+	}
+	if (outPoly) {
+		*outPoly = poly;
+	}
+	return true;
+};
+
+std::vector<HalfSpace> get_poly_half_spaces(const Eigen::MatrixXd& verts2D) {
+	
+	const int vertNr = verts2D.rows();
+	std::vector<HalfSpace> hSpaces;
+	hSpaces.reserve(vertNr);
+
+	// get the centroid
+	Eigen::Vector2d centroid = verts2D.colwise().mean();
+	
+	for (int i{ 0 }; i < vertNr; i++) {
+		//get each edge
+		Eigen::Vector2d p = verts2D.row(i);
+		Eigen::Vector2d q = verts2D.row((i + 1) % vertNr);
+		Eigen::Vector2d e = q - p;
+
+
+		// get the inward normal it is the left rotated normalized edge
+		Eigen::Vector2d normal{ -e.y(), e.x() };
+
+		if (normal.dot(centroid) > normal.dot(p)) normal = -normal;
+
+		double len = normal.norm();
+		if (len < 1e-16) continue;
+		normal /= len;
+
+		// find the plane coeff
+		double d = normal.dot(p);
+
+		hSpaces.push_back({ normal, d });
+	}
+
+	return hSpaces;
+};
+
+double polygon_inradius(const Eigen::MatrixXd& verts2D) {
+
+	// check if a face is degenerated
+	if (verts2D.rows() < 3 || verts2D.cols() != 2) return 0.0;
+
+	// first gather the halfspaces
+	std::vector<HalfSpace> hSpaces = get_poly_half_spaces(verts2D);
+	
+	if (hSpaces.empty()) return 0.0;
+
+	// bisection limits
+	double low = 0.0;
+	double upper = 1e-6;
+
+	// find an infeasible upper bound
+	Eigen::MatrixXd dummy;
+	while (clipping_is_valid(verts2D, hSpaces, upper, &dummy)) {
+		low = upper;
+		upper *= 2.0;
+		if (upper > 1e6) break; // safety
+	}
+
+	// clip to zero
+	upper = std::max(0.0, upper);
+
+	// keep also the best poly to provide the centroid as a center
+	Eigen::MatrixXd best;
+
+	// use a number of iterations to find the inradius
+	for (int i{ 0 }; i < 25; i++) {
+		// take midpoint
+		double mid = 0.5 * (low + upper);
+
+		Eigen::MatrixXd poly;
+		if (clipping_is_valid(verts2D, hSpaces, mid, &poly)) {
+			low = mid;
+			best = poly;
+		}
+		else {
+			upper = mid;
+		}
+	}
+
+	return low;
+};
+
+
+// ----------------------------------------------------------------------------
+bool Graph::add_vertex(const int idx) {
+
+	// check if is inside the adjList
+	if (adjList.count(idx) == 0) {
+		adjList[idx];
+		return true;
+	}
+	return false;
+};
+
+void Graph::print() {
+
+	std::cout << " ----------- " << std::endl;
+	for (auto [vertex, edges] : adjList) {
+
+		std::string edgeNames{ "" };
+
+		for (auto edge : edges) {
+			edgeNames += " '" + std::to_string(edge.first) + " weight " + std::to_string(edge.second.dstar) + "' ";
+		}
+
+		std::cout << vertex << " : [" << edgeNames << " ]" << std::endl;
+	};
+};
+
+//bool Graph::add_edge(const int vertex1, const int vertex2, const float weight) {
+bool Graph::add_edge(const int vertex1, const int vertex2, const EdgeData& edge) {
+
+	if (adjList.count(vertex1) != 0 && adjList.count(vertex2) != 0) {
+	//if (adjList.count(vertex1) != 0) {
+		//adjList.at(vertex1).insert({ vertex2, weight });
+		//adjList.at(vertex2).insert({ vertex1, weight });
+		adjList.at(vertex1).insert({ vertex2, edge });
+		adjList.at(vertex2).insert({ vertex1, edge });
+		//std::cout << "added edge: " << vertex1 << " - " << vertex2 << std::endl;
+		return true;
+	}
+	return false;
+};
+
+bool Graph::remove_edge(const int vertex1, const int vertex2) {
+
+	if (adjList.count(vertex1) != 0 && adjList.count(vertex2) != 0) {
+		adjList.at(vertex1).erase(vertex2);
+		adjList.at(vertex2).erase(vertex1);
+		return true;
+	}
+	return false;
+};
+
+
+bool Graph::remove_vertex(const int vertex) {
+
+	if (adjList.count(vertex) == 0) {
+		return false;
+	}
+	// loop and delete edges
+	for (auto otherVertex : adjList.at(vertex)) {
+		adjList.at(otherVertex.first).erase(vertex);
+	}
+	adjList.erase(vertex);
+	return true;
+
+};
+
+void Graph::remove_edges_below(const float weight) {
+
+	std::vector<std::pair<int, int>> edges_to_remove;
+
+	// 1. Find all edges below the weight
+	for (auto const& [vertex1, edges] : adjList) {
+		for (auto const& [vertex2, w] : edges) {
+			if (w.dstar < weight && vertex1 < vertex2) {
+				edges_to_remove.push_back({ vertex1, vertex2 });
+			}
+		}
+	}
+
+	// 2. Now, remove both directions for each edge
+	for (auto const& edge_pair : edges_to_remove) {
+		remove_edge(edge_pair.first, edge_pair.second); 
+		remove_edge(edge_pair.second, edge_pair.first); 
+	}
+};
+
+void Graph::remove_edges_above(const float weight) {
+	std::vector<std::pair<int, int>> edges_to_remove;
+
+	// 1. Find all edges below the weight
+	for (auto const& [vertex1, edges] : adjList) {
+		for (auto const& [vertex2, w] : edges) {
+			if (w.dstar > weight) {
+				if (vertex1 < vertex2) {
+					edges_to_remove.push_back({ vertex1, vertex2 });
+				}
+			}
+		}
+	}
+
+	// 2. Now, remove both directions for each edge
+	for (auto const& edge_pair : edges_to_remove) {
+		remove_edge(edge_pair.first, edge_pair.second);
+		remove_edge(edge_pair.second, edge_pair.first);
+	}
+};
+
+void Graph::dfs_traversal(int startNode, std::set<int>& visited) {
+
+	// add the start node
+	visited.insert(startNode);
+
+	if (adjList.count(startNode)) {
+		for (auto const& [idx, weight] : adjList.at(startNode)) {
+			if (visited.count(idx) == 0) {
+				dfs_traversal(idx, visited);
+			}
+		}
+	}
+};
+
+int Graph::find_longest_network() {
+
+	std::set<int> visited;
+
+	int maxLength = 0;
+
+	for (auto const& [vIdx, weight] : adjList) {
+
+		// check inside the set if we already checked it or
+		// it is a new component
+		if (visited.count(vIdx) == 0) {
+			std::set<int> components;
+
+			dfs_traversal(vIdx, components);
+
+			int currentSize = components.size();
+
+			if (currentSize > maxLength) {
+				maxLength = currentSize;
+			}
+
+			// add the members of the components to the visited
+			// to avoid checking them again
+			visited.insert(components.begin(), components.end());
+		}
+
+	}
+
+	return maxLength;
+};
+
+int Graph::get_vertex_count() {
+	return adjList.size();
+};
+
+//@brief function to get edge data. It is used inside process_faces
+EdgeData Graph::get_edge_width(const int vertex1, const int vertex2) {
+
+	// get the set of edges of the vertex1
+	auto it1 = adjList.find(vertex1);
+
+	// if not found return -1
+	if (it1 == adjList.end()) {
+		return { -1.0f, -1.0f };
+	}
+
+	auto it_v2 = it1->second.find(vertex2);
+	if (it_v2 == it1->second.end()) {
+		return {-1.0f, -1.0f}; // edge v1 -> v2 not in graph
+	}
+
+	// if ok return the weight
+	return it_v2->second;
+};
+
+//std::unordered_map<int, std::unordered_map<int, float>> Graph::get_adj_list() {
+std::unordered_map<int, std::unordered_map<int, EdgeData>> Graph::get_adj_list() {
+	return adjList;
+};
 

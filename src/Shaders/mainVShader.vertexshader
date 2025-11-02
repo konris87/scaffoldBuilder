@@ -27,8 +27,10 @@ out vec4 vertexPosWorld;
 
 void main()
 {
+	vec3 pos = vertexPosModel;
+	
 	// 1. position of vertices in camera space
-	vertexPosCamera = view * model * vec4(vertexPosModel, 1.0);
+	vertexPosCamera = view * model * vec4(pos, 1.0);
 	
 	// 2. vertex normals in camera space
 	mat3 normalMatrix = transpose(inverse(mat3(view * model)));
@@ -39,7 +41,7 @@ void main()
 	lightPosCamera = vec4(lightPosWorld, 1.0);
 	
 	// 4.
-	vertexPosWorld = model * vec4(vertexPosModel, 1.0);
+	vertexPosWorld = model * vec4(pos, 1.0);
 	
 	// position of fragments in clip space
 	gl_Position = projection * vertexPosCamera;

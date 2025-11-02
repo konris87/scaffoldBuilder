@@ -6,17 +6,13 @@
 #include <stdio.h>
 
 // custom headers
-#include "Shader.h"
-#include "Mesh.h"
-#include "Model.h"
 #include "guiApp.h"
 #include "json.hpp"
-#include "OpenGlSetup/Grid.h"
 
 // test global
-#include "ScaffoldGenerator/ScaffoldGenerator.h"
-#include "SeedGenerator/Poisson3D.h"
-#include "SeedGenerator/Random.h"
+//#include "ScaffoldGenerator/ScaffoldGenerator.h"
+//#include "SeedGenerator/Poisson3D.h"
+//#include "SeedGenerator/Random.h"
 
 // ---------------------------------------------------------------------
 // Globals
