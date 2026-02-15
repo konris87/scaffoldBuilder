@@ -1,60 +1,60 @@
 #include "Model.h"
 
-Model::Model(std::string& modelFile) {
-		
-	// check model file extension
-	std::filesystem::path filePath = modelFile;
-
-	std::cout << filePath << std::endl;
-
-	if (filePath.extension() == ".stl") {
-		vtkSmartPointer<vtkSTLReader> reader = vtkSmartPointer<vtkSTLReader>::New();
-		reader->SetFileName(modelFile.c_str());
-		reader->Update();
-
-		// get header
-		std::string header{ "" };
-		header = reader->GetHeader();
-
-		// get polydata, points and cells
-		polyData = vtkSmartPointer<vtkPolyData>::New();
-		polyData = reader->GetOutput();
-	}
-	else if (filePath.extension() == ".vtk") {
-		vtkSmartPointer<vtkXMLPolyDataReader> reader = vtkSmartPointer<vtkXMLPolyDataReader>::New();
-		reader->SetFileName(modelFile.c_str());
-		reader->Update();
-
-		// get polydata, points and cells
-		polyData = vtkSmartPointer<vtkPolyData>::New();
-		polyData = reader->GetOutput();
-	}
-	else {
-		std::cerr << "Invalid format. Provide a proper .stl or .vtk mesh" << std::endl;
-	}
-
-	vtkSmartPointer<vtkFieldData> fieldData = polyData->GetFieldData();
-	if (fieldData) {
-
-		// Read Porosity
-		vtkDoubleArray* porosityArray = vtkDoubleArray::SafeDownCast(fieldData->GetArray("Porosity"));
-		if (porosityArray && porosityArray->GetNumberOfTuples() > 0)
-		{
-			porosity = porosityArray->GetValue(0);
-			std::cout << "Scaffold Porosity: " << porosity << std::endl;
-		}
-		else
-		{
-			std::cerr << "Porosity data not found!" << std::endl;
-		}
-	}
-	
-	setup_data();
-	setup_mesh();
-	setup_edges();
-};
-
-Model::Model(vtkSmartPointer<vtkPolyData>& inputData) : polyData(inputData) {
+//Model::Model(std::string& modelFile) {
+//		
+//	// check model file extension
+//	std::filesystem::path filePath = modelFile;
+//
+//	std::cout << filePath << std::endl;
+//
+//	if (filePath.extension() == ".stl") {
+//		vtkSmartPointer<vtkSTLReader> reader = vtkSmartPointer<vtkSTLReader>::New();
+//		reader->SetFileName(modelFile.c_str());
+//		reader->Update();
+//
+//		// get header
+//		std::string header{ "" };
+//		header = reader->GetHeader();
+//
+//		// get polydata, points and cells
+//		polyData = vtkSmartPointer<vtkPolyData>::New();
+//		polyData = reader->GetOutput();
+//	}
+//	else if (filePath.extension() == ".vtk") {
+//		vtkSmartPointer<vtkXMLPolyDataReader> reader = vtkSmartPointer<vtkXMLPolyDataReader>::New();
+//		reader->SetFileName(modelFile.c_str());
+//		reader->Update();
+//
+//		// get polydata, points and cells
+//		polyData = vtkSmartPointer<vtkPolyData>::New();
+//		polyData = reader->GetOutput();
+//	}
+//	else {
+//		std::cerr << "Invalid format. Provide a proper .stl or .vtk mesh" << std::endl;
+//	}
+//
+//	vtkSmartPointer<vtkFieldData> fieldData = polyData->GetFieldData();
+//	if (fieldData) {
+//
+//		// Read Porosity
+//		vtkDoubleArray* porosityArray = vtkDoubleArray::SafeDownCast(fieldData->GetArray("Porosity"));
+//		if (porosityArray && porosityArray->GetNumberOfTuples() > 0)
+//		{
+//			porosity = porosityArray->GetValue(0);
+//			std::cout << "Scaffold Porosity: " << porosity << std::endl;
+//		}
+//		else
+//		{
+//			std::cerr << "Porosity data not found!" << std::endl;
+//		}
+//	}
+//	
+//	setup_data();
+//	setup_mesh();
+//	setup_edges();
+//};
+//
+//Model::Model(vtkSmartPointer<vtkPolyData>& inputData) : polyData(inputData) {
 
 	//std::cout << "Number of points: " << polyData->GetNumberOfPoints() << std::endl;
 	//std::cout << "Number of cells: " << polyData->GetNumberOfCells() << std::endl;
@@ -78,248 +78,234 @@ Model::Model(vtkSmartPointer<vtkPolyData>& inputData) : polyData(inputData) {
 	//std::cout << "triangles: " << nrTriangles << std::endl;
 	//std::cout << "lines: " << nrLines << std::endl;
 
-	vtkNew<vtkMassProperties> massProperties;
-	massProperties->SetInputData(polyData);
-	massProperties->Update();
+//	vtkNew<vtkMassProperties> massProperties;
+//	massProperties->SetInputData(polyData);
+//	massProperties->Update();
+//
+//	volume = massProperties->GetVolume();
+//
+//	std::cout << "volume: " << volume << std::endl;
+//
+//	setup_data();
+//	setup_mesh();
+//	setup_edges();
+//};
+//
+//void Model::draw() {
+//	glBindVertexArray(VAO);
+//	glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
+//	glBindVertexArray(0);
+//};
+//
+//void Model::draw_edges() {
+//	glBindVertexArray(edgeVAO);
+//	glDrawElements(GL_LINES, edgeIndices.size(), GL_UNSIGNED_INT, 0);
+//	//glBindVertexArray(1);
+//};
+//
+//void Model::clean() {
+//	glBindVertexArray(0);
+//	glBindBuffer(GL_ARRAY_BUFFER, 0);
+//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+//	glDeleteVertexArrays(1, &VAO);
+//	glDeleteBuffers(1, &VBO);
+//	glDeleteBuffers(1, &normalsVBO);
+//	glDeleteBuffers(1, &EBO);
+//	glDeleteVertexArrays(1, &edgeVAO);
+//	glDeleteBuffers(1, &edgeVBO);
+//	glDeleteBuffers(1, &edgeEBO);
+//	VAO, VBO, normalsVBO, EBO, edgeVAO, edgeVBO, edgeEBO = 0;
+//};
+//
+//void Model::get_details(int& faceNr, int& vertexNr, int& edgeNr, double& vol, double& por) {
+//
+//	faceNr = cellSize;
+//	vertexNr = vertexSize;
+//	edgeNr = edgeSize;
+//	vol = volume;
+//	por = porosity;
+//};
+//
+//void Model::setup_data() {
+//
+//	vtkSmartPointer<vtkPoints> points = polyData->GetPoints();
+//	vtkSmartPointer<vtkCellArray> cells = polyData->GetPolys();
+//
+//	// update also bounds
+//	double bounds[6];
+//	polyData->GetBounds(bounds);
+//	xMin = bounds[0];
+//	xMax = bounds[1];
+//	yMin = bounds[2];
+//	yMax = bounds[3];
+//	zMin = bounds[4];
+//	zMax = bounds[5];
+//
+//	//std::cout << "volume" << std::endl;
+//	// get volume
+//
+//	double center[3];
+//	polyData->GetCenter(center);
+//	//std::cout << "Actual center: " << center[0] << " " << center[1] << center[2] << std::endl;
+//
+//	// get vertex data and pass them to the vector of vertices
+//	for (vtkIdType i{ 0 }; i < points->GetNumberOfPoints(); i++) {
+//		vertexSize++;
+//		double pt[3];
+//		points->GetPoint(i, pt);
+//		vertices.push_back(pt[0]);
+//		vertices.push_back(pt[1]);
+//		vertices.push_back(pt[2]);
+//	}
+//
+//	// get face indices and edge indices
+//	// use a set to avoid duplicate edges
+//	std::set<std::pair<unsigned int, unsigned int>> edgeSet;
+//
+//	auto iter = vtk::TakeSmartPointer(cells->NewIterator());
+//	for (iter->GoToFirstCell(); !iter->IsDoneWithTraversal(); iter->GoToNextCell())
+//	{
+//		cellSize += 1;
+//		vtkSmartPointer<vtkIdList> cell = vtkSmartPointer<vtkIdList>::New();
+//		iter->GetCurrentCell(cell);
+//
+//		unsigned int v1 = static_cast<unsigned int>(cell->GetId(0));
+//		unsigned int v2 = static_cast<unsigned int>(cell->GetId(1));
+//		unsigned int v3 = static_cast<unsigned int>(cell->GetId(2));
+//
+//		indices.push_back(v1);
+//		indices.push_back(v2);
+//		indices.push_back(v3);
+//
+//		// push also edges, use a set to not save duplicates
+//		std::pair<unsigned int, unsigned int> e1 = { std::min(v1, v2), std::max(v1, v2) };
+//		std::pair<unsigned int, unsigned int> e2 = { std::min(v2, v3), std::max(v2, v3) };
+//		std::pair<unsigned int, unsigned int> e3 = { std::min(v3, v1), std::max(v3, v1) };
+//
+//		if (edgeSet.insert(e1).second) {
+//			edgeIndices.push_back(e1.first);
+//			edgeIndices.push_back(e1.second);
+//		}
+//
+//		if (edgeSet.insert(e2).second) {
+//			edgeIndices.push_back(e2.first);
+//			edgeIndices.push_back(e2.second);
+//		}
+//
+//		if (edgeSet.insert(e3).second) {
+//			edgeIndices.push_back(e3.first);
+//			edgeIndices.push_back(e3.second);
+//		}
+//	}
+//
+//	// get also the mesh normals for now we use the face normals
+//	//std::cout << "Estimating norms" << std::endl;
+//	vtkNew<vtkPolyDataNormals> norms;
+//	norms->SetInputData(polyData);
+//	norms->ComputePointNormalsOn();
+//	norms->Update();
+//
+//	// Get normals from the updated polydata
+//	vtkSmartPointer<vtkDataArray> normalData = norms->GetOutput()->GetPointData()->GetNormals();
+//	if (!normalData) {
+//		std::cerr << "Error: No normals found!" << std::endl;
+//		return;
+//	}
+//	else {
+//		//std::cout << normalData->GetNumberOfTuples() << std::endl;
+//		for (vtkIdType i{ 0 }; i < normalData->GetNumberOfTuples(); i++) {
+//			double normal[3];
+//
+//			normalData->GetTuple(i, normal);
+//
+//			vertexNormals.push_back(normal[0]);
+//			vertexNormals.push_back(normal[1]);
+//			vertexNormals.push_back(normal[2]);
+//		}
+//	}
+//
+//	vertexSize = vertices.size() / 3;
+//	cellSize = indices.size() / 3;
+//	edgeSize = edgeIndices.size() / 2;
+//};
+//
+//void Model::setup_mesh() {
+//	
+//	// generate Vertex Array Object
+//	glGenVertexArrays(1, &VAO);
+//	// bind to vertex array
+//	glBindVertexArray(VAO);
+//
+//	// generate Vertex Buffer Object to store vertex attributes
+//	// bind array buffer and send data
+//	glGenBuffers(1, &VBO);
+//	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+//	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+//
+//	// vertex position attribute
+//	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+//	glEnableVertexAttribArray(0);
+//
+//	// vertex normal VBO
+//	glGenBuffers(1, &normalsVBO);
+//	glBindBuffer(GL_ARRAY_BUFFER, normalsVBO);
+//	glBufferData(GL_ARRAY_BUFFER, vertexNormals.size() * sizeof(float), vertexNormals.data(), GL_STATIC_DRAW);
+//
+//	// vertex normal attribute
+//	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+//	glEnableVertexAttribArray(1);
+//
+//	// generate element buffer Object
+//	// bind element array buffer and send data
+//	glGenBuffers(1, &EBO);
+//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+//	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+//
+//	glBindVertexArray(0);
+//};
+//
+//void Model::setup_edges() {
+//
+//	//std::cout << "setup edges" << std::endl;
+//
+//	// generate Vertex Array Object
+//	glGenVertexArrays(1, &edgeVAO);
+//	// generate Vertex Buffer Object to store vertex attributes
+//	glGenBuffers(1, &edgeVBO);
+//	// generate element buffer Object
+//	glGenBuffers(1, &edgeEBO);
+//
+//	// bind to vertex array
+//	glBindVertexArray(edgeVAO);
+//
+//	// bind array buffer and send data
+//	glBindBuffer(GL_ARRAY_BUFFER, edgeVBO);
+//	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+//
+//	// bind elementa array buffer and send data
+//	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, edgeEBO);
+//	glBufferData(GL_ELEMENT_ARRAY_BUFFER, edgeIndices.size() * sizeof(unsigned int), edgeIndices.data(), GL_STATIC_DRAW);
+//
+//	// position attribute
+//	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+//	glEnableVertexAttribArray(0);
+//
+//	//glBindVertexArray(0);
+//
+//};
 
-	volume = massProperties->GetVolume();
-
-	setup_data();
-	setup_mesh();
-	setup_edges();
-};
-
-void Model::draw() {
-	glBindVertexArray(VAO);
-	glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
-	glBindVertexArray(0);
-};
-
-void Model::draw_edges() {
-	glBindVertexArray(edgeVAO);
-	glDrawElements(GL_LINES, edgeIndices.size(), GL_UNSIGNED_INT, 0);
-	//glBindVertexArray(1);
-};
-
-void Model::clean() {
-	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-	glDeleteVertexArrays(1, &VAO);
-	glDeleteBuffers(1, &VBO);
-	glDeleteBuffers(1, &normalsVBO);
-	glDeleteBuffers(1, &EBO);
-	glDeleteVertexArrays(1, &edgeVAO);
-	glDeleteBuffers(1, &edgeVBO);
-	glDeleteBuffers(1, &edgeEBO);
-	VAO, VBO, normalsVBO, EBO, edgeVAO, edgeVBO, edgeEBO = 0;
-};
-
-void Model::get_details(int& faceNr, int& vertexNr, int& edgeNr, double& vol, double& por) {
-
-	faceNr = cellSize;
-	vertexNr = vertexSize;
-	edgeNr = edgeSize;
-	vol = volume;
-	por = porosity;
-};
-
-void Model::setup_data() {
-
-	vtkSmartPointer<vtkPoints> points = polyData->GetPoints();
-	vtkSmartPointer<vtkCellArray> cells = polyData->GetPolys();
-
-	// update also bounds
-	double bounds[6];
-	polyData->GetBounds(bounds);
-	xMin = bounds[0];
-	xMax = bounds[1];
-	yMin = bounds[2];
-	yMax = bounds[3];
-	zMin = bounds[4];
-	zMax = bounds[5];
-
-	//std::cout << "volume" << std::endl;
-	// get volume
-
-	double center[3];
-	polyData->GetCenter(center);
-	//std::cout << "Actual center: " << center[0] << " " << center[1] << center[2] << std::endl;
-
-	// get vertex data and pass them to the vector of vertices
-	for (vtkIdType i{ 0 }; i < points->GetNumberOfPoints(); i++) {
-		vertexSize++;
-		double pt[3];
-		points->GetPoint(i, pt);
-		vertices.push_back(pt[0]);
-		vertices.push_back(pt[1]);
-		vertices.push_back(pt[2]);
-	}
-
-	// get face indices and edge indices
-	// use a set to avoid duplicate edges
-	std::set<std::pair<unsigned int, unsigned int>> edgeSet;
-
-	auto iter = vtk::TakeSmartPointer(cells->NewIterator());
-	for (iter->GoToFirstCell(); !iter->IsDoneWithTraversal(); iter->GoToNextCell())
-	{
-		cellSize += 1;
-		vtkSmartPointer<vtkIdList> cell = vtkSmartPointer<vtkIdList>::New();
-		iter->GetCurrentCell(cell);
-
-		unsigned int v1 = static_cast<unsigned int>(cell->GetId(0));
-		unsigned int v2 = static_cast<unsigned int>(cell->GetId(1));
-		unsigned int v3 = static_cast<unsigned int>(cell->GetId(2));
-
-		indices.push_back(v1);
-		indices.push_back(v2);
-		indices.push_back(v3);
-
-		// push also edges, use a set to not save duplicates
-		std::pair<unsigned int, unsigned int> e1 = { std::min(v1, v2), std::max(v1, v2) };
-		std::pair<unsigned int, unsigned int> e2 = { std::min(v2, v3), std::max(v2, v3) };
-		std::pair<unsigned int, unsigned int> e3 = { std::min(v3, v1), std::max(v3, v1) };
-
-		if (edgeSet.insert(e1).second) {
-			edgeIndices.push_back(e1.first);
-			edgeIndices.push_back(e1.second);
-		}
-
-		if (edgeSet.insert(e2).second) {
-			edgeIndices.push_back(e2.first);
-			edgeIndices.push_back(e2.second);
-		}
-
-		if (edgeSet.insert(e3).second) {
-			edgeIndices.push_back(e3.first);
-			edgeIndices.push_back(e3.second);
-		}
-	}
-
-	// get also the mesh normals for now we use the face normals
-	//std::cout << "Estimating norms" << std::endl;
-	vtkNew<vtkPolyDataNormals> norms;
-	norms->SetInputData(polyData);
-	norms->ComputePointNormalsOn();
-	norms->Update();
-
-	// Get normals from the updated polydata
-	vtkSmartPointer<vtkDataArray> normalData = norms->GetOutput()->GetPointData()->GetNormals();
-	if (!normalData) {
-		std::cerr << "Error: No normals found!" << std::endl;
-		return;
-	}
-	else {
-		//std::cout << normalData->GetNumberOfTuples() << std::endl;
-		for (vtkIdType i{ 0 }; i < normalData->GetNumberOfTuples(); i++) {
-			double normal[3];
-
-			normalData->GetTuple(i, normal);
-
-			vertexNormals.push_back(normal[0]);
-			vertexNormals.push_back(normal[1]);
-			vertexNormals.push_back(normal[2]);
-		}
-	}
-
-	vertexSize = vertices.size() / 3;
-	cellSize = indices.size() / 3;
-	edgeSize = edgeIndices.size() / 2;
-};
-
-void Model::setup_mesh() {
-	
-	// generate Vertex Array Object
-	glGenVertexArrays(1, &VAO);
-	// bind to vertex array
-	glBindVertexArray(VAO);
-
-	// generate Vertex Buffer Object to store vertex attributes
-	// bind array buffer and send data
-	glGenBuffers(1, &VBO);
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
-	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
-
-	// vertex position attribute
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	// vertex normal VBO
-	glGenBuffers(1, &normalsVBO);
-	glBindBuffer(GL_ARRAY_BUFFER, normalsVBO);
-	glBufferData(GL_ARRAY_BUFFER, vertexNormals.size() * sizeof(float), vertexNormals.data(), GL_STATIC_DRAW);
-
-	// vertex normal attribute
-	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(1);
-
-	// generate element buffer Object
-	// bind element array buffer and send data
-	glGenBuffers(1, &EBO);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
-
-	glBindVertexArray(0);
-};
-
-void Model::setup_edges() {
-
-	//std::cout << "setup edges" << std::endl;
-
-	// generate Vertex Array Object
-	glGenVertexArrays(1, &edgeVAO);
-	// generate Vertex Buffer Object to store vertex attributes
-	glGenBuffers(1, &edgeVBO);
-	// generate element buffer Object
-	glGenBuffers(1, &edgeEBO);
-
-	// bind to vertex array
-	glBindVertexArray(edgeVAO);
-
-	// bind array buffer and send data
-	glBindBuffer(GL_ARRAY_BUFFER, edgeVBO);
-	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
-
-	// bind elementa array buffer and send data
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, edgeEBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, edgeIndices.size() * sizeof(unsigned int), edgeIndices.data(), GL_STATIC_DRAW);
-
-	// position attribute
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-	glEnableVertexAttribArray(0);
-
-	//glBindVertexArray(0);
-
-};
-
-
+// --------------------------------------------------------------------------------------
 CutPlane::CutPlane(float size) : size(size) {
-	_setup();
-};
-
-CutPlane::CutPlane(float normal[3], float& offset) : offset(offset) {
-	_setup();
-};
-
-CutPlane::CutPlane(Vec3 origin) {
-
-	center = glm::vec3(origin.x, origin.y, origin.z);
-
-	//std::cout << "Passed center: " << origin.x << " " << origin.y << " " << origin.z << std::endl;
-
-	// change coordinates of the plane
-	for (int i{ 0 }; i < 4; i++) {
-		vertices[i] += origin.x;
-		vertices[i + 1] += origin.y;
-		vertices[i + 2] += origin.z;
-	}
 
 	_setup();
+
 };
 
 CutPlane::~CutPlane() {
-	clean();
-};
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	glDeleteBuffers(1, &EBO);
+}
 
 void CutPlane::draw(){
 	glBindVertexArray(VAO);
@@ -327,39 +313,38 @@ void CutPlane::draw(){
 	glBindVertexArray(0);
 }
 
-void CutPlane::clean() {
-	glDeleteVertexArrays(1, &VAO);
-	glDeleteBuffers(1, &VBO);
-	glDeleteBuffers(1, &EBO);
-};
+void CutPlane::update_model_matrix() {
 
-void CutPlane::updateModelMatrix() {
+	normal = normal.normalized();
 
-	glm::vec3 newNormal = glm::normalize(glm::vec3(normal[0], normal[1], normal[2]));
-	prevNormal = glm::normalize(prevNormal);
+	glm::vec3 normalVec = glm::vec3(normal.x, normal.y, normal.z);
+	glm::vec3 centerVec = glm::vec3(center.x, center.y, center.z);
 
-	std::cout << "Previous: " << prevNormal[0] << " " << prevNormal[1] << " " << prevNormal[2] << std::endl;
-	std::cout << "Current: " << newNormal[0] << " " << newNormal[1] << " " << newNormal[2] << std::endl;
+	glm::vec3 n = glm::normalize(normalVec);
+	if (glm::length(n) < 0.01f) n = glm::vec3(0.0f, 0.0f, 1.0f);
 
-	if (glm::length(newNormal - prevNormal) < 1e-6f) {
-		return;
+	// 1. Start with an identity matrix
+	glm::mat4 model = glm::mat4(1.0f);
+
+	// 2. Translate to the center
+	model = glm::translate(model, centerVec);
+
+	glm::vec3 defaultDir(0.0f, 0.0f, 1.0f);
+
+	if (glm::length(normalVec + defaultDir) < 0.001f) {
+		// Rotate 180 degrees around Y axis
+		model = glm::rotate(model, glm::radians(180.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	}
-
-	glm::vec3 axis = glm::cross(prevNormal, newNormal);
-	float angle = acos(glm::clamp(glm::dot(prevNormal, newNormal), -1.0f, 1.0f));
-
-	if (glm::length(axis) < 1e-6f) {
-		modelMatrix = glm::mat4(1.0f);  // No rotation needed
+	else {
+		// Create a quaternion that rotates from defaultDir to n
+		glm::quat rot = glm::quat(defaultDir, normalVec);
+		// Convert quaternion to mat4 and apply it
+		model = model * glm::mat4_cast(rot);
 	}
-		
-
-	rotMatrix = glm::rotate(glm::mat4(1.0f), angle, glm::normalize(axis)) * rotMatrix;
+	
+	modelMatrix = model;
 
 };
-
-void CutPlane::updateTranslation() {
-	tMatrix = glm::translate(glm::mat4(1.0f), normal * offset);
-}
 
 void CutPlane::_setup() {
 	// generate Vertex Array Object
@@ -381,6 +366,7 @@ void CutPlane::_setup() {
 	glBindVertexArray(0);
 };
 
+// -------------------------------------------------------------------------------------
 BBox::BBox(float xMin, float xMax, float yMin, float yMax, float zMin, float zMax){
 		
 	// first point
@@ -563,6 +549,10 @@ Cylinder::Cylinder(const Vec3 base, const Vec3 direction, const double height, c
 	float thetaStep = 2.0f * static_cast<float>(PI / res);
 
 	Vec3 top = base + w * height;
+
+	std::cout << top << std::endl;
+
+	std::cout << base << std::endl;
 
 	// create the base circle
 	for (int i{ 0 }; i < res; i++) {

@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Kostas\Desktop\PhD\Repositories\scaffoldBuilder_repo\CMakeFiles\f14d44a6e4dae0b7d6545c99e143fc60\update_mappings.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="C:\Users\Kostas\Desktop\PhD\Repositories\scaffoldBuilder_repo\lib\glfw\src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="C:\Users\Kostas\Desktop\PhD\Repositories\scaffoldBuilder_repo\lib\glfw\src\mappings.h.in">
+      <Filter>Header Files</Filter>
+    </None>
+    <None Include="C:\Users\Kostas\Desktop\PhD\Repositories\scaffoldBuilder_repo\lib\glfw\CMake\GenerateMappings.cmake" />
+    <None Include="C:\Users\Kostas\Desktop\PhD\Repositories\scaffoldBuilder_repo\lib\glfw\src\CMakeFiles\update_mappings" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{9A363C9E-5886-37D8-9A68-E5472EFD6568}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{ABC5D95B-8536-3DF5-B8C6-BF16CB51B0FA}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

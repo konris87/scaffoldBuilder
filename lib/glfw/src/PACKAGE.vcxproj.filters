@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Kostas\Desktop\PhD\Repositories\scaffoldBuilder_repo\CMakeFiles\f14d44a6e4dae0b7d6545c99e143fc60\PACKAGE_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{9A363C9E-5886-37D8-9A68-E5472EFD6568}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

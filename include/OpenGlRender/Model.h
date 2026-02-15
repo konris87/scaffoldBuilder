@@ -4,18 +4,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
-#include <vtkSTLReader.h>
-#include <vtkXMLPolyDataReader.h>
-#include <vtkPolyData.h>
-#include <vtkPointData.h>
-#include <vtkCellArray.h>
-#include <vtkDoubleArray.h>
-#include <vtkSmartPointer.h>
-#include <vtkCellArrayIterator.h>
-#include <vtkPolyDataNormals.h>
-#include <vtkMassProperties.h>
-#include <vtkCleanPolyData.h>
-#include <vtkTriangleFilter.h>
+#include <glm/gtc/quaternion.hpp>
 #include <vector>
 #include <set>
 #include <iostream>
@@ -24,79 +13,67 @@
 #include "Math/Vec.h"
 
 
-class Model {
-	
-public:
+//class Model {
+//	
+//public:
+//
+//	unsigned int VAO{ 0 }, edgeVAO{ 0 };
+//
+//	Model() {};
+//	~Model() {};
+//
+//	Model(std::string& modelFile); 
+//
+//	void draw();
+//
+//	void draw_edges();
+//
+//	void clean();
+//
+//	double xMin{ 0.0 }, xMax{ 0.0 }, yMin{ 0.0 }, yMax{ 0.0 }, zMin{ 0.0 }, zMax{ 0.0 };
+//
+//	void get_details(int& faceNr, int& vertexNr, int& edgeNr, double& vol, double& por);
+//
+//private:
+//	vtkSmartPointer<vtkPolyData> polyData;
+//	std::vector<float> vertices;
+//	std::vector<unsigned int> indices;
+//	std::vector<unsigned int> edgeIndices;
+//	std::vector<float> vertexNormals;
+//	unsigned int VBO{ 0 }, EBO{ 0 }, normalsVBO{ 0 };
+//	unsigned int edgeVBO{ 0 }, edgeEBO{ 0 };
+//
+//	int vertexSize{ 0 };
+//	int cellSize{ 0 };
+//	int edgeSize{ 0 };
+//	double volume{ 0.0 };
+//	double porosity{ 0.0 };
+//
+//	void setup_data();
+//
+//	void setup_mesh(); 
+//
+//	void setup_edges();
+//};
 
-	unsigned int VAO{ 0 }, edgeVAO{ 0 };
-
-	Model() {};
-	~Model() {};
-
-	Model(std::string& modelFile); 
-
-	Model(vtkSmartPointer<vtkPolyData>& inputData);
-
-	void draw();
-
-	void draw_edges();
-
-	void clean();
-
-	double xMin{ 0.0 }, xMax{ 0.0 }, yMin{ 0.0 }, yMax{ 0.0 }, zMin{ 0.0 }, zMax{ 0.0 };
-
-	void get_details(int& faceNr, int& vertexNr, int& edgeNr, double& vol, double& por);
-
-private:
-	vtkSmartPointer<vtkPolyData> polyData;
-	std::vector<float> vertices;
-	std::vector<unsigned int> indices;
-	std::vector<unsigned int> edgeIndices;
-	std::vector<float> vertexNormals;
-	unsigned int VBO{ 0 }, EBO{ 0 }, normalsVBO{ 0 };
-	unsigned int edgeVBO{ 0 }, edgeEBO{ 0 };
-
-	int vertexSize{ 0 };
-	int cellSize{ 0 };
-	int edgeSize{ 0 };
-	double volume{ 0.0 };
-	double porosity{ 0.0 };
-
-	void setup_data();
-
-	void setup_mesh(); 
-
-	void setup_edges();
-};
+// ------------------------------------------------------------------------------------------
 
 class CutPlane {
 
 public:
-	CutPlane(float size);
-
+	CutPlane(float size = 1000.0f);
 	~CutPlane();
-
-	CutPlane(float normal[3], float& offset);
-
-	CutPlane(Vec3 origin);
 
 	void draw();
 
 	void clean();
 
-	void updateModelMatrix();
+	void update_model_matrix();
 
-	void updateTranslation();
+	glm::mat4 modelMatrix = glm::mat4(1.0f);
 
-	glm::vec3 center = { 0.0f, 0.0f, 0.0f };
-	glm::vec3 normal = { 0.0f, 0.0f, 1.0f };
-	glm::vec3 prevNormal = { 0.0f, 0.0f, 1.0f };
-	glm::mat4 modelMatrix = glm::mat4(1.0);
-	glm::mat4 rotMatrix = glm::mat4(1.0);
-	glm::mat4 tMatrix = glm::mat4(1.0);
-	glm::mat4 initMatrix = glm::mat4(1.0);
-	float offset{ 0.0f };
-	float prevOffset{ 0.0f };
+	Vec3 center{ 0.0f, 0.0f, 0.0f };
+	Vec3 normal{ 0.0f, 0.0f, 1.0f };
 
 private:
 
@@ -112,12 +89,15 @@ private:
 	};
 
 	unsigned int indices[6] = {
-		0, 1, 2, 0, 2, 3
+		0, 1, 2, 2, 3, 0
 	};
 
 	void _setup();
+
 };
 
+
+// ------------------------------------------------------------------------------------------
 class BBox {
 public:
 	BBox() { _setup(); };
@@ -136,7 +116,7 @@ private:
 		4, 5, 5, 6, 6, 7, 7, 4,
 		0, 4, 3, 7, 2, 6, 1, 5
 	};
-	unsigned int VAO, VBO, EBO;
+	unsigned int VAO{ 0 }, VBO{ 0 }, EBO{ 0 };
 
 	void _setup();
 };

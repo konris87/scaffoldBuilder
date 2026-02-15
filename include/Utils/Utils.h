@@ -3,12 +3,8 @@
 
 # define _USE_MATH_DEFINES
 
-#include <vtkPolyData.h>
-#include <vtkSmartPointer.h>
-#include <vtkActor.h>
 #include "Eigen/Dense"
 #include <string.h>
-#include <vtkGlyph3D.h>
 #include <array>
 #include <vector>
 #include <algorithm>
@@ -19,14 +15,31 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <ImGuiFileDialog/ImGuiFileDialog.h>
+#include "Math/Vec.h"
+
+enum ObjectType {
+	BoxContainerType,
+	CylinderContainerType,
+	AbstractContainerType,
+	RandomGeneratorType,
+	UniformGeneratorType,
+	VariedGeneratorType,
+	ScaffoldType,
+	NoneType
+};
 
 struct Bounds {
 	double xMin, xMax, yMin, yMax, zMin, zMax;
-	std::array<double, 3> center;
+	Vec3 center;
 };
 
 struct PolygonWidth {
-	double minWidth, maxWidth;
+	float minWidth, maxWidth;
+};
+
+struct Triangle {
+	Vec3 normal;
+	Vec3 v1, v2, v3;
 };
 
 // create a class to control seed generator using the strategy pattern
@@ -36,7 +49,7 @@ public:
 	virtual void run_generate_seeds() = 0;
 	virtual void run_get_seeds(std::vector<std::array<double, 3>>& outSeeds) const = 0;
 	virtual void run_generate_seeds(
-		const std::array<float, 3>&, const std::array<float, 3>&, double) = 0;
+		const std::array<double, 3>&, const std::array<double, 3>&, double) = 0;
 };
 
 bool ray_intersection(
@@ -56,50 +69,38 @@ bool ray_intersection(
 	Eigen::Vector3d& intersection
 );
 
-bool is_inside_mesh(
-	const vtkSmartPointer<vtkPolyData>& mesh,
-	const Eigen::Vector3d& point);
+template <typename T>
+bool is_inside_box(const std::array<T, 3>& pt, const std::array<T, 6>& bounds) {
 
-bool is_inside_mesh(
-	const vtkSmartPointer<vtkPolyData>& mesh,
-	const Eigen::Vector3d& point,
-	const Eigen::Vector3d& rayDir,
-	Eigen::Vector3d& intersection);
+	if (pt[0] < bounds[0] || pt[0] > bounds[1] ||
+		pt[1] < bounds[2] || pt[1] > bounds[3] ||
+		pt[2] < bounds[4] || pt[2] > bounds[5]) {
+		return false;
+	}
+	else {
+		return true;
+	}
+}
 
-bool is_inside_box(
-	const std::array<double, 3>& pt,
-	const std::array<float, 6>& bounds);
 
 Eigen::Vector3d unit_axis_from_dir(int dir);
 
 bool is_inside_box(const std::array<double, 3>& p, const Bounds& b);
 
 bool is_inside_cylinder(
-
 	const std::array<double, 3>& querryPt,
 	const Eigen::Vector3d& basePt,
 	const Eigen::Vector3d& axis,
 	double radius, double height
 );
 
-vtkSmartPointer<vtkActor> render_points(
-	const int& particles,
-	const std::vector<std::array<double, 3>>& currSeeds, 
-	const std::string color);
-
-void make_glyphs(vtkPolyData* src, double size, vtkGlyph3D* glyph);
-
-vtkSmartPointer<vtkActor> render_cell(const std::vector<double>& cellVerts);
-
-vtkSmartPointer<vtkActor> render_plane(
-	const double& n1, const double& n2, const double& n3,
-	const double& p1, const double& p2, const double& p3,
-	const double& s1, const double& s2
-);
-
 double distance(const std::array<double, 3>& arr1, const std::array<double, 3>& arr2);
 
 void select_file_button(const char* title, const std::string path, const char* dialogName, const char* fileExt);
+
+float polygon_area_2d(const Eigen::MatrixXd& verts2D);
+
+void fix_orientation(Eigen::MatrixXd& vertices, bool requestCCW);
 
 void ensure_ccw(
 	std::vector<int>& faceIdxs,
@@ -107,7 +108,7 @@ void ensure_ccw(
 
 Eigen::MatrixXd vector_to_matrix3D(const std::vector<double>& verts);
 
-//void face_metrics(double& area, double& perimeter, double& minWidth);
+//void face_metrics(float& area, float& perimeter, float& minWidth);
 
 void project_vertices_on_plane(
 	const std::vector<double>& vertices,
@@ -149,38 +150,48 @@ void sample_face_polygon(
 	const Eigen::MatrixXd& verts2D,
 	Eigen::Vector2d& center, double& radius1, int resolution, double scale);
 
+bool is_point_in_triangle(const Eigen::Vector2d& p, const Eigen::Vector2d& a, const Eigen::Vector2d& b, const Eigen::Vector2d& c);
+
 bool is_inside_polygon(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices);
 
 bool is_inside_triangle(const Eigen::Vector2d& vPrev, const Eigen::Vector2d& vCurr, const Eigen::Vector2d& vNext, const Eigen::Vector2d& vTest);
 
-double min_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludedIdx);
+float min_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludedIdx);
 
-double max_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludedIdx);
+float min_distance_from_edges(const Eigen::Vector2d& pt, const Eigen::MatrixXd& verts);
 
-double polygon_min_width(const Eigen::MatrixXd& vertices);
+float max_distance_from_edges(const Eigen::VectorXd& pt, const Eigen::MatrixXd& vertices, int excludedIdx);
 
-double polygon_max_width(const Eigen::MatrixXd& vertices);
+float polygon_min_width(const Eigen::MatrixXd& vertices);
 
-double polygon_average_edge_length(const Eigen::MatrixXd& vertices);
+float polygon_max_width(const Eigen::MatrixXd& vertices);
+
+float polygon_average_edge_length(const Eigen::MatrixXd& vertices);
+
+float polygon_area(const Eigen::MatrixXd& verts);
+
+float polygon_perimeter(const Eigen::MatrixXd& verts);
 
 void interpolate_edges(
 	const Eigen::MatrixXd& vertices,
 	Eigen::MatrixXd& interpolatedVertices,
 	std::vector<int>& newLocalFace,
-	const double& edgeSize);
+	const float& edgeSize);
 
-void hole_points(const double& radius, const Eigen::Vector2d& center, const int& ptNr, Eigen::MatrixXd& vertices);
+void hole_points(const float& radius, const Eigen::Vector2d center, const int& ptNr, Eigen::MatrixXd& vertices);
 
 bool ear_clipping(const Eigen::MatrixXd& vertices, const std::vector<int>& idxs, std::vector<std::vector<int>>& cells);
 
 bool vertex_locally_convex(const Eigen::Vector2d& v1, const Eigen::Vector2d& v2, const Eigen::Vector2d& v3);
 
-void back_to_3d(Eigen::MatrixXd& vertices3d, const Eigen::MatrixXd& vertices2d, const Eigen::Vector3d& center, const Eigen::Vector3d& u, const Eigen::Vector3d& v);
-// implementation of circular double linked list
+void back_to_3d(
+	Eigen::MatrixXd& vertices3f,
+	const Eigen::MatrixXd& vertices2d, const Eigen::Vector3d& center, const Eigen::Vector3d& u, const Eigen::Vector3d& v);
+// implementation of circular float linked list
 
-void catmull_rom_interpolation(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, double alpha=0.5);
+void catmull_rom_interpolation(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, float alpha=0.5);
 
-double catmull_rom_get_t(const Eigen::Vector2d& p1, const Eigen::Vector2d& p2, double t0, double alpha = 0.5);
+float catmull_rom_get_t(const Eigen::Vector2d& p1, const Eigen::Vector2d& p2, float t0, float alpha = 0.5);
 
 void chaikin_subdivision(const Eigen::MatrixXd& currentVerts, Eigen::MatrixXd& interpolatedVerts, int num = 5);
 
@@ -191,35 +202,35 @@ PolygonWidth get_polygon_width(const Eigen::MatrixXd& verts2D);
 // @brief function to decide if a polygon will be totally closed if we erode all edges by a factor
 bool polygon_is_open(
 	const std::vector<Eigen::Vector3d>& normals,
-	const std::vector<double>& d,
+	const std::vector<float>& d,
 	const Eigen::MatrixXd& faceVertices,
 	int fIdx,
-	double erosion,
-	double eps = 1e-6
+	float erosion,
+	float eps = 1e-6
 );
 
-double erosion_margin_for_face(
+float erosion_margin_for_face(
 	int f,
 	const std::vector<Eigen::Vector3d>& normals,
 	const std::vector<double>& planeB,
 	const Eigen::Matrix<double, 3, 2>& U,
 	const Eigen::Vector3d& x0,
 	const Eigen::MatrixXd& verts2D, // N x 2
-	double delta,                   // pullback
-	double eps = 1e-9
+	float delta,                   // pullback
+	float eps = 1e-9
 );
 
 //@brief struct for holding the half space properties normal, and offset
 struct HalfSpace {
 	Eigen::Vector2d n;
-	double d;
+	float d;
 };
 
 // @function for half space clipping using the Sutherland - Hodgman Algorithm
 Eigen::MatrixXd clip_polygon(
 	const Eigen::MatrixXd& verts2D,
-	const Eigen::Vector2d normal,
-	const double d
+	const Eigen::Vector2d& normal,
+	const float d
 );
 
 // @function to find intersection of lines
@@ -227,14 +238,14 @@ Eigen::Vector2d intersection_of_lines(
 	const Eigen::Vector2d& p,
 	const Eigen::Vector2d& q,
 	const Eigen::Vector2d& normal,
-	double d
+	float d
 );
 
 // @function to test if a clipping by all shifted inward edges by a factor delta returns a polygon
 bool clipping_is_valid(
 	const Eigen::MatrixXd& verts2D,
-	const std::vector<HalfSpace> hspaces,
-	double delta,
+	const std::vector<HalfSpace>& hspaces,
+	float delta,
 	Eigen::MatrixXd* outPoly = nullptr
 );
 
@@ -242,7 +253,9 @@ bool clipping_is_valid(
 std::vector<HalfSpace> get_poly_half_spaces(const Eigen::MatrixXd& verts2D);
 
 // @brief function to find the max inset radius of a polygon using bisection
-double polygon_inradius(const Eigen::MatrixXd& verts2D);
+float polygon_inradius(const Eigen::MatrixXd& verts2D);
+
+float get_ground_truth_margin(const Eigen::MatrixXd& verts2D);
 
 // --------------------------------------------------------------------------------------------------------------
 // create a node struct
@@ -395,8 +408,13 @@ public:
 };
 
 struct EdgeData {
-	float dstar;   // margin (world units)
-	float delta;   // in-plane pullback actually used when computing d*
+	//float dstar;   // margin (world units)
+	//float delta;   // in-plane pullback actually used when computing d*
+	float ratio;
+	float targetArea;
+
+	//float inradius;
+	//std::array<float, 2> center{0.0, 0.0};
 };
 
 class Graph {
@@ -429,6 +447,8 @@ public:
 
 	int get_vertex_count();
 
+	int find_longest_network_new();
+
 	//float get_edge_width(const int vertex1, const int vertex2);
 	EdgeData Graph::get_edge_width(const int vertex1, const int vertex2);
 
@@ -437,5 +457,8 @@ public:
 	void print();
 
 };
+
+// helper: median
+static float Median(std::vector<float>& v); 
 
 #endif

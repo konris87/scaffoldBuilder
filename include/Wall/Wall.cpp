@@ -114,7 +114,7 @@ bool MeshWall::isInside(Eigen::Vector3d& point){
 };
 
 bool MeshWall::point_inside(double x, double y, double z) {
-	Eigen::Vector3d p(x, y, z);
+	Eigen::Vector3d p((float)x, (float)y, (float)z);
 
 	return isInside(p);
 }

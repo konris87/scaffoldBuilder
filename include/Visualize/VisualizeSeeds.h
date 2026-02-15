@@ -12,48 +12,20 @@
 #include <vtkPoints.h>
 #include <vtkCellArray.h>
 #include <vtkCellArrayIterator.h>
+#include "Math/Vec.h"
 
 class VisualizeSeeds {
 
 public:
 	VisualizeSeeds() {};
 	~VisualizeSeeds() {};
-	VisualizeSeeds(std::vector<std::array<double, 3>>& coords) {
+	VisualizeSeeds(const std::vector<Vec3>& coords) {
 
-		auto sphere = vtkSmartPointer<vtkSphereSource>::New();
-		sphere->SetRadius(1.0);
-		sphere->SetPhiResolution(10);
-		sphere->SetThetaResolution(10);
-		sphere->Update();
-
-		vtkSmartPointer<vtkPolyData> spherePoly = sphere->GetOutput();
-		vtkSmartPointer<vtkPoints> points = spherePoly->GetPoints();
-		vtkSmartPointer<vtkCellArray> polys = spherePoly->GetPolys();
-
-		for (int i{ 0 }; i < points->GetNumberOfPoints(); i++) {
-			double p[3];
-			points->GetPoint(i, p);
-			sphereVertices.push_back(p[0]);
-			sphereVertices.push_back(p[1]);
-			sphereVertices.push_back(p[2]);
-		}
-
-		// get indices
-		auto cellIter = vtk::TakeSmartPointer(polys->NewIterator());
-
-		//std::cout << cellNr << std::endl;
-		for (cellIter->GoToFirstCell(); !cellIter->IsDoneWithTraversal();
-			cellIter->GoToNextCell())
-		{
-			vtkSmartPointer<vtkIdList> cell = cellIter->GetCurrentCell();
-			sphereIndices.emplace_back(cell->GetId(0));
-			sphereIndices.emplace_back(cell->GetId(1));
-			sphereIndices.emplace_back(cell->GetId(2));
-		}
+		_generate_points();
 
 		for (unsigned int i{ 0 }; i < coords.size(); i++) {
 			glm::mat4 model = glm::mat4(1.0f);
-			model = glm::translate(model, glm::vec3(coords[i][0], coords[i][1], coords[i][2]));
+			model = glm::translate(model, glm::vec3(coords[i].x, coords[i].y, coords[i].z));
 			modelMatrices.push_back(model);
 		}
 
@@ -89,12 +61,69 @@ public:
 	};
 
 private:
-	std::vector<float> seeds;
 	std::vector<float> sphereVertices;
 	std::vector<unsigned int> sphereIndices;
 	unsigned int VAO, VBO, instanceVBO, EBO;
 	std::vector<glm::mat4> modelMatrices;
 	float sphereSize = 0.1f;
+	float radius = 1.0f;
+	int sectorCount = 5; // Theta resolution (longitude)
+	int stackCount = 5;
+
+	void _generate_points() {
+
+		// reset
+		sphereVertices.clear();
+		sphereIndices.clear();
+
+		const float PI = 3.14159265359f;
+		float sectorStep = 2 * PI / sectorCount;
+		float stackStep = PI / stackCount;
+		float sectorAngle, stackAngle;
+
+		for (int i = 0; i <= stackCount; ++i) {
+			stackAngle = PI / 2.0f - i * stackStep;     // from pi/2 to -pi/2
+			float xy = radius * cosf(stackAngle);       // r * cos(u)
+			float z = radius * sinf(stackAngle);        // r * sin(u)
+
+			for (int j = 0; j <= sectorCount; ++j) {
+				sectorAngle = j * sectorStep;           // from 0 to 2pi
+
+				// vertex position (x, y, z)
+				float x = xy * cosf(sectorAngle);
+				float y = xy * sinf(sectorAngle);
+
+				sphereVertices.push_back(x);
+				sphereVertices.push_back(y);
+				sphereVertices.push_back(z);
+			}
+		}
+
+		// Generate indices connecting the vertices to form triangles
+		int k1, k2;
+		for (int i = 0; i < stackCount; ++i) {
+			k1 = i * (sectorCount + 1);     // beginning of current stack
+			k2 = k1 + sectorCount + 1;      // beginning of next stack
+
+			for (int j = 0; j < sectorCount; ++j, ++k1, ++k2) {
+				// 2 triangles per sector excluding the first and last stacks (poles)
+
+				// Triangle 1 (k1 -> k2 -> k1+1)
+				if (i != 0) {
+					sphereIndices.push_back(k1);
+					sphereIndices.push_back(k2);
+					sphereIndices.push_back(k1 + 1);
+				}
+
+				// Triangle 2 (k1+1 -> k2 -> k2+1)
+				if (i != (stackCount - 1)) {
+					sphereIndices.push_back(k1 + 1);
+					sphereIndices.push_back(k2);
+					sphereIndices.push_back(k2 + 1);
+				}
+			}
+		}
+	}
 
 	void _create() {
 
@@ -133,7 +162,7 @@ private:
 		for (unsigned int i{ 0 }; i < 4; i++) {
 			
 			glEnableVertexAttribArray(i + 1);
-			glVertexAttribPointer(i + 1, 4, GL_FLOAT, GL_FALSE, 4 * vec4Size, (void*)(i * vec4Size));
+			glVertexAttribPointer(i + 1, 4, GL_FLOAT, GL_FALSE, 4 * (GLsizei)vec4Size, (void*)(i * vec4Size));
 			glVertexAttribDivisor(i + 1, 1);
 		}
 		glBindVertexArray(0);

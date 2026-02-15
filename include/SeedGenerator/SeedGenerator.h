@@ -2,16 +2,19 @@
 #define SEED_GENERATOR_H
 
 #include <array>
+#include <vector>
 #include <functional>
 #include <optional>
 #include "Utils/Utils.h"
+#include <Visualize/VisualizeSeeds.h>
 #include "Container.h"
+#include "Math/Vec.h"
 
 using DistFunc = std::function<double(const Pt&)>;
 using RadFunc = std::function<double(double, double, double)>;
 
 struct RunConfig {
-	std::shared_ptr<const DistanceEstimator> dist; 
+	std::shared_ptr<const SDF> dist; 
 	std::shared_ptr<const RadiusFunction> rad;
 };
 
@@ -19,19 +22,41 @@ class InterfaceSeedGenerator {
 public:
 	virtual ~InterfaceSeedGenerator() = default;
 	virtual void run(
-		const ContainerAdapter& adapter,
-		std::vector<std::array<double, 3>>& out,
-		const RunConfig& cfg = {}) = 0;
+		const IContainer& adapter, const RunConfig& cfg) = 0;
+
+	virtual void run(const IContainer& adapter) = 0;
+
+	virtual void render_gui() = 0;
+
+	void draw() { 
+		if (model) model->draw();
+		else { std::cout << "no model found" << std::endl; }
+	};
+
+	std::vector<Vec3> get_seeds() { return seeds; };
+
+	std::string name = "";
+	bool hidden = false;
+	ObjectType type = ObjectType::NoneType;
+
+	// keep a pointer to the container
+	IContainer* container = nullptr;
+
+protected:
+	std::unique_ptr<VisualizeSeeds> model;
+	std::vector<Vec3> seeds;
 };
 
-class Random final : InterfaceSeedGenerator {
+class Random final : public InterfaceSeedGenerator {
 public:
+
 	explicit Random(int n) : seedNr(n) {};
 	
-	void run(
-		const ContainerAdapter& adapter,
-		std::vector<std::array<double, 3>>& out,
-		const RunConfig& cfg = {}) override;
+	void run(const IContainer& adapter, const RunConfig& cfg) override {};
+
+	void run(const IContainer& adapter) override;
+
+	void render_gui() override;
 
 private:
 	int seedNr{ 0 };
@@ -41,7 +66,7 @@ private:
 // cell structure to hold information of background cell
 struct Cell {
 	std::vector<int> cellIdxs;
-	double radius;
+	float radius;
 	int seedIdx = -1;
 };
 
@@ -58,21 +83,40 @@ struct GridHashFunc {
 
 class Poisson3D final : public InterfaceSeedGenerator {
 public:
-	Poisson3D(const float& rMinVal, const float& rMaxVal, const std::array<double, 3>& rootVal, int neighs)
-		: rMin(rMinVal), rMax(rMaxVal), root(rootVal), neighNr(neighs) {};
+	Poisson3D(const double& rMinVal, const double& rMaxVal, int neighs)
+		: rMin(rMinVal), rMax(rMaxVal), neighNr(neighs) {};
 
-	void run(
-		const ContainerAdapter& adapter,
-		std::vector<std::array<double, 3>>& out,
-		const RunConfig& cfg = {}) override;
+	void run(const IContainer& adapter, const RunConfig& cfg) override;
+
+	void run(const IContainer& adapter) override;
+
+	void render_gui() override;
+
+	void set_min_radius(const double newRadius);
+
+	void set_max_radius(const double newRadius);
+
+	void set_center(const Vec3& newCenter);
+
+	float get_min_radius() { return rMin; };
+
+	float get_max_radius() { return rMax; };
+
+	RunConfig get_config() const { return config; };
+
+	// keep here the indices for distance and radius function
+	int radiusIdx = 0;
+	int distIdx = 0;
 
 private:
-	std::array<double, 3> root{ 0.0, 0.0, 0.0 };
-	float rMin{ 0.0 }, rMax{ 0.0 };
+	Vec3 root{ 0.0, 0.0, 0.0 };
+	double rMin{ 0.0 }, rMax{ 0.0 };
 	std::vector<float> radii;
 	std::unordered_map < std::array<int, 3>, Cell, GridHashFunc> grid;
 	int neighNr{ 30 };
-	double PI = 3.14159265358979323846;
+	float PI = 3.14159265358979323846f;
+
+	RunConfig config;
 
 	// protected functions
 	void pushIdxs(const int& n, const std::array<int, 3> cellIdx, const int& N) {
@@ -86,11 +130,11 @@ private:
 		}
 	};
 
-	std::array<int, 3> getGridIndex(const std::array<double, 3>& p, double cellSize) {
+	std::array<int, 3> getGridIndex(const Vec3& p, float cellSize) {
 		return {
-			static_cast<int>(std::floor(p[0] / cellSize)),
-			static_cast<int>(std::floor(p[1] / cellSize)),
-			static_cast<int>(std::floor(p[2] / cellSize)) };
+			static_cast<int>(std::floor(p.x / cellSize)),
+			static_cast<int>(std::floor(p.y / cellSize)),
+			static_cast<int>(std::floor(p.z / cellSize)) };
 	};
 };
 

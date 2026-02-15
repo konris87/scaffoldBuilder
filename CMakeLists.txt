@@ -52,6 +52,7 @@ include_directories( ${OPENGL_INCLUDE_DIRS} )
 # set (CMAKE_PREFIX_PATH "C:/Users/Konst/Desktop/Software/glfw_install/")
 # find_package(glfw3 3.3 REQUIRED)
 set(GLFW_DIR ./lib/glfw)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(${GLFW_DIR})
 include_directories(${GLFW_DIR}/include)
 
@@ -69,39 +70,42 @@ set(IMGUI_DIR ./lib/imgui)
 include_directories(${IMGUI_DIR} ${IMGUI_DIR}/backends ..)
 
 # Include Voro ++ 
-set (CMAKE_PREFIX_PATH "C:/Users/Konst/Desktop/Software/voro-install/bin/")
-find_package(VORO CONFIG REQUIRED)
+#set (CMAKE_PREFIX_PATH "C:/Users/Konst/Desktop/Software/voro-install/bin/")
+#find_package(VORO CONFIG REQUIRED)
 
-if (NOT VORO_FOUND)
-  message(FATAL_ERROR "Unable to find VORO.")
-endif()
+#if (NOT VORO_FOUND)
+#  message(FATAL_ERROR "Unable to find VORO.")
+#endif()
 
 set(SOURCES
 
 	src/Gui/guiApp.cpp
     src/main.cpp
-	src/Scaffold/buildScaffold.cpp
+	# src/Scaffold/buildScaffold.cpp
 	
 	# glad
 	lib/glad/src/glad.c
 	
 	# other src
-	src/Misc/cell_process.cpp
+	# src/Misc/cell_process.cpp
 	include/Math/Quaternion.cpp
 	include/Math/Vec.cpp
-	src/Visualize/visualize.cpp
-	src/Visualize/loadMesh.cpp
+	#src/Visualize/visualize.cpp
+	#src/Visualize/loadMesh.cpp
 	src/OpenGlSetup/simpleCamera.cpp
 	src/OpenGlSetup/trackBallCamera.cpp
 	src/OpenGlSetup/defaultCamera.cpp
 	src/OpenGlSetup/Misc.cpp
 	include/Utils/Utils.cpp
 	include/Wall/Wall.cpp
+	include/Misc/Imgui_Stdlib.cpp
 	# include/SeedGenerator/Random.cpp
 	# include/SeedGenerator/Poisson3D.cpp
-	include/ScaffoldGenerator/ScaffoldGenerator.cpp
+	# include/ScaffoldGenerator/ScaffoldGenerator.cpp
+	include/ScaffoldGenerator/Generator.cpp
 	include/OpenGlRender/Model.cpp
 	include/SeedGenerator/SeedGenerator.cpp
+	include/MonteSimulation/MonteSimulation.cpp
 	
 	# imgui
 	${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
@@ -127,30 +131,36 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # vtk_module_autoinit is needed
-vtk_module_autoinit(
-  TARGETS ${PROJECT_NAME}
-  MODULES ${VTK_LIBRARIES}
-)
+#vtk_module_autoinit(
+#  TARGETS ${PROJECT_NAME}
+#  MODULES ${VTK_LIBRARIES}
+#)
 
 target_include_directories(${PROJECT_NAME} PUBLIC VORO::voro++)
 target_link_libraries(${PROJECT_NAME} PUBLIC VORO::voro++)
 
+# Include directories
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
 # Eigen
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# SOURCE_GROUP(common REGULAR_EXPRESSION ".*/common/.*" )
-# SOURCE_GROUP(shaders REGULAR_EXPRESSION ".*/.*shader$" )
-# SOURCE_GROUP(obj REGULAR_EXPRESSION ".*/.*obj$" )
-
-# Set the shader source directory
-# set(SHADER_SRC_DIR "${CMAKE_SOURCE_DIR}/src/shaders")
-
-# Set the directory where the executable will be located
-# set(SHADER_DEST_DIR "${CMAKE_BINARY_DIR}/shaders")
-
 # also copy the shaders and fonts to the build file during development
-file(COPY ${CMAKE_SOURCE_DIR}/src/shaders DESTINATION ${CMAKE_BINARY_DIR})
-file(COPY ${CMAKE_SOURCE_DIR}/share DESTINATION ${CMAKE_BINARY_DIR})
+add_custom_command(TARGET scaffoldBuilder POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/share
+        $<TARGET_FILE_DIR:scaffoldBuilder>/share
+    COMMENT "Copying assets to output directory..."
+)
+
+# Repeat for shaders if they are separate
+add_custom_command(TARGET scaffoldBuilder POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders
+        $<TARGET_FILE_DIR:scaffoldBuilder>/shaders
+)
 
 # -----------------------------
 # Installation rules
@@ -164,9 +174,48 @@ install(TARGETS scaffoldBuilder
 )
 
 # Install shader files (uncomment if needed)
-install(DIRECTORY src/shaders/ DESTINATION bin/shaders)
+# install(DIRECTORY src/shaders/ DESTINATION bin/shaders)
 install(DIRECTORY share/ DESTINATION bin/share)
-install(DIRECTORY lib/vtk/ DESTINATION bin)
+
+# vtk dlls
+# if(WIN32)
+    # # Strategy 1: Try finding the Release DLL specifically
+    # get_target_property(VTK_DLL_CORE VTK::CommonCore IMPORTED_LOCATION_RELEASE)
+
+    # # Strategy 2: If that failed, try the generic location
+    # if(NOT VTK_DLL_CORE)
+        # get_target_property(VTK_DLL_CORE VTK::CommonCore IMPORTED_LOCATION)
+    # endif()
+
+    # # Strategy 3: Fallback - Guess based on where VTKConfig.cmake was found
+    # if(NOT VTK_DLL_CORE)
+        # # VTK_DIR usually points to .../lib/cmake/vtk-x.x
+        # # We assume the bin folder is at .../bin
+        # get_filename_component(VTK_ROOT_GUESS "${VTK_DIR}/../../.." ABSOLUTE)
+        # set(VTK_RUNTIME_DIR "${VTK_ROOT_GUESS}/bin")
+        # message(STATUS "Strategy 3 (Guess) - VTK Binaries might be at: ${VTK_RUNTIME_DIR}")
+    # else()
+        # # If Strategy 1 or 2 worked, get the directory from the file path
+        # get_filename_component(VTK_RUNTIME_DIR "${VTK_DLL_CORE}" DIRECTORY)
+    # endif()
+
+    # # --------------------------------------------------
+    # # DEBUG: Check the output
+    # message(STATUS "--------------------------------------------------")
+    # message(STATUS "FINAL DETECTED VTK BIN FOLDER: ${VTK_RUNTIME_DIR}")
+    # message(STATUS "--------------------------------------------------")
+    # # --------------------------------------------------
+
+    # # SAFETY: Ensure we found a valid path and it is NOT your source folder
+    # if(EXISTS "${VTK_RUNTIME_DIR}" AND NOT "${VTK_RUNTIME_DIR}" STREQUAL "${CMAKE_SOURCE_DIR}")
+        
+        # install(DIRECTORY "${VTK_RUNTIME_DIR}/" 
+                # DESTINATION bin 
+                # FILES_MATCHING PATTERN "*.dll")
+    # else()
+        # message(WARNING "Could not find valid VTK DLLs to install. Check the path above.")
+    # endif()
+# endif()
 
 # -----------------------------
 # CPack setup (packaging)
@@ -175,8 +224,8 @@ include(InstallRequiredSystemLibraries)
 
 set(CPACK_PACKAGE_NAME "scaffoldBuilder")
 set(CPACK_PACKAGE_VENDOR "VVR")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffold Builder with VTK, ImGui, GLFW, Voro++")
-set(CPACK_PACKAGE_VERSION "0.5")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffold Builder with ImGui, GLFW, Voro++")
+set(CPACK_PACKAGE_VERSION "0.8")
 set(CPACK_PACKAGE_CONTACT "krisvas@ece.upatras.gr")
 
 # Choose package formats depending on platform
@@ -190,17 +239,3 @@ endif()
 
 include(CPack)
 
-# -----------------------------
-# Runtime library search paths
-# -----------------------------
-if(WIN32)
-    # Windows: we’ll use SetDllDirectory in code, so no RPATH
-elseif(APPLE)
-    # macOS: search in ./vtk next to executable
-    set(CMAKE_INSTALL_RPATH "@executable_path/vtk")
-    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
-else()
-    # Linux: search in ./vtk next to executable
-    set(CMAKE_INSTALL_RPATH "$ORIGIN/vtk")
-    set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
-endif()

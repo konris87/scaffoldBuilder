@@ -14,23 +14,21 @@
 #include <thread>
 #include <functional>
 
-// vtk
-#include <vtkSmartPointer.h>
-#include <vtkPolyData.h>
-
 // custom
 #include <OpenGlRender/Model.h>
 #include <SeedGenerator/Container.h>
 #include <SeedGenerator/SeedGenerator.h>
 #include <Visualize/VisualizeSeeds.h>
-#include "ScaffoldGenerator/ScaffoldGenerator.h"
+//#include "ScaffoldGenerator/ScaffoldGenerator.h"
 #include "SeedGenerator/DistanceCalculator.h"
 #include "OpenGlSetup/trackBallCamera.h"
 #include "OpenGlSetup/defaultCamera.h"
 #include "OpenGlSetup/simpleCamera.h"
 #include "OpenGlSetup/UniformManager.h"
 #include "OpenGlSetup/Grid.h"
+#include "ScaffoldGenerator/Generator.h"
 #include "Shader.h"
+#include "Utils/Utils.h"
 //#include "SeedGenerator/Poisson3D.h"
 #include "Logger/Logger.h"
 #include "OpenGlSetup/Misc.h"
@@ -42,11 +40,11 @@ struct poreNetworkObject {
 	float lineSize = 1.0f;
 };
 
-struct scaffoldObject {
-	std::unique_ptr<Model> model;
-	std::array<float, 4> objectColor{1.0f, 0.5f, 0.5f, 1.0f};
-	std::string name = "Scaffold_";
-};
+//struct scaffoldObject {
+//	std::unique_ptr<Model> model;
+//	std::array<float, 4> objectColor{1.0f, 0.5f, 0.5f, 1.0f};
+//	std::string name = "Scaffold_";
+//};
 
 struct RenderSettings {
 	std::array<float, 4> poreNetworkColor = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -56,7 +54,29 @@ struct RenderSettings {
 struct ContainerModel {
 	void* obj = nullptr;
 	bool show = true;
-	std::array<double, 3> center = { 0.0, 0.0, 0.0 };
+	std::array<float, 3> center = { 0.0, 0.0, 0.0 };
+};
+
+//// seed generator properties
+//enum SeedGeneratorType {
+//	Box, Cylinder, Mesh, None
+//};
+//
+//struct SeedGeneratorObject {
+//	std::string name = "";
+//	SeedGeneratorType type = SeedGeneratorType::None;
+//	std::unique_ptr<IContainer> container;
+//	std::unique_ptr<InterfaceSeedGenerator> generator;
+//};
+
+//struct SelectedObject {
+//	ObjectType type = ObjectType::None;
+//	void* ptr = nullptr;
+//};
+
+struct SelectedObject {
+	void* ptr = nullptr;
+	ObjectType type = ObjectType::NoneType;
 };
 
 class myGUI {
@@ -80,13 +100,22 @@ public:
 	float Ka{ 0.2f };
 	float Ks{ 2.0f };
 
+	// selection objects
+	SelectedObject selectedPanelObj;
+	void* selectedSceneObj = nullptr;
+
 	// mesh objects
+	std::vector<std::unique_ptr<Generator>> scaffolds;
+
+	std::vector<std::unique_ptr<InterfaceSeedGenerator>> seedGenerators;
+
+	std::vector<std::unique_ptr<IContainer>> containers;
+
+	//std::unique_ptr<Generator> scaffoldGenerator;
+
 	std::vector<poreNetworkObject> poreNetworkList;
 	int activePoreNetworkIndex{ -1 };
 
-	vtkSmartPointer<vtkPolyData> scaffoldPolyData;
-	std::unique_ptr<Model> scaffoldModel;
-	std::vector<std::array<double, 3>> seeds;
 	std::unique_ptr<VisualizeSeeds> seedObj;
 	std::unique_ptr<CutPlane> cutPlane;
 	std::unique_ptr<BBox> box;
@@ -100,17 +129,18 @@ public:
 	// containers
 	CylinderContainer cylContainer;
 	BoxContainer boxContainer;
-	MeshContainer meshContainer;
+	//MeshContainer meshContainer;
 	ContainerModel container;
 
 	// create the active container and initialize it to a box container
-	IContainer* activeContainer = &boxContainer;
+	IContainer* activeContainer = nullptr;
+	std::array<float, 6> bounds = {};
 
-	PlaneDistEstimator planeDistance;
-	MeshDistEstimator meshDistance;
+	//PlaneDistEstimator planeDistance;
+	//MeshDistEstimator meshDistance;
 	//BoxDistEstimator boxDistance;
 	//CylinderDistEstimator cylinderDistance;
-	ImplicitFunctionDistEstimator containerDistance;
+	//ImplicitFunctionDistEstimator containerDistance;
 
 	// gui split viewports
 	//float split{ 0.0f };
@@ -124,11 +154,14 @@ public:
 	std::string scaffoldFileName{ "" };
 	std::string boneFileName{ "" };
 
+	std::array<float, 6> voxelBounds = {};
+	float voxelSize = 0.05f;
+
 	// flag for bone mesh
 	bool boneReady{ false };
 
 	// flags for view panel
-	bool showSeeds{ false };
+	bool showSeeds{ true };
 	bool showNormals{ false };
 	bool showEdges{ false };
 	bool showGrid{ false };
@@ -137,7 +170,29 @@ public:
 	bool showPoreNetwork{ true };
 	bool showDistancePlane{ false };
 	bool showBinaryImageWindow{ false };
+	bool showGeometryExportWindow{ false };
 	bool showVisualizer{ true };
+	bool showTortuosityPath{ false };
+	bool showScaffoldList{ false };
+	bool showConsole{ false };	
+	bool showExitConfirmation{ false };
+	bool showToolbar{ true };
+	bool showBoxSeedCreator{ false };
+	bool showBoxContainerCreator{ false };
+	bool showCylinderContainerCreator{ false };
+	bool showAbstractContainerCreator{ false };
+	bool showRandomSeedCreator{ false };
+	bool showUniformSeedCreator{ false };
+	bool showVariedSeedCreator{ false };
+	bool showScaffoldCreator{ false };
+	bool showProperties{ false };
+	bool measureThickness{ false };
+	bool measureSeparation{ false };
+	
+	bool estimatePoreNetwork = { false };
+	bool estimateTortuosity = { false };
+
+	bool updateScaffold = { false };
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -257,7 +312,7 @@ private:
 
 	// -----------------------------------------------------------
 	// 3. Scaffold settings
-	std::unique_ptr<GeneratorInterface> generator;
+	//std::unique_ptr<GeneratorInterface> generator;
 	char version[256]{ "model" };
 	float xDim{ 10.0 };
 	float yDim{ 10.0 };
@@ -275,7 +330,8 @@ private:
 	int radiusOpt{ 0 };
 	int regSteps{ 0 };
 	int nX{ 10 }, nY{ 10 }, nZ{ 10 };
-	std::array<int, 3> resolution = {75, 75, 75};
+	std::array<int, 3> resolution = { 100, 100, 100 };
+	std::array<int, 3> imageResolution = {200, 200, 200};
 	float wallResolution{ 1.0f };
 
 	// determine function to check if a point is inside a container
@@ -325,6 +381,22 @@ private:
 	//
 	std::array<float, 4> logColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+	// textures
+	GLuint boxContainerTexture = 0;
+	GLuint cylinderContainerTexture = 0;
+	GLuint abstractContainerTexture = 0;
+
+	GLuint randomSeedTexture = 0;
+	GLuint uniformSeedTexture = 0;
+	GLuint variedSeedTexture = 0;
+
+	GLuint createScaffoldTexture = 0;
+	GLuint localThicknessTexture = 0;
+	GLuint separationTexture = 0;
+	GLuint tortuosityTexture = 0;
+	GLuint poreNetworkTexture = 0;
+	GLuint updateScaffoldTexture = 0;
+
 	// ----------------------------------------------------------------------
 	// 4. Functions
 
@@ -336,7 +408,17 @@ private:
 
 	std::string _get_glsl_version();
 
+	void _render_toolbar();
+
 	void _render_settings_panel();
+
+	void _render_seed_generator_list();
+
+	void _render_container_list();
+
+	void _render_object_list();
+
+	void _render_properties_panel();
 
 	void write_settings();
 
@@ -356,24 +438,14 @@ private:
 
 	void add_log(LogPriority priority, const std::string& message);
 
-	void _generate_scaffold();
-
-	void _render_scaffold();
-
-	void _render_container_options(int& conOption);
-
 	void _render_menu_bar();
 
 	void _update_cameras();
 
+	void _update_cameras(IContainer& container);
+
 	void _update_bounds_center(int& conOption);
 	
-	void _export_mesh();
-
-	void _export_binary_image(
-		const std::string& filepath,
-		const float& voxelSize, const int& backVal, const int& forVal);
-
 	void _render_mesh_settings();
 
 	void _render_axes_viewport();
@@ -382,13 +454,33 @@ private:
 
 	void _render_display_settings();
 
-	void _render_cut_tool();
-
 	void _render_seed_generator();
 
 	void _render_volume_optimization();
 	
 	void _render_scaffold_settings();
+
+	void _render_box_container_creator(const char* popupName, bool& showPopup);
+
+	void _render_cylinder_container_creator(const char* popupName, bool& showPopup);
+
+	void _render_abstract_container_creator(const char* popupName, bool& showPopup);
+
+	void _render_random_seed_creator(const char* popupName, bool& showPopup);
+
+	void _render_random_seed_generator_properties();
+
+	void _render_uniform_seed_creator(const char* popupName, bool& showPopup);
+	
+	void _render_uniform_seed_generator_properties();
+
+	void _render_varied_seed_creator(const char* popupName, bool& showPopup);
+
+	void _render_varied_seed_generator_properties();
+
+	void _render_scaffold_creator(const char* popupName, bool& showPopup);
+
+	void _render_scaffold_properties();
 
 	void _render_binary_image_window(const char* popupName, bool& showPopup);
 
@@ -396,13 +488,57 @@ private:
 
 	void _action_estimate_connectivity();
 
-	void _action_generate_seeds();
+	void _local_thickness_measure(const char* popupName, bool& showPopup, bool flag);
+
+	void _action_estimate_tortuosity();
+	
+	void _action_estimate_pore_network();
 
 	void _action_generate_scaffold();
 
+	void _render_cutting_plane_settings(const char* popupName, bool& showPopup);
+
 	void _create_dockspace();
+
+	void _on_close_request();
+
+	//@brief static function for window close callback
+	static void window_close_callback(GLFWwindow* window) {
+		myGUI* app = static_cast<myGUI*>(glfwGetWindowUserPointer(window));
+
+		if (app) {
+			app->_on_close_request();
+		}
+	};
 
 	void _render_visualizer();
 };
 
+bool create_single_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled=true);
+
+// @brief Function to load texture from file, acquired by https://github.com/ocornut/imgui/wiki/Image-Loading-and-Displaying-Examples
+bool load_texture_from_file(const char* fileName, GLuint* outTexture, int* outWidth, int* outHeight);
+
+bool load_texture_from_memory(const void* data, size_t dataSize, GLuint* outTexture, int* outWidth, int* outHeight);
+
+//template a function for selectables
+template <typename L>
+void render_selectable_list(std::vector<std::unique_ptr<L>>& list, L*& selected, const std::string name) {
+
+	for (const auto& md : list) {
+
+		auto obj = md.get();
+
+		if (obj) {
+
+			bool isSelected = (selected && selected == obj);
+
+			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+				selected = md.get();
+			};
+
+			if (isSelected) ImGui::SetItemDefaultFocus();
+		}
+	}
+};
 #endif

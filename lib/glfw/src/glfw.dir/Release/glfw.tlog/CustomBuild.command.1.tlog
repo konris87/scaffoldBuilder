@@ -1,0 +1,10 @@
+^C:\USERS\KOSTAS\DESKTOP\PHD\REPOSITORIES\SCAFFOLDBUILDER_REPO\LIB\GLFW\SRC\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo -BC:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo --check-stamp-file C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

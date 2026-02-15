@@ -1,5 +1,8 @@
 /build
 /data
+/install_dir
+/backup
 backup.txt
+install_commands.txt
 /_CPack_Packages
 /*.zip
