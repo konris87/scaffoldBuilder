@@ -70,12 +70,12 @@ set(IMGUI_DIR ./lib/imgui)
 include_directories(${IMGUI_DIR} ${IMGUI_DIR}/backends ..)
 
 # Include Voro ++ 
-#set (CMAKE_PREFIX_PATH "C:/Users/Konst/Desktop/Software/voro-install/bin/")
-#find_package(VORO CONFIG REQUIRED)
+set (CMAKE_PREFIX_PATH "C:/Users/Konst/Desktop/Software/voro-install/bin/")
+find_package(VORO CONFIG REQUIRED)
 
-#if (NOT VORO_FOUND)
-#  message(FATAL_ERROR "Unable to find VORO.")
-#endif()
+if (NOT VORO_FOUND)
+  message(FATAL_ERROR "Unable to find VORO.")
+endif()
 
 set(SOURCES
 
@@ -103,6 +103,7 @@ set(SOURCES
 	# include/SeedGenerator/Poisson3D.cpp
 	# include/ScaffoldGenerator/ScaffoldGenerator.cpp
 	include/ScaffoldGenerator/Generator.cpp
+	include/ScaffoldGenerator/GeneratorLewiner.cpp
 	include/OpenGlRender/Model.cpp
 	include/SeedGenerator/SeedGenerator.cpp
 	include/MonteSimulation/MonteSimulation.cpp

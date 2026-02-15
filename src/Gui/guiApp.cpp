@@ -508,6 +508,40 @@ void myGUI::run() {
 			}
 		}
 
+		for (const auto& gen : scaffoldsLewiner) {
+			if (!gen->hidden && gen->color[3] == 1.0f) {
+
+				uniManager.setUniform(scaffoldShader, "projection", projection);
+				uniManager.setUniform(scaffoldShader, "view", view);
+				uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
+				uniManager.setUniform(
+					scaffoldShader, "objectColor",
+					gen->color[0], gen->color[1], gen->color[2], gen->color[3]);
+				glEnable(GL_POLYGON_OFFSET_FILL);
+				glPolygonOffset(1.0f, 1.0f); if (showCutPlane) {
+
+					glDisable(GL_CULL_FACE);
+
+					float d = cutPlane->normal.dot(cutPlane->center);
+
+					planeCoeffs = glm::vec4(
+						cutPlane->normal.x,
+						cutPlane->normal.y,
+						cutPlane->normal.z, d);
+
+					uniManager.setUniform(scaffoldShader, "cutPlane", 1);
+					uniManager.setUniform(scaffoldShader, "cutPlaneCoeffs", planeCoeffs);
+					gen->draw();
+					glEnable(GL_CULL_FACE);
+				}
+				else {
+					uniManager.setUniform(scaffoldShader, "cutPlane", 0);
+					gen->draw();
+				}
+				glDisable(GL_POLYGON_OFFSET_FILL);
+			}
+		}
+
 		// containers
 		for (const auto& con : containers) {
 			if (con && !con->hidden) {
@@ -776,7 +810,8 @@ void myGUI::_render_settings_panel() {
 			//_export_mesh();
 
 			// get the active scaffold
-			Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
+			//Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
+			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 			std::filesystem::path filePath = scaffoldFilePath;
 
@@ -843,11 +878,11 @@ void myGUI::_render_object_list() {
 			ImGui::SetTooltip("Scaffold objects");
 		}
 		if (open) {
-			for (int i = 0; i < scaffolds.size(); ++i) {
+			for (int i = 0; i < scaffoldsLewiner.size(); ++i) {
 
 				ImGui::PushID(i);
 
-				auto& gen = scaffolds[i];
+				auto& gen = scaffoldsLewiner[i];
 
 				bool isSelected = (selectedPanelObj.ptr == gen.get());
 
@@ -862,7 +897,7 @@ void myGUI::_render_object_list() {
 						gen->hidden = !gen->hidden;
 					}
 					if (ImGui::MenuItem("Delete")) {
-						auto it = scaffolds.erase(scaffolds.begin() + i);
+						auto it = scaffoldsLewiner.erase(scaffoldsLewiner.begin() + i);
 						selectedSceneObj = nullptr;
 						selectedPanelObj.ptr = nullptr;
 						selectedPanelObj.type = ObjectType::NoneType;
@@ -938,7 +973,7 @@ void myGUI::_render_properties_panel() {
 				break;
 			}
 			case ObjectType::ScaffoldType: {
-				_render_scaffold_properties();
+				//_render_scaffold_properties();
 				break;
 			}
 			case ObjectType::NoneType: {
@@ -2599,11 +2634,18 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 					bds.zMax
 				};
 
-				std::unique_ptr<Generator> scaffold = std::make_unique<Generator>(
+				//std::unique_ptr<Generator> scaffold = std::make_unique<Generator>(
+				//	seeds, bounds, resolution, tempOpeness, tempThickness, foam
+				//);
+
+				std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
 					seeds, bounds, resolution, tempOpeness, tempThickness, foam
 				);
 
-				scaffold->populate_grids(*selectedCon, true);
+				// estimate the scalar field
+				scaffold->compute_scalar_field(*selectedCon);
+
+				//scaffold->populate_grids(*selectedCon);
 
 				scaffold->container = selectedCon;
 				scaffold->generator = selectedGen;
@@ -2622,12 +2664,12 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 
 				scaffold->marching_cubes();
 
-				// push to the scaffold list
-				scaffolds.push_back(std::move(scaffold));
+				//// push to the scaffold list
+				scaffoldsLewiner.push_back(std::move(scaffold));
 
 				// set it as the selected object
-				selectedSceneObj = scaffolds.back().get();
-				selectedPanelObj.ptr = scaffolds.back().get();
+				selectedSceneObj = scaffoldsLewiner.back().get();
+				selectedPanelObj.ptr = scaffoldsLewiner.back().get();
 				selectedPanelObj.type = ObjectType::ScaffoldType;
 
 				// restore ptrs
@@ -2682,13 +2724,9 @@ void myGUI::_render_scaffold_properties() {
 	
 	ImGui::SeparatorText("Metrics");
 
-	ImGui::BeginChild("", ImVec2(ImGui::GetContentRegionAvail().x, 100));
-
 	//static Metrics metrics = gen->get_metrics();
 
 	gen->render_metrics();
-
-	ImGui::EndChild();
 
 	ImGui::Separator();
 	ImGui::NewLine();
@@ -2716,7 +2754,7 @@ void myGUI::_render_scaffold_properties() {
 			gen->generator = selectedGenerator;
 
 			gen->set_resolution(resolution);
-			gen->populate_grids(*selectedContainer, true);
+			gen->populate_grids(*selectedContainer);
 			gen->marching_cubes();
 
 			// reset

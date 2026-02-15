@@ -105,7 +105,7 @@ public:
         const int foam = 0
     );
 
-	void populate_grids(const IContainer& container, bool pad = false);
+	void populate_grids(const IContainer& con, bool pad = false);
 
     //void _pad_bounds();
 
@@ -211,7 +211,7 @@ private:
     std::unique_ptr<Kdtree> kdtree;
 
 	// scalar field
-	std::vector<double> scalarField;
+	std::vector<float> scalarField;
 
     // hold triangles
 	std::vector<Triangle> triangles;

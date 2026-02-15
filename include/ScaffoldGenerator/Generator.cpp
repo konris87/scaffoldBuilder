@@ -20,12 +20,7 @@ Generator::Generator(
 	_setup_edges();
 }
 
-void Generator::populate_grids(const IContainer& container, bool pad) {
-
-	stepX = (bounds[1] - bounds[0]) / (blockDim[0] - 1);
-	stepY = (bounds[3] - bounds[2]) / (blockDim[1] - 1);
-	stepZ = (bounds[5] - bounds[4]) / (blockDim[2] - 1);
-
+void Generator::populate_grids(const IContainer& con, bool pad) {
 	if (pad) {
 		// Pad bounds by 2 steps on each side
 		float padX = stepX * 2.0f;
@@ -54,6 +49,10 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 		return;
 	}
 
+	stepX = (paddedBounds[1] - paddedBounds[0]) / (workingBlockDim[0] - 1);
+	stepY = (paddedBounds[3] - paddedBounds[2]) / (workingBlockDim[1] - 1);
+	stepZ = (paddedBounds[5] - paddedBounds[4]) / (workingBlockDim[2] - 1);
+
 	// first populate the kdtree with the seeds
 	kdtree = std::make_unique<Kdtree>(seeds);
 
@@ -64,9 +63,10 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 	// since we know the size of the grid in advance
 	
 	int totalVoxels = workingBlockDim[0] * workingBlockDim[1] * workingBlockDim[2];
-	scalarField.reserve(totalVoxels);
+	//scalarField.reserve(totalVoxels);
+	scalarField.resize(totalVoxels, 9999.9);
 
-	#pragma omp parallel for collapse(3)
+	//#pragma omp parallel for collapse(3)
 	// create the grid points based on the bounds and block dimensions
 	for (int i{ 0 }; i < workingBlockDim[0]; i++) {
 		for (int j{ 0 }; j < workingBlockDim[1]; j++) {
@@ -77,6 +77,11 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 				float y = paddedBounds[2] + j * stepY;
 				float z = paddedBounds[4] + k * stepZ;
 				Vec3 point(x, y, z);
+
+				//float containerDist = con.sdf->compute_distance(point);
+				//if (containerDist > 2.0f) { // If it's more than 2mm outside, don't bother
+				//	continue; // scalarField[idx] remains 9999.9f
+				//}
 
 				// we need to find the two nearest seeds to the point, and compute the distance to the nearest seed, and the distance to the second nearest seed
 				auto neighbors = kdtree->knn(point, 3, [](const Vec3 &p1, const Vec3& p2) {
@@ -95,7 +100,7 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 				float smoothd1 = smin(d1, d2, kf);
 				float smoothd2 = smin(d2, d3, kf);
 
-				double value = 0.0;
+				float value = 0.0;
 				if(foam){
 					//value = (smoothd2 - smoothd1) + threshold * (d3 - d2);
 					value = d2 - d1;
@@ -105,9 +110,11 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 				}
 				
 				//double value = (d3 - d1) + threshold * (smoothd2 - smoothd1); // this works
+				//float containerDist = con.sdf->compute_distance(point);
+				//float mappedContainer = containerDist + isoLevel;
 
-				scalarField.push_back(value);
-				//scalarField[idx] = value;
+				//scalarField.push_back(std::max(value, mappedContainer));
+				scalarField[idx] = value;
 			}
 		}
 	}
@@ -118,8 +125,7 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 
 	// apply clamping
 	int solidVoxels = 0;
-	#pragma omp parallel for collapse(3) reduction(+:solidVoxels)
-
+	//#pragma omp parallel for collapse(3) reduction(+:solidVoxels)
 	for (int i = 0; i < workingBlockDim[0]; i++) {
 		for (int j = 0; j < workingBlockDim[1]; j++) {
 			for (int k = 0; k < workingBlockDim[2]; k++) {
@@ -131,20 +137,17 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 				float z = paddedBounds[4] + k * stepZ;
 				Vec3 point(x, y, z);
 
-				// check if the point is out
-				if (!container.is_inside(point)) {
-					scalarField[idx] = 9999.9f; // NOW it is safe to set to Air
-				}
+				float containerDist = con.sdf->compute_distance(point);
+				float mappedContainer = containerDist + isoLevel;
 
-				//// Check if boundary
-				//if (pad) {
-				//	if ((i == 0 || i == workingBlockDim[0] - 1 ||
-				//		j == 0 || j == workingBlockDim[1] - 1 ||
-				//		k == 0 || k == workingBlockDim[2] - 1)) {
+				// Mathematical Boolean Intersection
+				scalarField[idx] = std::max(scalarField[idx], mappedContainer);
 
-				//		int idx = find_vertex_index(i, j, k);
-				//		scalarField[idx] = 9999.9f; // Force Empty
-				//	}
+				//// Optional Padding Check (Uncomment if needed)
+				//if (pad && (i == 0 || i == workingBlockDim[0] - 1 ||
+				//	j == 0 || j == workingBlockDim[1] - 1 ||
+				//	k == 0 || k == workingBlockDim[2] - 1)) {
+				//	scalarField[idx] = 9999.9f;
 				//}
 
 				// Count metrics now (after final modification)
@@ -163,7 +166,7 @@ void Generator::populate_grids(const IContainer& container, bool pad) {
 
 
 void Generator::smooth_scalar_field() {
-	std::vector<double> smoothed = scalarField; // Copy
+	std::vector<float> smoothed = scalarField; // Copy
 
 	// Simple 3x3x3 Box Blur
 	for (int z = 1; z < workingBlockDim[2] - 1; z++) {

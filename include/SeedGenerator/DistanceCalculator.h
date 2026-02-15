@@ -25,7 +25,7 @@ public:
 		// offset the point to the center of the cylinder
 		Vec3 ptOffset;
 		ptOffset.x = pt.x - center.x;
-		ptOffset.y = pt.y - (center.y + halfHeight);
+		ptOffset.y = pt.y - center.y;
 		ptOffset.z = pt.z - center.z;
 
 		float dr = std::sqrt(ptOffset.x * ptOffset.x + ptOffset.z * ptOffset.z) - radius;

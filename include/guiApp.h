@@ -27,6 +27,7 @@
 #include "OpenGlSetup/UniformManager.h"
 #include "OpenGlSetup/Grid.h"
 #include "ScaffoldGenerator/Generator.h"
+#include "ScaffoldGenerator/GeneratorLewiner.h"
 #include "Shader.h"
 #include "Utils/Utils.h"
 //#include "SeedGenerator/Poisson3D.h"
@@ -106,6 +107,8 @@ public:
 
 	// mesh objects
 	std::vector<std::unique_ptr<Generator>> scaffolds;
+
+	std::vector<std::unique_ptr<GeneratorLewiner>> scaffoldsLewiner;
 
 	std::vector<std::unique_ptr<InterfaceSeedGenerator>> seedGenerators;
 
