@@ -117,9 +117,10 @@ public:
 	std::vector<poreNetworkObject> poreNetworkList;
 	int activePoreNetworkIndex{ -1 };
 
+	std::unique_ptr<BoundingBox> box;
+
 	std::unique_ptr<VisualizeSeeds> seedObj;
 	std::unique_ptr<CutPlane> cutPlane;
-	std::unique_ptr<BBox> box;
 	std::unique_ptr<Grid> grid;
 	std::unique_ptr<CutPlane> distPlane;
 	std::unique_ptr<Arrow> xArrow;
@@ -127,24 +128,9 @@ public:
 	std::unique_ptr<Arrow> zArrow;
 	std::unique_ptr<PoreNetwork> poreNetwork;
 
-	// containers
-	CylinderContainer cylContainer;
-	BoxContainer boxContainer;
-	//MeshContainer meshContainer;
-	ContainerModel container;
-
 	// create the active container and initialize it to a box container
 	IContainer* activeContainer = nullptr;
 	std::array<float, 6> bounds = {};
-
-	//PlaneDistEstimator planeDistance;
-	//MeshDistEstimator meshDistance;
-	//BoxDistEstimator boxDistance;
-	//CylinderDistEstimator cylinderDistance;
-	//ImplicitFunctionDistEstimator containerDistance;
-
-	// gui split viewports
-	//float split{ 0.0f };
 
 	// flags for scaffold mesh
 	bool scaffoldReady{ false };
@@ -194,6 +180,7 @@ public:
 	bool estimateTortuosity = { false };
 
 	bool updateScaffold = { false };
+	bool translateScaffold = { false };
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -303,7 +290,7 @@ private:
 	Shader gridShader;
 	Shader seedShader;
 	Shader cutShader;
-	Shader bboxShader;
+	Shader boxShader;
 	Shader containerShader;
 	Shader frameShader;
 
@@ -397,6 +384,7 @@ private:
 	GLuint tortuosityTexture = 0;
 	GLuint poreNetworkTexture = 0;
 	GLuint updateScaffoldTexture = 0;
+	GLuint translateTexture = 0;
 
 	// ----------------------------------------------------------------------
 	// 4. Functions
@@ -499,6 +487,10 @@ private:
 
 	void _render_cutting_plane_settings(const char* popupName, bool& showPopup);
 
+	void _render_translate_panel(const char* popupName, bool& showPopup);
+
+	void _draw_selected_box();
+
 	void _create_dockspace();
 
 	void _on_close_request();
@@ -542,4 +534,8 @@ void render_selectable_list(std::vector<std::unique_ptr<L>>& list, L*& selected,
 		}
 	}
 };
+
+bool create_button_textured(
+	const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled = true);
+
 #endif

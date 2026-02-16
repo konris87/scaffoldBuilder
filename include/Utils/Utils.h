@@ -42,6 +42,11 @@ struct Triangle {
 	Vec3 v1, v2, v3;
 };
 
+struct Aabb {
+	Vec3 pMin{};
+	Vec3 pMax{};
+};
+
 // create a class to control seed generator using the strategy pattern
 class SeedGeneratorInterface {
 public:

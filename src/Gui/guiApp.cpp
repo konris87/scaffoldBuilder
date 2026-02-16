@@ -192,14 +192,16 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(cutShader, "minBounds");
 	uniManager.add_uniform(cutShader, "maxBounds");
 
-	bboxShader = Shader(
+	// bounding box shader
+	boxShader = Shader(
 		"./share/shaders/bboxVShader.vs",
 		"./share/shaders/bboxFShader.fs",
 		NULL
 	);
-	uniManager.add_uniform(bboxShader, "view");
-	uniManager.add_uniform(bboxShader, "model");
-	uniManager.add_uniform(bboxShader, "projection");
+	uniManager.add_uniform(boxShader, "view");
+	uniManager.add_uniform(boxShader, "model");
+	uniManager.add_uniform(boxShader, "projection");
+	uniManager.add_uniform(boxShader, "boxColor");
 
 	containerShader = Shader(
 		"./share/shaders/containerVShader.vs",
@@ -215,7 +217,7 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(containerShader, "Ka");
 
 	frameShader = Shader(
-		std::filesystem::relative(std::filesystem::path("share/shaders/frameVShader.vs")).string().c_str(),
+		std::filesystem::relative(std::filesystem::path("./share/shaders/frameVShader.vs")).string().c_str(),
 		std::filesystem::relative(std::filesystem::path("./share/shaders/frameFShader.fs")).string().c_str(),
 		//"shaders/frameVShader.vs",
 		//"shaders/frameFShader.fs",
@@ -248,6 +250,9 @@ void myGUI::_init_opengl() {
 	// create frame buffer
 	create_frame_buffer(framebuffer);
 
+	// this is for the bounding box
+	box = std::make_unique<BoundingBox>();
+
 	// load textures
 	int dummyW = 0, dummyH = 0;
 	load_texture_from_file("./share/textures/boxContainer.png", &boxContainerTexture, &dummyW, &dummyH);
@@ -262,7 +267,7 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/tortuosity.png", &tortuosityTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/network.png", &poreNetworkTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/update.png", &updateScaffoldTexture, &dummyW, &dummyH);
-
+	load_texture_from_file("./share/textures/translate.png", &translateTexture, &dummyW, &dummyH);
 };
 
 void myGUI::_init_imgui() {
@@ -406,14 +411,16 @@ void myGUI::run() {
 				
 				uniManager.setUniform(scaffoldShader, "projection", projection);
 				uniManager.setUniform(scaffoldShader, "view", view);
-				uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
+				uniManager.setUniform(scaffoldShader, "model", glm::translate(
+					glm::mat4(1.0), 
+					glm::vec3(gen->translateVec.x, gen->translateVec.y, gen->translateVec.z)));
 				uniManager.setUniform(
 					scaffoldShader, "objectColor",
 					gen->color[0], gen->color[1], gen->color[2], gen->color[3]);
 				glEnable(GL_POLYGON_OFFSET_FILL);
 				glPolygonOffset(1.0f, 1.0f);
 
-				if (showCutPlane) {
+				if (showCutPlane && gen.get() == selectedSceneObj) {
 
 					glDisable(GL_CULL_FACE);
 
@@ -511,10 +518,10 @@ void myGUI::run() {
 		// containers
 		for (const auto& con : containers) {
 			if (con && !con->hidden) {
-				bboxShader.use();
-				uniManager.setUniform(bboxShader, "projection", projection);
-				uniManager.setUniform(bboxShader, "view", view);
-				uniManager.setUniform(bboxShader, "model", model);
+				boxShader.use();
+				uniManager.setUniform(boxShader, "projection", projection);
+				uniManager.setUniform(boxShader, "view", view);
+				uniManager.setUniform(boxShader, "model", model);
 				con->render();
 			}
 		}
@@ -556,26 +563,7 @@ void myGUI::run() {
 			}
 		}
 
-		//if (showSeeds && seedObj) {
-		//	seedShader.use();
-		//	uniManager.setUniform(seedShader, "projection", projection);
-		//	uniManager.setUniform(seedShader, "view", view);
-		//	uniManager.setUniform(seedShader, "seedSize", seedSize);
-		//	uniManager.setUniform(seedShader, "seedColor", seedColor[0], seedColor[1], seedColor[2]);
-		//	seedObj->draw();
-		//}
-
-		//if (showDistancePlane) {
-		//	//std::cout << "Draw distance plane " << std::endl;
-		//	glm::mat4 modelDist = distPlane->tMatrix * distPlane->initMatrix * distPlane->rotMatrix;
-		//	cutShader.use();
-		//	uniManager.setUniform(cutShader, "projection", projection);
-		//	uniManager.setUniform(cutShader, "view", view);
-		//	uniManager.setUniform(cutShader, "model", modelDist);
-		//	uniManager.setUniform(cutShader, "minBounds", 0, 0, 0);
-		//	uniManager.setUniform(cutShader, "maxBounds", xDim, yDim, zDim);
-		//	distPlane->draw();
-		//}
+		_draw_selected_box();
 
 		// ----------------------------------------------------------------------------
 		// Pass 2, draw transparent objects
@@ -588,11 +576,14 @@ void myGUI::run() {
 		for (auto& scaffold : scaffolds) {
 			
 			if (!scaffold->hidden && scaffold->color[3] < 1.0f) {
+				scaffoldShader.use();
 				uniManager.setUniform(scaffoldShader, "projection", projection);
 				uniManager.setUniform(scaffoldShader, "view", view);
 				uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
 				uniManager.setUniform(
-					scaffoldShader, "objectColor", 0.5f, 0.5f, 0.5f, 1.0f);
+					scaffoldShader,
+					"objectColor",
+					scaffold->color[0], scaffold->color[1], scaffold->color[2], scaffold->color[3]);
 				glEnable(GL_POLYGON_OFFSET_FILL);
 				glPolygonOffset(1.0f, 1.0f);
 				scaffold->draw();
@@ -601,9 +592,6 @@ void myGUI::run() {
 		}
 
 		if (showCutPlane) {
-
-			//std::cout << bounds[1] << " " << bounds[3] << " " << bounds[5] << std::endl;
-			// get the bounds of the active scaffold container
 			cutShader.use();
 			uniManager.setUniform(cutShader, "projection", projection);
 			uniManager.setUniform(cutShader, "view", view);
@@ -678,12 +666,16 @@ void myGUI::_render_toolbar() {
 		//	ImGuiWindowFlags_NoCollapse |
 		ImGuiWindowFlags_AlwaysAutoResize;
 
-	ImGuiTabBarFlags tableFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoHostExtendX;
+	ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV |
+		ImGuiTableFlags_NoHostExtendX |
+		ImGuiTableFlags_SizingFixedFit;
 
 	if (ImGui::Begin("Toolbar", &showToolbar, toolbarFlags)) {
-		ImGui::BeginTable("", 4, tableFlags, ImVec2(0.0f, ImGui::GetFrameHeight()));
 
-		// here we could add a textured button
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(20.0f, 4.0f));
+
+		ImGui::BeginTable("", 5, tableFlags, ImVec2(0.0f, ImGui::GetFrameHeight()));
+
 		ImGui::TableNextColumn();
 
 		create_single_button_textured(
@@ -706,7 +698,7 @@ void myGUI::_render_toolbar() {
 		create_single_button_textured(
 			"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture);
 		ImGui::SameLine();
-		
+
 		ImGui::TableNextColumn();
 
 		create_single_button_textured(
@@ -744,9 +736,14 @@ void myGUI::_render_toolbar() {
 			"Update Current Scaffold.", updateScaffoldTexture
 		);
 
+		ImGui::SameLine();
+		ImGui::TableNextColumn();
+
+		create_button_textured("Translate Object", translateScaffold, "Translate selected object.", translateTexture);
+
 		ImGui::EndTable();
 
-
+		ImGui::PopStyleVar();
 		//if (ImGui::Button("Estimate Connectivity")) {
 		//	_action_estimate_connectivity();
 		//}
@@ -1146,35 +1143,6 @@ void myGUI::add_log(LogPriority priority, const std::string& message) {
 	scrollToBottom = true;
 }
 
-void myGUI::_update_cameras() {
-
-	float xc = static_cast<float>((xMax + xMin) * 0.5f);
-	float yc = static_cast<float>((yMax + yMin) * 0.5f);
-	float zc = static_cast<float>((zMax + zMin) * 0.5f);
-
-	float dx = xMax - xMin;
-	float dy = yMax - yMin;
-	float dz = zMax - zMin;
-	float diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
-	float distance = 1.1f * diagonal;
-
-	container.center[0] = xc;
-	container.center[1] = yc;
-	container.center[2] = zc;
-
-	cameraUpdate = true;
-	cameraTarget = glm::vec3(container.center[0], container.center[1], container.center[2]);
-	defCamera->position = cameraPos;
-	defCamera->target = cameraTarget;
-	//trackCamera->position = cameraPos;
-	trackCamera->set_target(cameraTarget.x, cameraTarget.y, cameraTarget.z);
-	trackCamera->set_position(xc, yc, zc + distance);
-	trackCamera->update();
-	projection = trackCamera->get_projection_matrix();
-	view = trackCamera->get_view_matrix();
-	cameraUpdate = false;
-}
-
 void myGUI::_update_cameras(IContainer& con) {
 
 	Bounds bnds = con.compute_bounds();
@@ -1201,21 +1169,6 @@ void myGUI::_update_cameras(IContainer& con) {
 	view = trackCamera->get_view_matrix();
 	cameraUpdate = false;
 }
-
-void myGUI::_update_bounds_center(int& conOption) {
-
-	const Bounds bounds = activeContainer->compute_bounds();
-
-	xMin = bounds.xMin; xMax = bounds.xMax;
-	yMin = bounds.yMin; yMax = bounds.yMax;
-	zMin = bounds.zMin; zMax = bounds.zMax;
-
-	container.center = {
-		static_cast<float>(bounds.center[0]),
-		static_cast<float>(bounds.center[1]),
-		static_cast<float>(bounds.center[2]),
-	};
-};
 
 void myGUI::_render_mesh_settings() {
 
@@ -1467,7 +1420,7 @@ void myGUI::_render_main_menu_bar() {
 					showPlaneCutSettings = true;
 					showCutPlane = true;
 					cutPlane = std::make_unique<CutPlane>();
-					Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
+					GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 					IContainer* con = static_cast<IContainer*>(gen->container);
 					con->hidden = false;
@@ -1528,6 +1481,10 @@ void myGUI::_render_main_menu_bar() {
 
 	if (showPlaneCutSettings) {
 		_render_cutting_plane_settings("Cutting With Plane" , showPlaneCutSettings);
+	}
+
+	if (translateScaffold) {
+		_render_translate_panel("Translate Object", translateScaffold);
 	}
 };
 
@@ -1871,6 +1828,9 @@ void myGUI::_render_box_container_creator(const char* popupName, bool& showPopup
 			containers.push_back(std::move(container));
 			buffer[0] = '\0';
 			selectedPanelObj.ptr = containers.back().get();
+
+			add_log(LogPriority::SUCCESS, "Created box container!");
+
 			showPopup = false;
 		}
 
@@ -1926,6 +1886,9 @@ void myGUI::_render_cylinder_container_creator(const char* popupName, bool& show
 			selectedPanelObj.ptr = &containers.back();
 			selectedPanelObj.type = ObjectType::CylinderContainerType;
 			buffer[0] = '\0';
+
+			add_log(LogPriority::SUCCESS, "Created cylindrical container!");
+
 			showPopup = false;
 		}
 
@@ -1944,6 +1907,8 @@ void myGUI::_render_abstract_container_creator(const char* popupName, bool& show
 	if (showPopup) {
 		ImGui::OpenPopup(popupName);
 	}
+
+	showPopup = false;
 };
 
 void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) {
@@ -2020,7 +1985,9 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 				selectedPanelObj.type = ObjectType::RandomGeneratorType;
 				buffer[0] = '\0';
 
-				add_log(LogPriority::SUCCESS, std::to_string(nr) + " Seeds Created");
+				add_log(
+					LogPriority::SUCCESS,
+					std::to_string(nr) + " seeds created randomly inside " + selectedCon->name + "!");
 
 				_update_cameras(*selectedCon);
 				
@@ -2161,7 +2128,7 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 				selectedPanelObj.type = ObjectType::UniformGeneratorType;
 				buffer[0] = '\0';
 
-				add_log(LogPriority::SUCCESS, std::to_string(nr) + " Seeds Created");
+				add_log(LogPriority::SUCCESS, std::to_string(nr) + " uniform seeds created inside " + selectedCon->name + "!");
 
 				_update_cameras(*selectedCon);
 				selectedCon = nullptr;
@@ -2365,7 +2332,9 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 				selectedPanelObj.type = ObjectType::VariedGeneratorType;
 				buffer[0] = '\0';
 
-				add_log(LogPriority::SUCCESS, std::to_string(nr) + " Seeds Created");
+				add_log(
+					LogPriority::SUCCESS,
+					std::to_string(nr) + " varied seeds created inside " + selectedCon->name + "!");
 
 				_update_cameras(*selectedCon);
 				selectedCon = nullptr;
@@ -2547,6 +2516,21 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 		// here we should get the seeds from the corresponding creator
 		ImGui::SeparatorText("Select Container and generator");
 
+		// timer for flashing
+		static float warningFlashTimer1 = 0.0f;
+
+		if (warningFlashTimer1 > 0.0f) {
+			warningFlashTimer1 -= ImGui::GetIO().DeltaTime;
+		}
+
+		bool isFlashing1 = (warningFlashTimer1 > 0.0f);
+		if (isFlashing1) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
+
 		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 80), ImGuiChildFlags_Borders);
 
 		for (const auto& md : containers) {
@@ -2561,9 +2545,28 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 				};
 			}
 		}
+
+		if (isFlashing1) {
+			ImGui::PopStyleColor(); // Pop the red border color
+			ImGui::PopStyleVar();   // Pop the thick border size
+		}
+
 		ImGui::EndChild();
 
 		ImGui::SameLine();
+
+		static float warningFlashTimer2 = 0.0f;
+
+		if (warningFlashTimer2 > 0.0f) {
+			warningFlashTimer2 -= ImGui::GetIO().DeltaTime;
+		}
+		bool isFlashing2 = (warningFlashTimer2 > 0.0f);
+		if (isFlashing2) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
 
 		ImGui::BeginChild("Generators", ImVec2(0.0, 80), ImGuiChildFlags_Borders);
 
@@ -2579,13 +2582,29 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 				};
 			}
 		}
+		
+		if (isFlashing2) {
+			ImGui::PopStyleColor(); // Pop the red border color
+			ImGui::PopStyleVar();   // Pop the thick border size
+		}
+
 		ImGui::EndChild();
 		ImGui::Separator();
 		ImGui::NewLine();
 
 		if (ImGui::Button("Generate")) {
 
-			if (selectedCon && selectedGen) {
+			if (!selectedCon) {
+				warningFlashTimer1 = 1.5f;
+			}
+
+			if (!selectedGen) {
+				warningFlashTimer2 = 1.5f;
+			}
+
+			else if (selectedCon && selectedGen) {
+
+				auto start_time = std::chrono::steady_clock::now();
 				
 				std::string name = std::string(buffer);
 				std::vector<Vec3> seeds = selectedGen->get_seeds();
@@ -2639,6 +2658,21 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 				selectedSceneObj = scaffolds.back().get();
 				selectedPanelObj.ptr = scaffolds.back().get();
 				selectedPanelObj.type = ObjectType::ScaffoldType;
+
+				auto end_time = std::chrono::steady_clock::now();
+
+				// Calculate the duration in milliseconds
+				auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+				
+				std::ostringstream oss;
+				oss	<< std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+					<< duration_ms.count() / 1000.0   // Convert ms to seconds
+					<< " seconds!";
+
+				add_log(
+					LogPriority::SUCCESS,
+					"Created scaffold succesffully using container " + selectedCon->name +
+					" and generator " + selectedGen->name + " in" + oss.str());
 
 				// restore ptrs
 				selectedCon = nullptr;
@@ -2698,8 +2732,6 @@ void myGUI::_render_scaffold_properties() {
 
 	if (updateScaffold) {
 
-		std::cout << "update scaffold" << std::endl;
-
 		if (selectedContainer && selectedGenerator) {
 			std::vector<Vec3> seeds = selectedGenerator->get_seeds();
 			Bounds bds = selectedContainer->compute_bounds();
@@ -2722,6 +2754,8 @@ void myGUI::_render_scaffold_properties() {
 			gen->compute_scalar_field(*selectedContainer);
 			gen->marching_cubes();
 			gen->estimate_metrics(*selectedContainer);
+
+			add_log(LogPriority::SUCCESS, "Updated Scaffold Successfully");
 
 			// reset
 			updateScaffold = false;
@@ -2966,6 +3000,74 @@ void myGUI::_action_estimate_pore_network() {
 	}
 };
 
+void myGUI::_render_translate_panel(const char* popupName, bool& showPopup) {
+
+	if (!selectedSceneObj) {
+		showPopup = false;
+		return;
+	}
+
+	if (ImGui::Begin(popupName, NULL)) {
+	
+		static float tempX = { 0.0f };
+		static float tempY = { 0.0f };
+		static float tempZ = { 0.0f };
+
+		ImGui::InputFloat("Translate X", &tempX, 0.001f, 1000.0f);
+		ImGui::InputFloat("Translate Y", &tempY, 0.001f, 1000.0f);
+		ImGui::InputFloat("Translate Z", &tempZ, 0.001f, 1000.0f);
+
+		// grab the selected panel
+		GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+		gen->translateVec.x = tempX;
+		gen->translateVec.y = tempY;
+		gen->translateVec.z = tempZ;
+
+		if (ImGui::Button("Close")) {
+			showPopup = false;
+		}
+
+		ImGui::End();
+	
+	};
+
+};
+
+void myGUI::_draw_selected_box() {
+
+	if (!selectedSceneObj) return;
+
+	boxShader.use();
+	glDepthFunc(GL_LEQUAL);
+	glLineWidth(1.0f);
+
+	auto md = static_cast<GeneratorLewiner*>(selectedSceneObj);
+
+	Aabb aabb = md->get_aabb();
+
+	Vec3 size = aabb.pMax - aabb.pMin;
+	Vec3 center = (aabb.pMin + aabb.pMax) * 0.5f;
+
+	glm::mat4 mt = glm::translate(glm::mat4(1.0f), glm::vec3(
+		center.x + md->translateVec.x,
+		center.y + md->translateVec.y,
+		center.z + md->translateVec.z
+	));
+	mt = glm::scale(mt, glm::vec3(size.x, size.y, size.z));
+	uniManager.setUniform(boxShader, "projection", projection);
+	uniManager.setUniform(boxShader, "view", view);
+	uniManager.setUniform(boxShader, "model", mt);
+	uniManager.setUniform(
+		boxShader,
+		"boxColor",
+		0.0f, 1.0f, 0.0f, 1.0f
+	);
+
+	box->draw();
+};
+
+// ---------------------------------------------------------------------------------------------------------------
+
 bool create_single_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled) {
 
 	bool pressed = false;
@@ -3048,4 +3150,46 @@ bool load_texture_from_memory(const void* data, size_t dataSize, GLuint* outText
 	*outHeight = height;
 
 	return true;
+};
+
+bool create_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled) {
+
+	bool clicked = false;
+
+	// Disable if not enabled
+	if (!enabled) {
+		ImGui::BeginDisabled();
+	}
+
+	// this will keep the state 
+	const bool wasOn = flag;
+
+	// Push style if it was active
+	if (wasOn) {
+		ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.8f, 0.4f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.9f, 0.5f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.3f, 0.7f, 0.3f, 1.0f));
+	}
+
+	if (ImGui::ImageButton(
+		name, (ImTextureID)(intptr_t)textureId, ImVec2(40.0, 40.0)
+	)) {
+		flag = !flag;
+		clicked = true;
+	}
+
+	if (ImGui::IsItemHovered() && !tooltip.empty()) {
+		ImGui::SetTooltip(tooltip.c_str());
+	}
+
+	// Pop only if pushed
+	if (wasOn) {
+		ImGui::PopStyleColor(3);
+	}
+
+	if (!enabled) {
+		ImGui::EndDisabled();
+	}
+
+	return clicked && !wasOn;
 };

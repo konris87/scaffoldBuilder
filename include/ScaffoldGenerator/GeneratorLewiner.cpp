@@ -23,6 +23,8 @@ GeneratorLewiner::GeneratorLewiner(
 
 	_setup_edges();
 
+	aabb.pMin = Vec3(bounds[0], bounds[2], bounds[4]);
+	aabb.pMax = Vec3(bounds[1], bounds[3], bounds[5]);
 };
 
 
@@ -2240,4 +2242,10 @@ void GeneratorLewiner::set_bounds(const std::array<float, 6>& newBounds) {
 void GeneratorLewiner::set_seeds(const std::vector<Vec3>& newSeeds) {
 	seeds = newSeeds;
 };
+
+std::array<float, 6> GeneratorLewiner::get_bounds() const {
+	return bounds;
+};
+
+Aabb GeneratorLewiner::get_aabb() const { return aabb; };
 

@@ -20,6 +20,7 @@
 
 #include "SeedGenerator/Container.h"
 #include "Math/Vec.h"
+#include "Utils/Utils.h"
 
 typedef struct
 {
@@ -68,6 +69,10 @@ public:
 	void set_bounds(const std::array<float, 6>& newBounds);
 
 	void set_seeds(const std::vector<Vec3>& newSeeds);
+
+	std::array<float, 6> get_bounds() const;
+
+	Aabb get_aabb() const;
 
 	//--------------------------------
 	// rendering
@@ -163,6 +168,8 @@ public:
 	float localSeparationStd{ 0.0f };
 	float tortuosity{ 0.0f };
 
+	Vec3 translateVec{0.0f, 0.0f, 0.0f};
+
 private:	
 	std::vector<Vec3> seeds;
 	float stepX, stepY, stepZ;
@@ -183,6 +190,7 @@ private:
 	// scaffold properties
 	float threshold = { 0.5f };
 
+	Aabb aabb;
 	// ----------------------------------------------------
 	// these are for opengl
 	std::vector<float> vertices;

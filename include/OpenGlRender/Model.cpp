@@ -366,6 +366,53 @@ void CutPlane::_setup() {
 	glBindVertexArray(0);
 };
 
+// -------------------------------------------------------------------
+BoundingBox::BoundingBox() {
+	_setup();
+};
+
+void BoundingBox::draw() {
+	glBindVertexArray(VAO);
+	glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, 0);
+	glBindVertexArray(0);
+};
+
+void BoundingBox::_setup() {
+
+	// generate Vertex Array Object
+	glGenVertexArrays(1, &VAO);
+	// bind to vertex array
+	glBindVertexArray(VAO);
+
+	// generate Vertex Buffer Object to store vertex attributes
+	// bind array buffer and send data
+	glGenBuffers(1, &VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+	glGenBuffers(1, &EBO);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+	// vertex position attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	glBindVertexArray(0);
+
+};
+
+void BoundingBox::clean() {
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	VAO = 0;
+	VBO = 0;
+};
+
+
 // -------------------------------------------------------------------------------------
 BBox::BBox(float xMin, float xMax, float yMin, float yMax, float zMin, float zMax){
 		
