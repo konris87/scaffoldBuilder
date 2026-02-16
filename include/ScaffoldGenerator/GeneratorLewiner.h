@@ -61,10 +61,20 @@ public:
 
 	void export_stl(std::string fileName);
 
+	void estimate_metrics(const IContainer& container);
+
+	void set_resolution(const std::array<int, 3>& newResolution);
+
+	void set_bounds(const std::array<float, 6>& newBounds);
+
+	void set_seeds(const std::vector<Vec3>& newSeeds);
+
 	//--------------------------------
 	// rendering
 	void draw();
 	void draw_edges();
+	void render_properties();
+	void render_metrics();
 
 private:
 	void smooth_scalar_field();
@@ -126,6 +136,7 @@ private:
 	bool interior_test_case13_2(float isovalue, const float _cube[8], int& tunnelOrientation);
 
 	void validate_topology();
+
 	//-------------------------------
 	// rendering
 	void _setup_mesh();
@@ -142,8 +153,18 @@ public:
 	std::array<float, 4> color = { 0.5f, 0.5f, 0.5f, 1.0f };
 	bool hidden = false;
 
+	float volume{ 0.0f };
+	float porosity{ 0.0f };
+	float surfaceArea{ 0.0f };
+	float surfaceToVolume{ 0.0f };
+	float localThickness{ 0.0f };
+	float localThicknessStd{ 0.0f };
+	float localSeparation{ 0.0f };
+	float localSeparationStd{ 0.0f };
+	float tortuosity{ 0.0f };
+
 private:	
-	const std::vector<Vec3> seeds;
+	std::vector<Vec3> seeds;
 	float stepX, stepY, stepZ;
 	std::vector<float> scalarField;
 	std::array<int, 3> blockDims;

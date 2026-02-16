@@ -25,6 +25,7 @@ public:
 	//virtual std::function<bool(const Vec3&)> is_inside() const = 0;
 	virtual bool is_inside(const Vec3& pt) const = 0;
 	virtual std::shared_ptr<const SDF> get_distance_estimator() const = 0;
+	virtual float get_volume() const = 0;
 	//virtual float sdf(const Vec3&) const = 0;
 	std::string name = "";
 	bool hidden = true;
@@ -111,9 +112,15 @@ public:
 		}
 	};
 
-	virtual std::shared_ptr<const SDF> get_distance_estimator() const {
+	std::shared_ptr<const SDF> get_distance_estimator() const override {
 		return sdf;
 	};
+
+	float get_volume() const override {
+	
+		return (xMax - xMin) * (yMax - yMin) * (zMax - zMin);
+	};
+
 
 private:
 	float xMin{ 0.0f }, xMax{ 10.0f }, yMin{ 0.0f }, yMax{ 10.0f }, zMin{ 0.0f }, zMax{ 10.0f };
@@ -157,8 +164,14 @@ public:
 		return ObjectType::CylinderContainerType;
 	}
 
-	virtual std::shared_ptr<const SDF> get_distance_estimator() const override {
+	std::shared_ptr<const SDF> get_distance_estimator() const override {
 		return sdf;
+	};
+
+	float get_volume() const override {
+		const float PI = 3.14159265359f;
+
+		return PI * (cylinderRadius * cylinderRadius) * cylinderHeight;
 	};
 
 private:

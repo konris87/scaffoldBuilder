@@ -277,6 +277,9 @@ void GeneratorLewiner::marching_cubes() {
 				float _cube[8];
 
 				for (int p = 0; p < 8; ++p) {
+
+					// ^ XOR this line is the 
+
 					_cube[p] = get_data(i + ((p ^ (p >> 1)) & 1), j + ((p >> 1) & 1), k + ((p >> 2) & 1)) - isoLevel;
 					if (fabs(_cube[p]) < FLT_EPSILON) {
 						_cube[p] = (_cube[p] < 0) ? -FLT_EPSILON : FLT_EPSILON;
@@ -2166,4 +2169,75 @@ void GeneratorLewiner::validate_topology() {
 	}
 	std::cout << "-----------------------------------\n" << std::endl;
 }
+
+void GeneratorLewiner::render_properties() {
+
+	ImGui::SeparatorText("Parameters");
+	//ImGui::InputText("Name", buffer, sizeof(buffer));
+	ImGui::InputFloat("Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
+	ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f, "%.3f");
+
+};
+
+void GeneratorLewiner::estimate_metrics(const IContainer& container) {
+
+	surfaceArea = 0.0f;
+	volume = 0.0f;
+	float signedVolume = 0.0f;
+
+	for (const auto& tri : meshTriangles) {
+
+		// grab the three vertices
+		const LVertex& v1 = meshVertices[tri.v1];
+		const LVertex& v2 = meshVertices[tri.v2];
+		const LVertex& v3 = meshVertices[tri.v3];
+	
+		// estimate the surface area
+		Vec3 edge1 = Vec3(v2.x, v2.y, v2.z) - Vec3(v1.x, v1.y, v1.z);
+		Vec3 edge2 = Vec3(v3.x, v3.y, v3.z) - Vec3(v1.x, v1.y, v1.z);
+	
+		surfaceArea += 0.5 * edge1.cross(edge2).norm();
+
+		// get the volume using the signed tetrahedron 
+		float vol = Vec3(v1.x, v1.y, v1.z).dot(Vec3(v2.x, v2.y, v2.z).cross(Vec3(v3.x, v3.y, v3.z)));
+		signedVolume += vol;
+	}
+
+	// we need to divide the volume by 1/6
+	volume = std::abs(signedVolume) / 6.0f;
+
+	// get the domain volume to update the porosity
+	float domainVolume = container.get_volume();
+	porosity = (1 - volume / domainVolume);
+
+	surfaceToVolume = surfaceArea / volume;
+};
+
+void GeneratorLewiner::render_metrics() {
+
+	ImGui::Text(("Volume: " + std::to_string(volume)).c_str(), "%.4f");
+	ImGui::Text(("Porosity: " + std::to_string(porosity)).c_str(), "%.4f");
+	ImGui::Text(("Surface to Volume Ratio: " + std::to_string(surfaceToVolume)).c_str(), "&.4f");
+	ImGui::Text(("Total Surface: " + std::to_string(surfaceArea)).c_str(), "&.4f");
+
+	// convert local thickness and std to string
+	std::string ts = std::to_string(localThickness) + " std: " + std::to_string(localThicknessStd);
+	std::string ps = std::to_string(localSeparation) + " std: " + std::to_string(localSeparationStd);
+	ImGui::Text(("Local Thickness: " + ts).c_str(), "%.4f");
+	ImGui::Text(("Pore Separation: " + ps).c_str(), "%.4f");
+	ImGui::Text(("Tortuosity: " + std::to_string(tortuosity)).c_str(), "%.4f");
+
+};
+
+void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
+	blockDims = newResolution;
+};
+
+void GeneratorLewiner::set_bounds(const std::array<float, 6>& newBounds) {
+	bounds = newBounds;
+};
+
+void GeneratorLewiner::set_seeds(const std::vector<Vec3>& newSeeds) {
+	seeds = newSeeds;
+};
 

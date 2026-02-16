@@ -484,7 +484,7 @@ void myGUI::run() {
 						renderSettings.poreNetworkColor[2],
 						renderSettings.poreNetworkColor[3]
 					);
-					gen->draw_tortuosity_path();				
+					//gen->draw_tortuosity_path();				
 				}
 
 				if (showPoreNetwork && gen.get() == selectedSceneObj) {
@@ -503,42 +503,8 @@ void myGUI::run() {
 						renderSettings.poreNetworkColor[2],
 						renderSettings.poreNetworkColor[3]
 					);
-					gen->draw_pore_network();
+					//gen->draw_pore_network();
 				}
-			}
-		}
-
-		for (const auto& gen : scaffoldsLewiner) {
-			if (!gen->hidden && gen->color[3] == 1.0f) {
-
-				uniManager.setUniform(scaffoldShader, "projection", projection);
-				uniManager.setUniform(scaffoldShader, "view", view);
-				uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
-				uniManager.setUniform(
-					scaffoldShader, "objectColor",
-					gen->color[0], gen->color[1], gen->color[2], gen->color[3]);
-				glEnable(GL_POLYGON_OFFSET_FILL);
-				glPolygonOffset(1.0f, 1.0f); if (showCutPlane) {
-
-					glDisable(GL_CULL_FACE);
-
-					float d = cutPlane->normal.dot(cutPlane->center);
-
-					planeCoeffs = glm::vec4(
-						cutPlane->normal.x,
-						cutPlane->normal.y,
-						cutPlane->normal.z, d);
-
-					uniManager.setUniform(scaffoldShader, "cutPlane", 1);
-					uniManager.setUniform(scaffoldShader, "cutPlaneCoeffs", planeCoeffs);
-					gen->draw();
-					glEnable(GL_CULL_FACE);
-				}
-				else {
-					uniManager.setUniform(scaffoldShader, "cutPlane", 0);
-					gen->draw();
-				}
-				glDisable(GL_POLYGON_OFFSET_FILL);
 			}
 		}
 
@@ -878,11 +844,11 @@ void myGUI::_render_object_list() {
 			ImGui::SetTooltip("Scaffold objects");
 		}
 		if (open) {
-			for (int i = 0; i < scaffoldsLewiner.size(); ++i) {
+			for (int i = 0; i < scaffolds.size(); ++i) {
 
 				ImGui::PushID(i);
 
-				auto& gen = scaffoldsLewiner[i];
+				auto& gen = scaffolds[i];
 
 				bool isSelected = (selectedPanelObj.ptr == gen.get());
 
@@ -897,7 +863,7 @@ void myGUI::_render_object_list() {
 						gen->hidden = !gen->hidden;
 					}
 					if (ImGui::MenuItem("Delete")) {
-						auto it = scaffoldsLewiner.erase(scaffoldsLewiner.begin() + i);
+						auto it = scaffolds.erase(scaffolds.begin() + i);
 						selectedSceneObj = nullptr;
 						selectedPanelObj.ptr = nullptr;
 						selectedPanelObj.type = ObjectType::NoneType;
@@ -973,7 +939,7 @@ void myGUI::_render_properties_panel() {
 				break;
 			}
 			case ObjectType::ScaffoldType: {
-				//_render_scaffold_properties();
+				_render_scaffold_properties();
 				break;
 			}
 			case ObjectType::NoneType: {
@@ -2664,12 +2630,14 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 
 				scaffold->marching_cubes();
 
+				scaffold->estimate_metrics(*selectedCon);
+
 				//// push to the scaffold list
-				scaffoldsLewiner.push_back(std::move(scaffold));
+				scaffolds.push_back(std::move(scaffold));
 
 				// set it as the selected object
-				selectedSceneObj = scaffoldsLewiner.back().get();
-				selectedPanelObj.ptr = scaffoldsLewiner.back().get();
+				selectedSceneObj = scaffolds.back().get();
+				selectedPanelObj.ptr = scaffolds.back().get();
 				selectedPanelObj.type = ObjectType::ScaffoldType;
 
 				// restore ptrs
@@ -2694,7 +2662,7 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 
 void myGUI::_render_scaffold_properties() {
 
-	Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
+	GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	ImGui::ColorEdit4("Color", (float*)&gen->color);
 
@@ -2728,9 +2696,6 @@ void myGUI::_render_scaffold_properties() {
 
 	gen->render_metrics();
 
-	ImGui::Separator();
-	ImGui::NewLine();
-
 	if (updateScaffold) {
 
 		std::cout << "update scaffold" << std::endl;
@@ -2754,8 +2719,9 @@ void myGUI::_render_scaffold_properties() {
 			gen->generator = selectedGenerator;
 
 			gen->set_resolution(resolution);
-			gen->populate_grids(*selectedContainer);
+			gen->compute_scalar_field(*selectedContainer);
 			gen->marching_cubes();
+			gen->estimate_metrics(*selectedContainer);
 
 			// reset
 			updateScaffold = false;

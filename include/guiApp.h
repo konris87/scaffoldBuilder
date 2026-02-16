@@ -106,9 +106,7 @@ public:
 	void* selectedSceneObj = nullptr;
 
 	// mesh objects
-	std::vector<std::unique_ptr<Generator>> scaffolds;
-
-	std::vector<std::unique_ptr<GeneratorLewiner>> scaffoldsLewiner;
+	std::vector<std::unique_ptr<GeneratorLewiner>> scaffolds;
 
 	std::vector<std::unique_ptr<InterfaceSeedGenerator>> seedGenerators;
 
