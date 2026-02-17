@@ -8,11 +8,6 @@ void Random::run(const IContainer& adapter) {
 
 	auto bounds = adapter.compute_bounds();
 
-	std::cout <<
-		"xMax: " << bounds.xMin << " xMax: " << bounds.xMax <<
-		"yMin: " << bounds.yMin << " yMax: " << bounds.yMax <<
-		"zMin: " << bounds.zMin << " zMax: " << bounds.zMax << std::endl;
-
 	std::random_device rd;
 	std::mt19937 gen(rd());
 	std::uniform_real_distribution<> disX(bounds.xMin + 0.1, bounds.xMax - 0.1);
@@ -117,13 +112,21 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 			// identify the cell of the grid that the point is located
 			std::array<int, 3> cellIdx = getGridIndex(xi, cellSize);
 
-			// estimate also the radius based on the distance from the wall,
+			// estimate also the radius based on the distance from the metric,
 			// since it will be inside the distance will be negative, thus,
 			// we need the absolute value
-			const float d = std::abs(cfg.dist->compute_distance(xi));
+			double rxi = 0.0f;
+
+			if (cfg.dist) {
+				const float d = std::abs(cfg.dist->compute_distance(xi));
+				rxi = cfg.rad->estimate_radius(d, rMin, rMax);
+			}
+			else {
+				// this is for the uniform random between rMin rMax
+				rxi = cfg.rad->estimate_radius(0, rMin, rMax);
+			}
 			
 			// if varied get the value from the function otherwise rMin = rMax
-			const double rxi = cfg.rad->estimate_radius(d, rMin, rMax);
 
 			std::vector<Vec3> kPts;
 
@@ -159,11 +162,25 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 					continue;
 				}
 
-				//std::cout << "check distance" << std::endl;
-				double dFromSurf = std::abs(cfg.dist->compute_distance(pt));
 
-				//std::cout << "get radius" << std::endl;
-				double ryi = cfg.rad->estimate_radius(dFromSurf, rMin, rMax);
+				double ryi = 0.0f;
+
+				if (cfg.dist) {
+					//std::cout << "check distance" << std::endl;
+					double dFromSurf = std::abs(cfg.dist->compute_distance(pt));
+					//std::cout << "get radius" << std::endl;
+					ryi = cfg.rad->estimate_radius(dFromSurf, rMin, rMax);
+				}
+				else {
+					ryi = cfg.rad->estimate_radius(0.0, rMin, rMax);
+
+				}
+
+				////std::cout << "check distance" << std::endl;
+				//double dFromSurf = std::abs(cfg.dist->compute_distance(pt));
+
+				////std::cout << "get radius" << std::endl;
+				//double ryi = cfg.rad->estimate_radius(dFromSurf, rMin, rMax);
 
 				// loop through the cellIdxs of the cell
 				std::vector<double> dists;

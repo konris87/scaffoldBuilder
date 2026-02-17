@@ -74,12 +74,26 @@ public:
 
 	Aabb get_aabb() const;
 
+	void estimate_local_thickness(float voxelSize, std::array<float, 6>& blockBounds, bool separation = false);
+
+	bool estimate_tortuosity();
+
+	void estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit);
+
+	void estimate_trabecular_number();
+
+	void estimate_connectivity_density();
+
+	void export_nrrd(const std::string fileName, float voxelSize, std::array<float, 6> blockSize);
+
+	void export_mhd(std::filesystem::path& path, float voxelSize, std::array<float, 6> blockBounds);
 	//--------------------------------
 	// rendering
 	void draw();
 	void draw_edges();
 	void render_properties();
 	void render_metrics();
+	void draw_tortuosity_path();
 
 private:
 	void smooth_scalar_field();
@@ -142,6 +156,9 @@ private:
 
 	void validate_topology();
 
+	std::vector<uint8_t> get_image_field(
+		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false);
+
 	//-------------------------------
 	// rendering
 	void _setup_mesh();
@@ -157,8 +174,11 @@ public:
 	std::string name = "";
 	std::array<float, 4> color = { 0.5f, 0.5f, 0.5f, 1.0f };
 	bool hidden = false;
+	bool hiddenTortuosityPath = false;
+	bool hiddenNetworkPath = false;
 
 	float volume{ 0.0f };
+	float domainVolume{ 0.0f };
 	float porosity{ 0.0f };
 	float surfaceArea{ 0.0f };
 	float surfaceToVolume{ 0.0f };
@@ -167,8 +187,12 @@ public:
 	float localSeparation{ 0.0f };
 	float localSeparationStd{ 0.0f };
 	float tortuosity{ 0.0f };
+	float anisotropyDegree{ 0.0f };
+	float trabecularNr{ 0.0f };
+	float connectivityDensity{ 0.0f };
 
 	Vec3 translateVec{0.0f, 0.0f, 0.0f};
+	std::unique_ptr<PoreNetwork> tortuosityPathModel;
 
 private:	
 	std::vector<Vec3> seeds;
@@ -191,6 +215,7 @@ private:
 	float threshold = { 0.5f };
 
 	Aabb aabb;
+
 	// ----------------------------------------------------
 	// these are for opengl
 	std::vector<float> vertices;
@@ -200,6 +225,11 @@ private:
 	std::vector<unsigned int> edgeIndices;
 	// this is for rendering the EBO
 	std::vector<unsigned int> indices;
+
+	// store also a list of edges to draw the tortuosity path
+	std::vector<unsigned int> tortuosityPathEdges;
+	std::vector<float> tortuosityPathVertices;
+
 	unsigned int VAO{ 0 }, VBO{ 0 }, EBO{ 0 };
 	unsigned int edgeVAO{ 0 }, edgeVBO{ 0 }, edgeEBO{ 0 }, normalsVBO{ 0 };
 	unsigned int tortuosityPathVAO{ 0 }, tortuosityPathVBO{ 0 };

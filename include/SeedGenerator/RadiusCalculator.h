@@ -1,6 +1,8 @@
 #ifndef RADIUSCALCULATOR_H
 #define RADIUSCALCULATOR_H
 
+#include <random>
+
 class RadiusFunction {
 public:
 	virtual double estimate_radius(double distance, double rMin, double rMax) const = 0;
@@ -47,6 +49,16 @@ private:
 class ConstantRadiusFunction : public RadiusFunction {
 public:
 	double estimate_radius(double, double rMin, double) const override { return rMin; }
+};
+
+class RandomRadiusFunction : public RadiusFunction {
+public:
+	double estimate_radius(double, double rMin, double rMax) const override {
+
+		std::uniform_real_distribution<double> dist(rMin, rMax);
+		std::mt19937 rng;
+		return dist(rng);
+	}
 };
 
 

@@ -538,8 +538,6 @@ PoreNetwork::~PoreNetwork() {
 
 void PoreNetwork::_setup() {
 
-	std::cout << "setting up" << std::endl;
-
 	// generate Vertex Array Object
 	glGenVertexArrays(1, &VAO);
 	// generate Vertex Buffer Object to store vertex attributes
@@ -568,6 +566,8 @@ void PoreNetwork::draw() {
 	glBindVertexArray(VAO);
 	glDrawElements(GL_LINES, indices.size(), GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);
+
+	std::cout << "draw" << std::endl;
 };
 
 void PoreNetwork::clean() {
@@ -684,4 +684,71 @@ void Cylinder::draw() {
 void Cylinder::clean() {
 	glDeleteVertexArrays(1, &VAO);
 	glDeleteBuffers(1, &VBO);
+};
+
+// --------------------------------------------------------------------------------------------
+void LineModel::_setup() {
+
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_DYNAMIC_DRAW);
+
+	// position attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+};
+
+void LineModel::draw() {
+	glBindVertexArray(VAO);
+	glDrawArrays(GL_LINES, 0, 2);
+	glBindVertexArray(0);
+};
+
+void LineModel::clean() {
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	VAO = 0;
+	VBO = 0;
+};
+
+void LineModel::set_vertices(const glm::vec3& newpt1, const glm::vec3& newpt2) {
+
+	pt1 = newpt1;
+	pt2 = newpt2;
+
+	vertices[0] = pt1.x;
+	vertices[1] = pt1.y;
+	vertices[2] = pt1.z;
+	vertices[3] = pt2.x;
+	vertices[4] = pt2.y;
+	vertices[5] = pt2.z;
+
+	//std::cout << " updating " << std::endl;
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * vertices.size(), vertices.data());
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+};
+
+void LineModel::set_vertices(const Vec3& newpt1, const Vec3& newpt2) {
+
+	pt1 = glm::vec3(newpt1.x, newpt1.y, newpt1.z);
+	pt2 = glm::vec3(newpt2.x, newpt2.y, newpt2.z);
+
+	vertices[0] = pt1.x;
+	vertices[1] = pt1.y;
+	vertices[2] = pt1.z;
+	vertices[3] = pt2.x;
+	vertices[4] = pt2.y;
+	vertices[5] = pt2.z;
+
+	//std::cout << " updating " << std::endl;
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * vertices.size(), vertices.data());
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
 };

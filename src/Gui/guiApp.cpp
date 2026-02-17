@@ -233,6 +233,34 @@ void myGUI::_init_opengl() {
 	yArrow = std::make_unique<Arrow>();
 	zArrow = std::make_unique<Arrow>();
 
+	lineShader = Shader(
+		"./share/shaders/lineShader.vs",
+		"./share/shaders/lineShader.fs",
+		//"shaders/frameVShader.vs",
+		//"shaders/frameFShader.fs",
+		NULL
+	);
+	lineShader.use();
+	uniManager.add_uniform(lineShader, "projection");
+	uniManager.add_uniform(lineShader, "view");
+	uniManager.add_uniform(lineShader, "model");
+	uniManager.add_uniform(lineShader, "lineColor");
+	uniManager.setUniform(lineShader, "view", view);
+	uniManager.setUniform(lineShader, "projection", projection);
+
+	// axe lines
+	lineX = std::make_unique<LineModel>(Vec3(-1.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f));
+	lineY = std::make_unique<LineModel>(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
+	lineZ = std::make_unique<LineModel>(Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, 1.0f));
+
+	_draw_axes_lines();
+
+	frameShader.use();
+	uniManager.add_uniform(frameShader, "projection");
+	uniManager.add_uniform(frameShader, "view");
+	uniManager.add_uniform(frameShader, "model");
+	uniManager.add_uniform(frameShader, "outColor");
+
 	float sphereRadius{ 0.0f };
 	if (width > height)
 		sphereRadius = height * 0.5f;
@@ -245,7 +273,6 @@ void myGUI::_init_opengl() {
 	scaffoldShader.use();
 	Vec3 cameraPos = trackCamera->get_position();
 	uniManager.setUniform(scaffoldShader, "lightPosWorld", cameraPos.x, cameraPos.y, cameraPos.z);
-
 
 	// create frame buffer
 	create_frame_buffer(framebuffer);
@@ -265,6 +292,7 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/thickness.png", &localThicknessTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/separation.png", &separationTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/tortuosity.png", &tortuosityTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/anisotropy.png", &anisotropyTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/network.png", &poreNetworkTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/update.png", &updateScaffoldTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/translate.png", &translateTexture, &dummyW, &dummyH);
@@ -395,7 +423,6 @@ void myGUI::run() {
 			view = trackCamera->get_view_matrix();
 			model = model;
 		}
-
 		// pass the standard values to the mesh shader
 		scaffoldShader.use();
 		// pass light
@@ -441,77 +468,88 @@ void myGUI::run() {
 					gen->draw();
 				}
 				glDisable(GL_POLYGON_OFFSET_FILL);
+			}
+		}
 
-				// if the object is the selected one draw specific
-				if (showEdges && gen.get() == selectedSceneObj) {
-					edgeShader.use();
+		for (const auto& gen : scaffolds) {
+			// if the object is the selected one draw specific
+			
+			if (showEdges && gen.get() == selectedSceneObj) {
+				edgeShader.use();
 
-					if (showCutPlane) {
-						uniManager.setUniform(edgeShader, "cutPlane", 1);
-						uniManager.setUniform(edgeShader, "cutPlaneCoeffs", planeCoeffs);
-					}
-					else {
-						uniManager.setUniform(edgeShader, "cutPlane", 0);
-					}
-					glDepthFunc(GL_LEQUAL);
-					glLineWidth(0.05);
-					uniManager.setUniform(edgeShader, "projection", projection);
-					uniManager.setUniform(edgeShader, "view", view);
-					uniManager.setUniform(edgeShader, "model", model);
-					uniManager.setUniform(edgeShader, "edgeColor", 0.0f, 0.0f, 0.0f, 1.0f);
-					if (showScaffold) {
-						gen->draw_edges();
-					}
+				if (showCutPlane) {
+					uniManager.setUniform(edgeShader, "cutPlane", 1);
+					uniManager.setUniform(edgeShader, "cutPlaneCoeffs", planeCoeffs);
 				}
-
-				if (showNormals && gen.get() == selectedSceneObj) {
-					normalShader.use();
-					uniManager.setUniform(normalShader, "projection", projection);
-					uniManager.setUniform(normalShader, "view", view);
-					uniManager.setUniform(normalShader, "model", model);
-					uniManager.setUniform(normalShader, "normalColor", normalColor[0], normalColor[1], normalColor[2]);
-					if (showScaffold) {
-						gen->draw();
-					}
-				}
-
-				if (showTortuosityPath && gen.get() == selectedSceneObj) {
-					glDepthFunc(GL_LEQUAL);
-					glLineWidth(renderSettings.poreNetworkLineSize);
-					edgeShader.use();
-					uniManager.setUniform(edgeShader, "projection", projection);
-					uniManager.setUniform(edgeShader, "view", view);
-					uniManager.setUniform(edgeShader, "model", model);
+				else {
 					uniManager.setUniform(edgeShader, "cutPlane", 0);
-					uniManager.setUniform(
-						edgeShader,
-						"edgeColor",
-						renderSettings.poreNetworkColor[0],
-						renderSettings.poreNetworkColor[1],
-						renderSettings.poreNetworkColor[2],
-						renderSettings.poreNetworkColor[3]
-					);
-					//gen->draw_tortuosity_path();				
 				}
+				glDepthFunc(GL_LEQUAL);
+				glLineWidth(0.05);
+				uniManager.setUniform(edgeShader, "projection", projection);
+				uniManager.setUniform(edgeShader, "view", view);
+				uniManager.setUniform(edgeShader, "model", glm::translate(
+					glm::mat4(1.0),
+					glm::vec3(gen->translateVec.x, gen->translateVec.y, gen->translateVec.z)));
+				uniManager.setUniform(edgeShader, "edgeColor", 0.0f, 0.0f, 0.0f, 1.0f);
+				if (showScaffold) {
+					gen->draw_edges();
+				}
+			}
 
-				if (showPoreNetwork && gen.get() == selectedSceneObj) {
-					glDepthFunc(GL_LEQUAL);
-					glLineWidth(renderSettings.poreNetworkLineSize);
-					edgeShader.use();
-					uniManager.setUniform(edgeShader, "projection", projection);
-					uniManager.setUniform(edgeShader, "view", view);
-					uniManager.setUniform(edgeShader, "model", model);
-					uniManager.setUniform(edgeShader, "cutPlane", 0);
-					uniManager.setUniform(
-						edgeShader,
-						"edgeColor",
-						renderSettings.poreNetworkColor[0],
-						renderSettings.poreNetworkColor[1],
-						renderSettings.poreNetworkColor[2],
-						renderSettings.poreNetworkColor[3]
-					);
-					//gen->draw_pore_network();
+			if (showNormals && gen.get() == selectedSceneObj) {
+				normalShader.use();
+				uniManager.setUniform(normalShader, "projection", projection);
+				uniManager.setUniform(normalShader, "view", view);
+				uniManager.setUniform(normalShader, "model", glm::translate(
+					glm::mat4(1.0),
+					glm::vec3(gen->translateVec.x, gen->translateVec.y, gen->translateVec.z)));
+				uniManager.setUniform(normalShader, "normalColor", normalColor[0], normalColor[1], normalColor[2]);
+				if (showScaffold) {
+					gen->draw();
 				}
+			}
+
+			if (!gen->hiddenTortuosityPath && gen->tortuosityPathModel && gen.get() == selectedSceneObj) {
+				glDepthFunc(GL_LEQUAL);
+				glLineWidth(renderSettings.tortuosityPathSize);
+				edgeShader.use();
+				uniManager.setUniform(edgeShader, "projection", projection);
+				uniManager.setUniform(edgeShader, "view", view);
+				uniManager.setUniform(edgeShader, "model", glm::translate(
+					glm::mat4(1.0),
+					glm::vec3(gen->translateVec.x, gen->translateVec.y, gen->translateVec.z)));
+				uniManager.setUniform(edgeShader, "cutPlane", 0);
+				uniManager.setUniform(
+					edgeShader,
+					"edgeColor",
+					renderSettings.tortuosityPathColor[0],
+					renderSettings.tortuosityPathColor[1],
+					renderSettings.tortuosityPathColor[2],
+					renderSettings.tortuosityPathColor[3]
+				);
+				gen->draw_tortuosity_path();
+			}
+
+			if (showPoreNetwork && gen.get() == selectedSceneObj) {
+				glDepthFunc(GL_LEQUAL);
+				glLineWidth(renderSettings.poreNetworkLineSize);
+				edgeShader.use();
+				uniManager.setUniform(edgeShader, "projection", projection);
+				uniManager.setUniform(edgeShader, "view", view);
+				uniManager.setUniform(edgeShader, "model", glm::translate(
+					glm::mat4(1.0),
+					glm::vec3(gen->translateVec.x, gen->translateVec.y, gen->translateVec.z)));
+				uniManager.setUniform(edgeShader, "cutPlane", 0);
+				uniManager.setUniform(
+					edgeShader,
+					"edgeColor",
+					renderSettings.poreNetworkColor[0],
+					renderSettings.poreNetworkColor[1],
+					renderSettings.poreNetworkColor[2],
+					renderSettings.poreNetworkColor[3]
+				);
+				//gen->draw_pore_network();
 			}
 		}
 
@@ -565,6 +603,8 @@ void myGUI::run() {
 
 		_draw_selected_box();
 
+		_draw_axes_lines();
+
 		// ----------------------------------------------------------------------------
 		// Pass 2, draw transparent objects
 
@@ -579,7 +619,9 @@ void myGUI::run() {
 				scaffoldShader.use();
 				uniManager.setUniform(scaffoldShader, "projection", projection);
 				uniManager.setUniform(scaffoldShader, "view", view);
-				uniManager.setUniform(scaffoldShader, "model", glm::mat4(1.0));
+				uniManager.setUniform(scaffoldShader, "model", glm::translate(
+					glm::mat4(1.0),
+					glm::vec3(scaffold->translateVec.x, scaffold->translateVec.y, scaffold->translateVec.z)));
 				uniManager.setUniform(
 					scaffoldShader,
 					"objectColor",
@@ -702,12 +744,6 @@ void myGUI::_render_toolbar() {
 		ImGui::TableNextColumn();
 
 		create_single_button_textured(
-			"Create Scaffold", showScaffoldCreator,
-			"Create the scaffold selecting a container and a generator", createScaffoldTexture
-		);
-		ImGui::SameLine();
-
-		create_single_button_textured(
 			"Measure Local Thickness", measureThickness,
 			"Measure the local thickness of the scaffold", localThicknessTexture);
 
@@ -723,6 +759,11 @@ void myGUI::_render_toolbar() {
 
 		ImGui::SameLine();
 		create_single_button_textured(
+			"Measure Anisotropy", estimateAnisotropy,
+			"Measure the anisotropy of the scaffold using the Mean Intercept Length method.", anisotropyTexture);
+
+		ImGui::SameLine();
+		create_single_button_textured(
 			"Measure Porosity Network", estimatePoreNetwork,
 			"Create a graph that visualizes the connectivity network and estimates the percentage of interconneted seeds.", poreNetworkTexture
 		);
@@ -730,6 +771,12 @@ void myGUI::_render_toolbar() {
 		ImGui::SameLine();
 
 		ImGui::TableNextColumn();
+
+		create_single_button_textured(
+			"Create Scaffold", showScaffoldCreator,
+			"Create the scaffold selecting a container and a generator", createScaffoldTexture
+		);
+		ImGui::SameLine();
 
 		create_single_button_textured(
 			"Update Current Scaffold", updateScaffold,
@@ -764,6 +811,10 @@ void myGUI::_render_settings_panel() {
 		_render_mesh_settings();
 	}
 
+	if (showAlgorithmSettings) {
+		_render_algorithm_settings();
+	}
+
 	ImVec2 maxSize = ImVec2(width, height);
 	ImVec2 minSize = ImVec2(500.0f, 500.0f);
 	if (ImGuiFileDialog::Instance()->Display("Export Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
@@ -796,18 +847,12 @@ void myGUI::_render_settings_panel() {
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
 			std::string folder = ImGuiFileDialog::Instance()->GetCurrentPath();
-			/*_export_binary_image(scaffoldFilePath,
-					voxelSize, backVal, forVal);*/
-					// get the active scaffold
-			Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
+
+			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 			std::filesystem::path filePath = scaffoldFilePath;
 
 			if (filePath.extension() == ".mhd") {
-
-				//std::string baseName = filePath.stem()
-				//std::filesystem::path basePath = std::filesystem::absolute(filePath);
-				//basePath.replace_extension("");
 
 				gen->export_mhd(filePath, voxelSize, voxelBounds);
 
@@ -819,8 +864,8 @@ void myGUI::_render_settings_panel() {
 
 				gen->export_nrrd(scaffoldFilePath, voxelSize, voxelBounds);
 
-				add_log(LogPriority::SUCCESS, "Exported scaffold as a binary image to " + scaffoldFilePath);
-
+				add_log(LogPriority::SUCCESS, "Exported scaffold as a binary image to " + scaffoldFilePath +
+					" with voxelSize: " + std::to_string(voxelSize) + ".");
 
 			}
 		}
@@ -858,6 +903,9 @@ void myGUI::_render_object_list() {
 					};
 					if (ImGui::MenuItem(!gen->hidden ? "Hide" : "Show")) {
 						gen->hidden = !gen->hidden;
+					}
+					if (ImGui::MenuItem(!gen->hiddenTortuosityPath ? "Hide Tortuosity Model" : "Show Tortuosity Model")) {
+						gen->hiddenTortuosityPath = !gen->hiddenTortuosityPath;
 					}
 					if (ImGui::MenuItem("Delete")) {
 						auto it = scaffolds.erase(scaffolds.begin() + i);
@@ -1030,24 +1078,24 @@ void myGUI::write_settings() {
 
 	nlohmann::json settings;
 
-	settings["Scaffold"]["version"] = version;
-	settings["Scaffold"]["Domain"]["xMin"] = 0.0;
-	settings["Scaffold"]["Domain"]["xMax"] = xDim;
-	settings["Scaffold"]["Domain"]["yMin"] = 0.0;
-	settings["Scaffold"]["Domain"]["yMax"] = yDim;
-	settings["Scaffold"]["Domain"]["zMin"] = 0.0;
-	settings["Scaffold"]["Domain"]["zMax"] = zDim;
-	settings["Scaffold"]["Pores"]["genOption"] = generateOption;
-	settings["Scaffold"]["Pores"]["poreNr"] = seedNr;
-	settings["Scaffold"]["thickness"] = thickness;
-	settings["Scaffold"]["regSteps"] = regSteps;
-	settings["Voro"]["nX"] = 6;
-	settings["Voro"]["nY"] = 6;
-	settings["Voro"]["nZ"] = 6;
+	//settings["Scaffold"]["version"] = version;
+	//settings["Scaffold"]["Domain"]["xMin"] = 0.0;
+	//settings["Scaffold"]["Domain"]["xMax"] = xDim;
+	//settings["Scaffold"]["Domain"]["yMin"] = 0.0;
+	//settings["Scaffold"]["Domain"]["yMax"] = yDim;
+	//settings["Scaffold"]["Domain"]["zMin"] = 0.0;
+	//settings["Scaffold"]["Domain"]["zMax"] = zDim;
+	//settings["Scaffold"]["Pores"]["genOption"] = generateOption;
+	//settings["Scaffold"]["Pores"]["poreNr"] = seedNr;
+	//settings["Scaffold"]["thickness"] = thickness;
+	//settings["Scaffold"]["regSteps"] = regSteps;
+	//settings["Voro"]["nX"] = 6;
+	//settings["Voro"]["nY"] = 6;
+	//settings["Voro"]["nZ"] = 6;
 
-	std::ofstream file("settings.json");
-	file << settings.dump(4);
-	file.close();
+	//std::ofstream file("settings.json");
+	//file << settings.dump(4);
+	//file.close();
 
 };
 
@@ -1212,6 +1260,48 @@ void myGUI::_render_mesh_settings() {
 	}
 };
 
+void myGUI::_render_algorithm_settings() {
+	
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(600, 300), ImGuiCond_Appearing);
+
+	if (ImGui::Begin("Algorithm Settings", &showAlgorithmSettings, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static int picked = { -99 };
+		// Left side - Selectable items
+		{
+			ImGui::BeginChild("LeftPanel", ImVec2(ImGui::GetContentRegionAvail().x * 0.3f, 300), ImGuiChildFlags_Borders);
+			if (ImGui::Selectable("Anisotropy Settings", picked == 0)) picked = 0;
+			ImGui::EndChild();
+		}
+		ImGui::SameLine();
+
+		// Right side - Color and size controls
+		{
+			ImGui::BeginGroup();
+			{
+				ImGui::BeginChild("settings item", ImVec2(0, 300), ImGuiChildFlags_Borders);
+
+				if (picked == 0) {
+					ImGui::Text("Anisotropy Algorithm Settings");
+
+					ImGui::InputInt("Min Steps", &daMinsteps);
+					ImGui::InputInt("Max Steps", &daMaxsteps);
+					ImGui::InputInt("Direction Number", &daDirectionNr);
+					ImGui::InputFloat("Tolerance", &daTolerance);
+				}
+
+				ImGui::EndChild();
+
+				ImGui::SameLine();
+
+				ImGui::EndGroup();
+			}
+		}
+		ImGui::End();
+	}
+};
 
 void myGUI::_render_axes_viewport() {
 
@@ -1247,11 +1337,10 @@ void myGUI::_render_axes_viewport() {
 	uniManager.setUniform(frameShader, "view", frameView);
 	uniManager.setUniform(frameShader, "model", glm::mat4(1.0f));
 	uniManager.setUniform(frameShader, "height", height);
-	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
-	//uniManager.setUniform(frameShader, "model", glm::scale(glm::mat4(1.0), glm::vec3(2, 2, 2)));
+	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
 	zArrow->draw();
 	uniManager.setUniform(frameShader, "model", glm::rotate(glm::mat4(1.0f), glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f)));
-	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+	uniManager.setUniform(frameShader, "outColor", glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
 	yArrow->draw();
 	uniManager.setUniform(frameShader, "model", glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
 	uniManager.setUniform(frameShader, "outColor", glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
@@ -1285,7 +1374,7 @@ void myGUI::_render_main_menu_bar() {
 				config.path = "..//data";
 				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl, .vtk", config);
 
-				loadedMesh = scaffold;
+				//loadedMesh = scaffold;
 				//add_log("Model mesh loaded.");
 			}
 
@@ -1295,7 +1384,7 @@ void myGUI::_render_main_menu_bar() {
 				config.path = "..//data";
 				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl", config);
 				//add_log("Model mesh loaded.");
-				loadedMesh = bone;
+				//loadedMesh = bone;
 			}
 
 			ImGui::SameLine(); help_marker("So far only .stl files are supported");
@@ -1376,6 +1465,10 @@ void myGUI::_render_main_menu_bar() {
 				showDisplayMeshSettingsWin = true;
 			}
 
+			if (ImGui::MenuItem("Utilities")) {
+				showAlgorithmSettings = true;
+			}
+
 			if (ImGui::BeginMenu("Select Camera")) {
 				if (ImGui::MenuItem("Default", NULL, &defCameraFlag))
 				{
@@ -1421,9 +1514,6 @@ void myGUI::_render_main_menu_bar() {
 					showCutPlane = true;
 					cutPlane = std::make_unique<CutPlane>();
 					GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
-
-					IContainer* con = static_cast<IContainer*>(gen->container);
-					con->hidden = false;
 
 					bounds = gen->get_bounds();
 				}
@@ -1475,6 +1565,10 @@ void myGUI::_render_main_menu_bar() {
 		_action_estimate_tortuosity();
 	}
 
+	if (estimateAnisotropy) {
+		_action_estimate_anisotropy();
+	}
+
 	if (estimatePoreNetwork) {
 		_action_estimate_pore_network();
 	}
@@ -1504,9 +1598,9 @@ void myGUI::_render_display_settings() {
 			if (ImGui::Selectable("Seeds", pickedItem == 1)) pickedItem = 1;
 			if (ImGui::Selectable("Grid", pickedItem == 2)) pickedItem = 2;
 			if (ImGui::Selectable("Lighting", pickedItem == 3)) pickedItem = 3;
-			if (ImGui::Selectable("Linear Function", pickedItem == 4)) pickedItem = 4;
 			if (ImGui::Selectable("Container", pickedItem == 5)) pickedItem = 5;
 			if (ImGui::Selectable("Pore Network", pickedItem == 6)) pickedItem = 6;
+			if (ImGui::Selectable("Tortuosity Rendering", pickedItem == 7)) pickedItem = 7;
 			ImGui::EndChild();
 		}
 		ImGui::SameLine();
@@ -1540,10 +1634,6 @@ void myGUI::_render_display_settings() {
 					ImGui::InputFloat("Ambient Strength", &Ka, 0.01f, 100.0f, "%.3f");
 					ImGui::InputFloat("Specular Strength", &Ks, 0.01f, 100.0f, "%.3f");
 				}
-				else if (pickedItem == 4) {
-					ImGui::Text("Linear Function Settings");
-					ImGui::InputDouble("Max Distance", &maxDist, 0.01f, 1.0f, "%.3f");
-				}
 				if (pickedItem == 5) {
 					ImGui::Text("Container Settings");
 					ImGui::ColorEdit4("Container Color", (float*)&containerColor);
@@ -1553,6 +1643,12 @@ void myGUI::_render_display_settings() {
 					ImGui::Text("Pore Network Display Settings");
 					ImGui::ColorEdit4("Line Color", renderSettings.poreNetworkColor.data());
 					ImGui::InputFloat("Line Size", &renderSettings.poreNetworkLineSize, 0.1f, 1.0f, "%.3f");
+				}
+
+				if (pickedItem == 7) {
+					ImGui::Text("Tortuosity Display Settings");
+					ImGui::ColorEdit4("Line Color", renderSettings.tortuosityPathColor.data());
+					ImGui::InputFloat("Line Size", &renderSettings.tortuosityPathSize, 0.1f, 1.0f, "%.3f");
 				}
 
 				ImGui::EndChild();
@@ -1609,157 +1705,6 @@ void myGUI::_render_cutting_plane_settings(const char* popupName, bool& showPopu
 	}
 	ImGui::End();
 
-};
-
-void myGUI::_render_seed_generator() {
-
-	if (ImGui::Begin("Seed Generator", NULL)) {
-
-		ImGui::SeparatorText("Generator");
-		ImGui::RadioButton("Random Seed Generator", &generateOption, 0);
-		ImGui::SameLine(); help_marker("Generate random points inside the container");
-
-		ImGui::RadioButton("Poisson3D", &generateOption, 1);
-		ImGui::SameLine(); help_marker("Generate seeds with distance constraints");
-
-		ImGui::SeparatorText("Settings");
-
-		if (generateOption == 0) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputInt("Seeds", &seedNr, 1, 1000);
-		}
-
-		if (generateOption == 1) {
-			//ImGui::InputFloat("Min Radius", &rMin);
-			//ImGui::InputFloat("Max Radius", &rMax);
-
-			//ImGui::SeparatorText("Varying Radius");
-			//ImGui::RadioButton("Uniform Radius", &distFunc, 0);
-
-			ImGui::RadioButton("Uniform Radius", &radiusOpt, 0);
-			if (radiusOpt == 0) {
-				ImGui::SetNextItemWidth(200);
-				ImGui::InputFloat("Radius", &rMin, 0.01f, 1.0f, "%.3f");
-			}
-
-			ImGui::RadioButton("Varied Radius", &radiusOpt, 1);
-
-			if (radiusOpt == 1) {
-				ImGui::SetNextItemWidth(200);
-				ImGui::InputFloat("Min Radius", &rMin, 0.01f, 1.0f, "%.3f");
-				ImGui::SetNextItemWidth(200);
-				ImGui::InputFloat("Max Radius", &rMax, 0.01f, 1.0f, "%.3f");
-				if (ImGui::TreeNode("Distance Metric")) {
-					ImGui::RadioButton("Distance From Plane", &distFunc, 0);
-					ImGui::SameLine();
-					help_marker("Estimate radius function as distance from a plane!");
-					if (distFunc == 0) {
-						ImGui::SetNextItemWidth(200);
-						ImGui::InputFloat3("Normal", distPlaneNormal);
-						ImGui::SetNextItemWidth(200);
-						ImGui::InputFloat3("Center", distPlaneCenter);
-					};
-					ImGui::RadioButton("Distance From Mesh Face", &distFunc, 1);
-					ImGui::SameLine();
-					help_marker("Estimate radius function as distance from the container face!");
-
-					ImGui::RadioButton("Distance From Point", &distFunc, 2);
-					if (distFunc == 2) {
-						ImGui::SetNextItemWidth(200);
-						ImGui::InputFloat3("Point", distPoint);
-					}
-					ImGui::SameLine();
-					help_marker("Estimate radius function as distance from a single point!");
-					ImGui::TreePop();
-				}
-				if (ImGui::TreeNode("Distance - Radius Function")) {
-					ImGui::RadioButton("Linear", &radiusFunc, 0);
-					ImGui::RadioButton("Quadratic", &radiusFunc, 1);
-					ImGui::TreePop();
-				}
-			}
-		}
-	}
-	ImGui::End();
-};
-
-void myGUI::_render_volume_optimization() {
-
-	if (ImGui::Begin("Volume Optimization", NULL)) {
-
-		ImGui::Checkbox("Volume Optimization", &runVolumeOptimization);
-		ImGui::SameLine(); help_marker("An optimization approach to enforce pore volumes");
-		if (runVolumeOptimization) {
-			//ImGui::SeparatorText("Volume Optimization Settings"); 
-			ImGui::Separator();
-			static int initOpt = 0;
-
-			//Eigen::VectorXd 
-
-			if (ImGui::TreeNode("Weight Initialization")) {
-
-				ImGui::RadioButton("All zero", &initOpt, 0);
-				ImGui::RadioButton("Load", &initOpt, 1);
-				ImGui::SameLine(); help_marker("Not implemented yet");
-
-				if (initOpt == 0) {
-					wInit = Eigen::VectorXd::Zero(seedNr);
-				}
-				else if (initOpt == 1) {
-				};
-
-				ImGui::TreePop();
-			}
-
-			if (ImGui::TreeNode("Target Volumes")) {
-
-				ImGui::RadioButton("All equal", &volOption, 0);
-				ImGui::RadioButton("Use Radii From Poisson 3D", &volOption, 1);
-				ImGui::RadioButton("Load", &volOption, 2);
-				ImGui::SameLine(); help_marker("Not implemented yet");
-
-				if (volOption == 0) {
-
-				}
-
-				if (volOption == 2) {
-					add_log(LogPriority::ERROR, "Not implemented yet!");
-				};
-
-				ImGui::TreePop();
-			}
-			ImGui::Separator();
-		}
-	}
-	ImGui::End();
-
-};
-
-void myGUI::_render_scaffold_settings() {
-
-	if (ImGui::Begin("Scaffold Settings", NULL)) {
-
-		ImGui::InputText("Model Name", version, IM_ARRAYSIZE(version));
-
-		ImGui::SeparatorText("Scaffold Mesh Generator");
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputInt("Regularization Steps", &regSteps, 1, 1000);
-		ImGui::SameLine(); help_marker("More regularization steps lead to a more regular voronoi grid");
-
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Thickness", &thickness, 0.1f, 1.0f, "%.3f");
-		ImGui::SameLine(); help_marker("Thickness of Scaffold");
-
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Connectivity Threshold", &connectivityThreshold, 0.01f, 1.0f, "%.3f");
-		ImGui::SameLine(); help_marker("0 full face open - 1 maximum pullback");
-
-		connectivityThreshold = std::clamp(connectivityThreshold, 0.001f, 0.999f);
-
-		//ImGui::InputDouble("Hole Scale Factor", &scaleFactor, 0.1, 0.99, "%.3f");
-		//ImGui::SameLine(); help_marker("To create holes to each face we estimate the maximum inscribed circle, this factor scales its radius. Default value is 0.5");
-	}
-	ImGui::End();
 };
 
 void myGUI::_render_box_container_creator(const char* popupName, bool& showPopup) {
@@ -2254,6 +2199,7 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 		ImGui::RadioButton("Linear", &radiusFunc, 0);
 		ImGui::RadioButton("Quadratic", &radiusFunc, 1);
 		ImGui::RadioButton("Constant", &radiusFunc, 2);
+		ImGui::RadioButton("Random", &radiusFunc, 3);
 
 		ImGui::SeparatorText("Parameters");
 
@@ -2283,6 +2229,9 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 					case 2: {
 						cfg.rad = std::make_shared<ConstantRadiusFunction>();
 						break;
+					}
+					case 3: {
+						cfg.rad = std::make_shared<RandomRadiusFunction>();
 					}
 				}
 
@@ -2320,6 +2269,10 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
 				}
 				rnd->type = ObjectType::VariedGeneratorType;
+				//ensure distance func is nullptr for random
+				if (radiusFunc == 3) {
+					cfg.dist = nullptr;
+				}
 				rnd->distIdx = distanceFunc;
 				rnd->radiusIdx = radiusFunc;
 				rnd->run(*selectedCon, cfg);
@@ -2619,18 +2572,12 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 					bds.zMax
 				};
 
-				//std::unique_ptr<Generator> scaffold = std::make_unique<Generator>(
-				//	seeds, bounds, resolution, tempOpeness, tempThickness, foam
-				//);
-
 				std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
 					seeds, bounds, resolution, tempOpeness, tempThickness, foam
 				);
 
 				// estimate the scalar field
 				scaffold->compute_scalar_field(*selectedCon);
-
-				//scaffold->populate_grids(*selectedCon);
 
 				scaffold->container = selectedCon;
 				scaffold->generator = selectedGen;
@@ -2651,7 +2598,7 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 
 				scaffold->estimate_metrics(*selectedCon);
 
-				//// push to the scaffold list
+				// push to the scaffold list
 				scaffolds.push_back(std::move(scaffold));
 
 				// set it as the selected object
@@ -2878,7 +2825,7 @@ void myGUI::_render_binary_image_window(const char* popupName, bool& showPopup) 
 		static std::array<float, 2> yDims = { 0.0f, 5.0f };
 		static std::array<float, 2> zDims = { 0.0f, 5.0f };
 
-		ImGui::InputFloat("Voxel Size (mm)", &voxelSize, 0.01f, 10.0f);
+		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.01f, 10.0f);
 
 		ImGui::InputFloat2("X Dimensions (mm)", xDims);
 		ImGui::InputFloat2("Y Dimensions (mm)", yDims);
@@ -2920,7 +2867,7 @@ void myGUI::_local_thickness_measure(const char* popupName, bool& showPopup, boo
 		showPopup = false;
 		return;
 	}
-	Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
+	GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	if (!gen) {
 		showPopup = false;
@@ -2977,11 +2924,34 @@ void myGUI::_action_estimate_tortuosity() {
 	}
 
 	// get the scaffold
-	Generator* scaffold = static_cast<Generator*>(selectedPanelObj.ptr);
+	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	if (scaffold) {
 		scaffold->estimate_tortuosity();
 	}
+
+	estimateTortuosity = false;
+};
+
+void myGUI::_action_estimate_anisotropy() {
+
+	// get the selected scaffold
+	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		return;
+	}
+
+	// get the scaffold
+	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+	// pass settings
+
+
+	if (scaffold) {
+		scaffold->estimate_anisotropy(daDirectionNr, daMinsteps, daMaxsteps, daTolerance);
+	}
+
+	estimateAnisotropy = false;
 };
 
 void myGUI::_action_estimate_pore_network() {
@@ -3064,6 +3034,48 @@ void myGUI::_draw_selected_box() {
 	);
 
 	box->draw();
+};
+
+void myGUI::_draw_axes_lines() {
+
+	float infinity = 10000.0f;
+
+	glDisable(GL_DEPTH_CLAMP);
+	glLineWidth(0.5f);
+	lineShader.use();
+	uniManager.setUniform(lineShader, "projection", projection);
+	uniManager.setUniform(lineShader, "view", view);
+	uniManager.setUniform(lineShader, "model", glm::mat4(1.0f));
+	uniManager.setUniform(
+		lineShader,
+		"lineColor",
+		1.0f, 0.0f, 0.0f, 1.0f
+	);
+	glm::mat4 modelX = glm::scale(glm::mat4(1.0f), glm::vec3(infinity, 1.0f, 1.0f));
+	uniManager.setUniform(lineShader, "model", modelX);
+	lineX->draw();
+
+	// ---------------------
+	glm::mat4 modelY = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, infinity, 1.0f));
+	uniManager.setUniform(lineShader, "model", modelY);
+	uniManager.setUniform(
+		lineShader,
+		"lineColor",
+		0.0f, 1.0f, 0.0f, 1.0f
+	);
+	lineY->draw();
+
+	// ------------------
+	glm::mat4 modelZ = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, infinity));
+	uniManager.setUniform(
+		lineShader,
+		"lineColor",
+		0.0f, 0.0f, 1.0f, 1.0f
+	);
+	uniManager.setUniform(lineShader, "model", modelZ);
+	lineZ->draw();
+	glEnable(GL_DEPTH_CLAMP);
+
 };
 
 // ---------------------------------------------------------------------------------------------------------------

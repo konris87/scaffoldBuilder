@@ -4,9 +4,12 @@
 #include "Math/Kdtree.h"
 #include <chrono>
 #include <memory>
+#include <random>
 #include <iostream>
 #include <map>
 #include <algorithm>
+#include <omp.h>
+#include <Eigen/Dense>
 
 using namespace std::chrono_literals;
 
@@ -29,6 +32,9 @@ GeneratorLewiner::GeneratorLewiner(
 
 
 void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
+
+	// use also the domain volume
+	domainVolume = con.get_volume();
 
 	update_steps();
 
@@ -257,6 +263,12 @@ void GeneratorLewiner::remove_isolated_islands() {
 
 void GeneratorLewiner::marching_cubes() {
 
+	meshVertices.clear();
+	meshTriangles.clear();
+	x_verts.clear();
+	y_verts.clear();
+	z_verts.clear();
+
 	// get current time
 	const auto start{ std::chrono::steady_clock::now() };
 
@@ -302,20 +314,10 @@ void GeneratorLewiner::marching_cubes() {
 	meshVertices.resize(vertexCount);
 	meshTriangles.resize(triangleCount);
 
-	std::cout << "mesh vertices size: " << meshVertices.size() << std::endl;
-	std::cout << "mesh triangles size: " << meshTriangles.size() << std::endl;
-
 	// update opengl objects
 	_update_render();
 
 	validate_topology();
-
-	const auto finish{ std::chrono::steady_clock::now() };
-	const std::chrono::duration<double> elapsed_seconds{ finish - start };
-
-	std::cout << "Elapsed time (s): " << 
-		std::chrono::duration_cast<std::chrono::seconds>(elapsed_seconds).count() << std::endl;
-
 };
 
 void GeneratorLewiner::compute_intersection_points() {
@@ -1991,6 +1993,8 @@ void GeneratorLewiner::_update_render() {
 	vertices.clear();
 	normals.clear();
 	indices.clear();
+	edgeSet.clear();
+	edgeIndices.clear();
 
 	for (const auto& v : meshVertices) {
 		vertices.push_back(v.x);
@@ -2053,6 +2057,101 @@ void GeneratorLewiner::add_edge(int idx1, int idx2, int idx3) {
 			edgeIndices.push_back(e.second);
 		}
 	}
+};
+
+void GeneratorLewiner::export_nrrd(const std::string fileName, float voxelSize, std::array<float, 6> blockSize) {
+
+	// get a new field
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockSize);
+
+	// 1. Calculate required Grid Dimensions
+	// We want voxels to be 'desiredVoxelSize' (e.g. 0.03 mm)
+	int nx = static_cast<int>((blockSize[1] - blockSize[0]) / voxelSize);
+	int ny = static_cast<int>((blockSize[3] - blockSize[2]) / voxelSize);
+	int nz = static_cast<int>((blockSize[5] - blockSize[4]) / voxelSize);
+
+	std::cout << "Starting High-Res Export..." << std::endl;
+	std::cout << "Physical Box: " << (blockSize[1] - blockSize[0]) << " mm" << std::endl;
+	std::cout << "Target Voxel: " << voxelSize << " mm" << std::endl;
+	std::cout << "Grid Size: " << nx << " x " << ny << " x " << nz << std::endl;
+
+	// 4. Write NRRD
+	std::ofstream file(fileName, std::ios::binary);
+	file.imbue(std::locale::classic()); // Force "." decimals
+
+	file << "NRRD0004\n";
+	file << "# High-Res Scaffold Export\n";
+	file << "type: unsigned char\n";
+	file << "dimension: 3\n";
+	file << "sizes: " << nx << " " << ny << " " << nz << "\n";
+
+	// Explicitly write spacing in mm
+	file << "spacings: " << std::fixed << std::setprecision(5)
+		<< voxelSize << " " << voxelSize << " " << voxelSize << "\n";
+
+	file << "units: \"mm\" \"mm\" \"mm\"\n"; // Explicit Units
+	file << "encoding: raw\n";
+	file << "\n"; // End of header
+
+	file.write(reinterpret_cast<char*>(field.data()), field.size());
+	file.close();
+
+	std::cout << "Export Complete: " << fileName << std::endl;
+};
+
+void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, std::array<float, 6> blockBounds) {
+
+	std::filesystem::path basePath = std::filesystem::absolute(path);
+	basePath.replace_extension(""); // Strip extension to be safe
+
+	std::string rawFileName = basePath.string() + ".raw";
+	std::string mhdFileName = basePath.string() + ".mhd";
+
+	// We need just the filename for the header (no full path)
+	std::string rawBaseName = std::filesystem::path(rawFileName).filename().string();
+
+	// 2. Get Data (Reuse the helper!)
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds);
+
+	float sizeX = blockBounds[1] - blockBounds[0];
+	float sizeY = blockBounds[3] - blockBounds[2];
+	float sizeZ = blockBounds[5] - blockBounds[4];
+
+	int nx = (int)std::ceil(sizeX / voxelSize);
+	int ny = (int)std::ceil(sizeY / voxelSize);
+	int nz = (int)std::ceil(sizeZ / voxelSize);
+
+	std::ofstream rawFile(rawFileName, std::ios::binary);
+	if (!rawFile) {
+		std::cerr << "Error: Could not open " << rawFileName << std::endl;
+		return;
+	}
+	rawFile.write(reinterpret_cast<char*>(field.data()), field.size());
+	rawFile.close();
+
+	std::ofstream mhdFile(mhdFileName);
+	if (!mhdFile) {
+		std::cerr << "Error: Could not open " << mhdFileName << std::endl;
+		return;
+	}
+	mhdFile.imbue(std::locale::classic());
+
+	mhdFile << "ObjectType = Image\n";
+	mhdFile << "NDims = 3\n";
+	mhdFile << "BinaryData = True\n";
+	mhdFile << "BinaryDataByteOrderMSB = False\n";
+	mhdFile << "CompressedData = False\n";
+	mhdFile << "TransformMatrix = 1 0 0 0 1 0 0 0 1\n";
+	mhdFile << "Offset = " << blockBounds[0] << " " << blockBounds[2] << " " << blockBounds[4] << "\n";
+	mhdFile << "CenterOfRotation = 0 0 0\n";
+	mhdFile << "ElementSpacing = " << std::fixed << std::setprecision(6)
+		<< voxelSize << " " << voxelSize << " " << voxelSize << "\n";
+	mhdFile << "DimSize = " << nx << " " << ny << " " << nz << "\n";
+	mhdFile << "ElementType = MET_UCHAR\n";
+	mhdFile << "ElementDataFile = " << rawBaseName << "\n";
+	mhdFile.close();
+
+	std::cout << "MHD Export Complete: " << mhdFileName << std::endl;
 };
 
 void GeneratorLewiner::export_stl(std::string fileName) {
@@ -2217,17 +2316,24 @@ void GeneratorLewiner::estimate_metrics(const IContainer& container) {
 
 void GeneratorLewiner::render_metrics() {
 
-	ImGui::Text(("Volume: " + std::to_string(volume)).c_str(), "%.4f");
-	ImGui::Text(("Porosity: " + std::to_string(porosity)).c_str(), "%.4f");
-	ImGui::Text(("Surface to Volume Ratio: " + std::to_string(surfaceToVolume)).c_str(), "&.4f");
-	ImGui::Text(("Total Surface: " + std::to_string(surfaceArea)).c_str(), "&.4f");
+	ImGui::Text(("Volume: " + std::to_string(volume) + ("mm^3")).c_str(), "%.4f");
+	ImGui::Text(("Total Surface: " + std::to_string(surfaceArea) + (" mm^2")).c_str(), "&.4f");
+	ImGui::Text(("Surface to Volume Ratio: " + std::to_string(surfaceToVolume) + (" 1/mm")).c_str(), "&.4f");
+	ImGui::Text(("Porosity: " + std::to_string(porosity * 100.0f) + " %").c_str(), "%.4f");
 
 	// convert local thickness and std to string
 	std::string ts = std::to_string(localThickness) + " std: " + std::to_string(localThicknessStd);
 	std::string ps = std::to_string(localSeparation) + " std: " + std::to_string(localSeparationStd);
-	ImGui::Text(("Local Thickness: " + ts).c_str(), "%.4f");
-	ImGui::Text(("Pore Separation: " + ps).c_str(), "%.4f");
+	ImGui::Text(("Local Thickness: " + ts + " mm").c_str(), "%.4f");
+	ImGui::Text(("Pore Separation: " + ps + " mm").c_str(), "%.4f");
+
+	ImGui::Text(("Trabecular Number: " + std::to_string(trabecularNr) + (" 1/mm")).c_str(), "&.4f");
+
+	ImGui::Text(("Connectivity Density: " + std::to_string(connectivityDensity) + (" 1/mm^3")).c_str(), "&.4f");
+	
 	ImGui::Text(("Tortuosity: " + std::to_string(tortuosity)).c_str(), "%.4f");
+
+	ImGui::Text(("Degree of Anisotropy: " + std::to_string(anisotropyDegree)).c_str(), "%.4f");
 
 };
 
@@ -2249,3 +2355,848 @@ std::array<float, 6> GeneratorLewiner::get_bounds() const {
 
 Aabb GeneratorLewiner::get_aabb() const { return aabb; };
 
+void GeneratorLewiner::estimate_local_thickness(
+	float voxelSize, std::array<float, 6>& blockBounds, bool separation) {
+
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds, separation);
+
+	int nx = (int)std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize);
+	int ny = (int)std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize);
+	int nz = (int)std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize);
+
+	//int totalVoxels = nx * ny * nz;
+	int totalVoxels = (int)field.size();
+
+	// initialize all values to infinity
+	std::vector<float> squaredDistanceField;
+	if (separation) {
+		float maxLinearDist = (float)(nx + ny + nz);
+		squaredDistanceField.resize(totalVoxels, maxLinearDist);
+	}
+	else {
+		squaredDistanceField.resize(totalVoxels, std::numeric_limits<float>::max());
+	}
+
+	// initialize to zero the empty voxels
+	#pragma omp parallel for
+	for (int i{ 0 }; i < totalVoxels; i++) {
+		// for measuring thickness set to zero the empty space voxels
+		//if (scalarField[i] >= isoLevel) {
+		//	squaredDistanceField[i] = 0.0f;
+		//}
+		if (field[i] == 0) squaredDistanceField[i] = 0.0f;
+	}
+
+	auto find_idx = [&](int x, int y, int z) { return z * nx * ny + y * nx + x; };
+
+	// since we have 3d data we need three phases to estimate the distance field one along each dimension, we can use a simple 1D distance transform along each dimension
+	// 1st pass: forward scan along x
+	#pragma omp parallel for
+	for (int z = 0; z < nz; z++) {
+		for (int y = 0; y < ny; y++) {
+			// forward scan
+			for (int x = 1; x < nx; x++) {
+				int idx = find_idx(x, y, z);
+				squaredDistanceField[idx] = std::min(
+					squaredDistanceField[idx], squaredDistanceField[find_idx(x - 1, y, z)] + 1.0f);
+			}
+			// backward scan
+			for (int x = nx - 2; x >= 0; x--) {
+				int idx = find_idx(x, y, z);
+				squaredDistanceField[idx] = std::min(
+					squaredDistanceField[idx], squaredDistanceField[find_idx(x + 1, y, z)] + 1.0f);
+			}
+
+			// use the squared distance for next pass 
+			for (int x = 0; x < nx; x++) {
+				//int idx = find_vertex_index(x, y, z);
+				int idx = find_idx(x, y, z);
+				squaredDistanceField[idx] = squaredDistanceField[idx] * squaredDistanceField[idx];
+			}
+		}
+	}
+	// pass along y
+	#pragma omp parallel for
+	for (int z{ 0 }; z < nz; z++) {
+		for (int x{ 0 }; x < nx; x++) {
+			std::vector<float> g(ny);
+			for (int y = 0; y < ny; y++) {
+				g[y] = squaredDistanceField[find_idx(x, y, z)];
+			}
+			// we need to find for each column the minimum distance for the current x, z coordinate
+			// create the list of segments, in these segmentes we will check the intersection of the parabolas
+			// since the euclidean distance is a parabola
+			std::vector<int> s(ny);
+			std::vector<int> t(ny);
+			int q = 0;
+			s[0] = 0;
+			t[0] = -1e10f;
+			for (int u = 1; u < ny; u++) {
+				while (q >= 0) {
+					int w = s[q];
+					float f_u_w = ((g[u] + u * u) - (g[w] + w * w)) / (2.0f * (u - w));
+					if (f_u_w <= t[q]) {
+						q--;
+					}
+					else {
+						q++;
+						s[q] = u;
+						t[q] = f_u_w;
+						break;
+					}
+				}
+
+				if (q < 0) {
+					q = 0;
+					s[0] = u;
+					t[0] = -1e10f;
+				}
+			}
+			// second pass 
+			for (int u = ny - 1; u >= 0; u--) {
+				while (u < t[q]) q--;
+				float dy = (float)(u - s[q]);
+				squaredDistanceField[find_idx(x, u, z)] = g[s[q]] + dy * dy;
+			}
+		}
+	}
+
+	// finally pass along z it is the same as the y pass but we need to iterate along z and keep x, y fixed
+	#pragma omp parallel for
+	for (int y = 0; y < ny; y++) {
+		for (int x = 0; x < nx; x++) {
+
+			std::vector<float> g(nz);
+
+			for (int z = 0; z < nz; z++) g[z] = squaredDistanceField[find_idx(x, y, z)];
+			std::vector<int> s(nz);
+			std::vector<float> t(nz);
+
+			int q = 0; s[0] = 0; t[0] = -1e10f;
+			for (int u = 1; u < nz; u++) {
+				while (q >= 0) {
+					int w = s[q];
+					float f_u_w = ((g[u] + u * u) - (g[w] + w * w)) / (2.0f * (u - w));
+					if (f_u_w <= t[q]) q--;
+					else {
+						q++;
+						s[q] = u;
+						t[q] = f_u_w;
+						break;
+					}
+				}
+				if (q < 0) { q = 0; s[0] = u; t[0] = -1e10f; }
+			}
+			for (int u = nz - 1; u >= 0; u--) {
+				while (u < t[q]) q--;
+				float dz = (float)(u - s[q]);
+				squaredDistanceField[find_idx(x, y, u)] = g[s[q]] + dz * dz;
+			}
+		}
+	}
+	// now that we have our distance field we can find redundant voxels, these are not local maxima in their neighborhood, we can remove them by setting their distance to zero, this will give us a skeleton of the solid part that represents the local thickness
+	std::vector<int> redundantVoxels;
+
+	#pragma omp parallel
+	{
+		std::vector<int> localRedundant;
+	#pragma omp for
+		for (int z = 1; z < nz - 1; z++) {
+			for (int y = 1; y < ny - 1; y++) {
+				for (int x = 1; x < nx - 1; x++) {
+					int idx = find_idx(x, y, z);
+
+					float r = std::sqrt(squaredDistanceField[idx]);
+					//if (scalarField[idx] >= isoLevel) continue; // only consider solid voxels
+					if (field[idx] == 0) continue; // only consider solid voxels
+
+					bool isLocalMax = true;
+					// check 26 neighbors we already have the indices in the const std::array<Neighbor, 26> neighbors> , we can just iterate through them and check if any of the neighbors has a higher distance value than the current voxel, if it does, then the current voxel is not a local maximum and we can mark it as redundant
+					for (const auto& nb : neighbors) {
+						int nidx = find_idx(x + nb.dx, y + nb.dy, z + nb.dz);
+						//if (scalarField[nidx] >= isoLevel) continue; // only consider solid voxels
+						if (field[nidx] == 0) continue; // only consider solid voxels
+
+						float r_nb = std::sqrt(squaredDistanceField[nidx]);
+						float dist_centers = std::sqrt(nb.dx * nb.dx + nb.dy * nb.dy + nb.dz * nb.dz);
+						// Paper Inclusion Test: If this sphere is inside neighbor's sphere
+						if (r + dist_centers <= r_nb + 0.001f) { // epsilon for float stability
+							isLocalMax = false;
+							break;
+						}
+					}
+					// if it is a local maximum, we keep it, otherwise we mark it as redundant
+					if (isLocalMax) localRedundant.push_back(idx);
+				}
+			}
+		}
+
+	#pragma omp critical
+		redundantVoxels.insert(redundantVoxels.end(), localRedundant.begin(), localRedundant.end());
+
+	}
+	// now estimate the local thickness at any voxel as the maximum diameter of all the spheres that can fit inside the solid part at that point, which is just twice the distance value at that voxel in the distance field
+
+	std::vector<omp_lock_t> z_locks(nz);
+	for (int z = 0; z < nz; z++) {
+		omp_init_lock(&z_locks[z]);
+	}
+
+	std::vector<float> thicknessMap(totalVoxels, 0.0f);
+
+	#pragma omp parallel for schedule(dynamic)
+	for (int i = 0; i < redundantVoxels.size(); i++) {
+
+		int ridgeIdx = redundantVoxels[i];
+
+		float radius = std::sqrt(squaredDistanceField[ridgeIdx]);
+		float diameter = 2.0f * radius;
+		float rSq = radius * radius;
+
+		// get the position of the voxel in the grid
+		int rz = ridgeIdx % nz;
+		int ry = (ridgeIdx / nz) % ny;
+		int rx = ridgeIdx / (ny * nz);
+
+		// Define a bounding box for the sphere to limit the search
+		int R = (int)std::ceil(radius);
+
+		int zMin = std::max(0, rz - R);
+		int zMax = std::min(nz - 1, rz + R);
+
+		for (int z = zMin; z <= zMax; z++) {
+
+			float dz = (float)(z - rz);
+			float dzSq = dz * dz;
+
+			int yMin = std::max(0, ry - R);
+			int yMax = std::min(ny - 1, ry + R);
+
+			for (int y = yMin; y <= yMax; y++) {
+
+				float dy = (float)(y - ry);
+				float dySq = dy * dy;
+
+				// Calculate how much squared radius is left for the X dimension
+				float remainingSq = rSq - dzSq - dySq;
+
+				// If < 0, this Y,Z coordinate is completely outside the sphere! Skip it.
+				if (remainingSq < 0) continue;
+
+				// Calculate the exact start and end of the sphere on this X-line
+				int max_dx = (int)std::sqrt(remainingSq);
+
+				int x_start = std::max(0, rx - max_dx);
+				int x_end = std::min(nx - 1, rx + max_dx);
+
+				// --- CRITICAL SECTION: Lock only this Z-plane ---
+				// Threads processing different Z-planes can work simultaneously!
+
+				omp_set_lock(&z_locks[z]);
+
+				for (int x = x_start; x <= x_end; x++) {
+					int targetIdx = find_idx(x, y, z);
+
+					// No distance check needed! Every 'x' in this loop is guaranteed inside.
+					if (diameter > thicknessMap[targetIdx]) {
+						thicknessMap[targetIdx] = diameter;
+					}
+				}
+
+				omp_unset_lock(&z_locks[z]);
+			}
+		}
+	}
+
+	// clean up locks
+	for (int z = 0; z < nz; z++) {
+		omp_destroy_lock(&z_locks[z]);
+	}
+
+	float totalThicknessSum = 0.0f;
+	int solidVoxelCount = 0;
+	float T_min = 1.5f; // Minimum thickness threshold to avoid surface noise
+	// Physical voxel size
+
+	//float voxelSize = (bounds[5] - bounds[4]) / (float)blockDim[2];
+
+	#pragma omp parallel for reduction(+:totalThicknessSum, solidVoxelCount)
+	for (int i = 0; i < totalVoxels; i++) {
+
+		//if (scalarField[i] <= isoLevel) {
+		float t = thicknessMap[i];
+		// Filter out surface noise (Equation in paper refers to filtering small spheres)
+		if (t >= T_min) {
+			totalThicknessSum += t;
+			solidVoxelCount++;
+		}
+	}
+
+	// Model-Independent Mean Thickness (Tb.Th for bone)
+	float meanThicknessVoxels = (solidVoxelCount > 0) ? (totalThicknessSum / solidVoxelCount) : 0.0f;
+
+	// estimate standard deviation
+	float deviationSum = 0.0f;
+
+	#pragma omp parallel for reduction(+:deviationSum)
+	for (int i = 0; i < totalVoxels; i++) {
+
+		// Only consider voxels that are part of the SOLID structure
+		float t = thicknessMap[i];
+		if (t >= T_min) {
+			float diff = t - meanThicknessVoxels;
+			deviationSum += (diff * diff);
+		}
+	}
+
+	float stdDevVoxels = (solidVoxelCount > 0) ? std::sqrt(deviationSum / solidVoxelCount) : 0.0f;
+
+	if (separation) {
+		localSeparation = meanThicknessVoxels * voxelSize;
+
+		localSeparationStd = stdDevVoxels * voxelSize; // Final conversion to mm
+	}
+	else {
+		localThickness = meanThicknessVoxels * voxelSize;
+
+		localThicknessStd = stdDevVoxels * voxelSize; // Final conversion to mm
+	}
+
+};
+
+//@Function to get a subregion of the created mesh to compute the image metrics, we also should add
+// an origin (e.g. the centroid).
+std::vector<uint8_t> GeneratorLewiner::get_image_field(
+	float voxelSize, std::array<float, 6>& blockBounds, bool inverse) {
+
+	float sizeX = blockBounds[1] - blockBounds[0];
+	float sizeY = blockBounds[3] - blockBounds[2];
+	float sizeZ = blockBounds[5] - blockBounds[4];
+
+	// get number of voxels
+	int nx = (int)std::ceil(sizeX / voxelSize);
+	int ny = (int)std::ceil(sizeY / voxelSize);
+	int nz = (int)std::ceil(sizeZ / voxelSize);
+
+	// step is the voxel size
+	float step = voxelSize;
+
+	int totalVoxels = nx * ny * nz;
+
+	std::vector<uint8_t> field(totalVoxels);
+
+	// Helper to clamp indices to avoid segfaults
+	auto clamp_idx = [](int val, int maxVal) {
+		if (val < 0) return 0;
+		if (val >= maxVal) return maxVal - 1;
+		return val;
+	};
+
+	#pragma omp parallel for
+	for (int idx{ 0 }; idx < totalVoxels; idx++) {
+
+		// find the indices in the new grid
+		int z = idx / (nx * ny);
+		int y = (idx % (nx * ny)) / nx;
+		int x = idx % nx;
+
+		// find physical position
+		float pX = blockBounds[0] + x * voxelSize;
+		float pY = blockBounds[2] + y * voxelSize;
+		float pZ = blockBounds[4] + z * voxelSize;
+
+		// find index of voxel in the scalar field and then interpolate
+		float oldX = (pX - bounds[0]) / stepX;
+		float oldY = (pY - bounds[2]) / stepY;
+		float oldZ = (pZ - bounds[4]) / stepZ;
+
+		// this is like 5.1, 7.8, 9.1, we need to find the interpolated value of the scalar field to assing 0 or 255
+		// get the 8 corners
+		int x0 = (int)std::floor(oldX);
+		int y0 = (int)std::floor(oldY);
+		int z0 = (int)std::floor(oldZ);
+
+		x0 = clamp_idx(x0, blockDims[0]);
+		y0 = clamp_idx(y0, blockDims[1]);
+		z0 = clamp_idx(z0, blockDims[2]);
+
+		int x1 = clamp_idx(x0 + 1, blockDims[0]);
+		int y1 = clamp_idx(y0 + 1, blockDims[1]);
+		int z1 = clamp_idx(z0 + 1, blockDims[2]);
+
+		// this measures how far we are from x0,y0,z0
+		float tx = oldX - x0;
+		float ty = oldY - y0;
+		float tz = oldZ - z0;
+
+		// clamp weights
+		if (tx < 0) tx = 0; if (tx > 1) tx = 1;
+		if (ty < 0) ty = 0; if (ty > 1) ty = 1;
+		if (tz < 0) tz = 0; if (tz > 1) tz = 1;
+
+		double c000 = scalarField[find_vertex_index(x0, y0, z0)];
+		double c100 = scalarField[find_vertex_index(x1, y0, z0)];
+		double c010 = scalarField[find_vertex_index(x0, y1, z0)];
+		double c110 = scalarField[find_vertex_index(x1, y1, z0)];
+		double c001 = scalarField[find_vertex_index(x0, y0, z1)];
+		double c101 = scalarField[find_vertex_index(x1, y0, z1)];
+		double c011 = scalarField[find_vertex_index(x0, y1, z1)];
+		double c111 = scalarField[find_vertex_index(x1, y1, z1)];
+
+		double c00 = c000 * (1 - tx) + c100 * tx;
+		double c10 = c010 * (1 - tx) + c110 * tx;
+		double c01 = c001 * (1 - tx) + c101 * tx;
+		double c11 = c011 * (1 - tx) + c111 * tx;
+
+		// 2. Interpolate along Y (Reduce 4 points to 2)
+		double c0 = c00 * (1 - ty) + c10 * ty;
+		double c1 = c01 * (1 - ty) + c11 * ty;
+
+		// 3. Interpolate along Z (Reduce 2 points to 1)
+		double val = c0 * (1 - tz) + c1 * tz;
+
+		// H. Threshold the Interpolated Value
+		if (inverse) {
+			if (val >= isoLevel) {
+				field[idx] = 255;
+			}
+			else {
+				field[idx] = 0;
+			}
+		}
+		else {
+			if (val < isoLevel) {
+				field[idx] = 255;
+			}
+			else {
+				field[idx] = 0;
+			}
+		}
+
+
+	}
+
+	return field;
+};
+
+//@brief function to estimate tortuosity of the porous structure, using the A* algorithm on the grid, we can estimate the shortest path between two points in the porous structure, and compare it to the straight line distance between those points to get an estimate of the tortuosity
+bool GeneratorLewiner::estimate_tortuosity() {
+
+	int nx = blockDims[0];
+	int ny = blockDims[1];
+	int nz = blockDims[2];
+
+	int totalVoxels = scalarField.size();
+	tortuosityPathEdges.clear();
+
+	std::vector<int> parentMap(totalVoxels, -1);
+
+	// vectors to store the gScore and fScore for each voxel, initialized to infinity
+	// gscore is the cost from the start voxel to the current voxel, 
+	// fscore is the estimated total cost from the start voxel to the goal voxel through the current voxel,
+	// which is gscore + heuristic cost to goal
+	// f(x,y,z) = g(x,y,z) + h(x,y,z). h is the heuristic function
+	std::vector<float> gScore(totalVoxels, std::numeric_limits<float>::max());
+
+	// define inlet as z = 0 plane, outlet as z = max plane
+	float height = bounds[5] - bounds[4];
+	float voxelSize = height / (float)nz;
+
+	// we will use a priority queue to store the open set of voxels to explore, ordered by their fScore
+	std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
+
+	// initialize the open set with the inlet voxels (z = 0 plane), so here we add all voxels 
+	// in the z=0 plane that are below the isoLevel (solid voxels) as starting points for the A* search,
+	// since we want to find paths through the porous structure
+	for (int x{ 10 }; x < nx - 10; x++) {
+		for (int y{ 10 }; y < ny - 10; y++) {
+			int idx = find_vertex_index(x, y, 0);
+
+			// we only consider solid voxels as starting points for the A* search, 
+			// since we want to find paths through the porous structure, 
+			// if the voxel is above the isoLevel, it is considered solid
+
+			// if it is empty we can start from it, since we want to find paths through the porous structure
+			if (scalarField[idx] > isoLevel) {
+				gScore[idx] = 0.0f;
+				// straight line distance from inlet to outlet, since we are starting at z=0 and want to reach z=max, the heuristic is just the height of the box
+				float heuristic = height;
+				openSet.push({ idx, heuristic });
+
+				parentMap[idx] = -1; // Roots have no parent
+			}
+		}
+	}
+
+	// now we can perform the A* search to find the shortest path from the inlet to the outlet, 
+	// we will keep track of the best path length found to reach the outlet
+
+	float minPathLength = std::numeric_limits<float>::infinity();
+	float pathFound = false;
+	int goalIndex = -1;
+
+	while (openSet.size() > 0) {
+		// get the current voxel with the lowest fScore from the open set
+		AStarNode current = openSet.top();
+		openSet.pop();
+
+		// get its index
+		int idx = current.idx;
+
+		// first check if we have already found a shorter path to this voxel, if so we can skip it
+		if (current.fScore > gScore[idx] + height) {
+			continue;
+		}
+
+		// convert 1d to 3d indices
+		int z = idx % nz;
+		int y = (idx / nz) % ny;
+		int x = idx / (ny * nz);
+
+		// check if we have reached the outlet (z = max plane), if so we can update the minimum path length found
+		if (z == nz - 1) {
+			if (gScore[idx] < minPathLength) {
+				minPathLength = (float)gScore[idx];
+				pathFound = true;
+				goalIndex = idx;
+				break;
+			}
+		}
+
+		// if we haven't reached the outlet, we can explore the neighbors of the current voxel
+		for (const auto& nb : neighbors) {
+			int nx_ = x + nb.dx;
+			int ny_ = y + nb.dy;
+			int nz_ = z + nb.dz;
+
+			// check if the neighbor is within the grid bounds
+			if (nx_ >= 1 && nx_ < nx - 1 &&
+				ny_ >= 1 && ny_ < ny - 1 &&
+				nz_ >= 0 && nz_ < nz) {
+				int nbIdx = find_vertex_index(nx_, ny_, nz_);
+				// we only consider empty voxels as valid neighbors to explore, 
+				// since we want to find paths through the porous structure
+				if (scalarField[nbIdx] > isoLevel) {
+					// the cost to move from the current voxel to the neighbor is just the voxel size, since we are moving through a regular grid
+					double tentative_gScore = gScore[idx] + (nb.cost * voxelSize);
+					if (tentative_gScore < gScore[nbIdx]) {
+						gScore[nbIdx] = tentative_gScore;
+						// heuristic is the straight line distance from the neighbor to the outlet, which is just the remaining height in the z direction
+						float heuristic = (nz - 1 - nz_) * voxelSize;
+						openSet.push({ nbIdx, (float)gScore[nbIdx] + heuristic });
+
+						parentMap[nbIdx] = idx; // Update parent map for path reconstruction
+						//std::cout << pos << std::endl;
+					}
+				}
+			}
+		}
+	}
+
+	if (goalIndex == -1) {
+		std::cerr << "No path found from inlet to outlet!" << std::endl;
+		return false;
+	}
+
+	// update the model
+	int currIdx = goalIndex;
+	int vertexCount = 0;
+
+	while (currIdx != -1) {
+		int z = currIdx % nz;
+		int y = (currIdx / nz) % ny;
+		int x = currIdx / (ny * nz);
+
+		Vec3 pos = get_position(x, y, z);
+
+		tortuosityPathVertices.push_back(pos.x);
+		tortuosityPathVertices.push_back(pos.y);
+		tortuosityPathVertices.push_back(pos.z);
+
+		if (vertexCount > 0) { // Add edge from previous vertex to current vertex
+			tortuosityPathEdges.push_back(vertexCount - 1);
+			tortuosityPathEdges.push_back(vertexCount);
+		}
+		currIdx = parentMap[currIdx];
+		vertexCount++;
+	}
+
+	tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
+
+	tortuosity = minPathLength / height; // tortuosity is the ratio of the actual path length to the straight line distance (height)
+
+	return true;
+};
+
+void GeneratorLewiner::draw_tortuosity_path() {
+
+	if (tortuosityPathModel) {
+		tortuosityPathModel->draw();
+	}
+};
+
+void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit) {
+	
+	// Global tally for MIL
+	std::vector<float> totalHits(daDirectionNr, 0.0f);
+	std::vector<float> totalLengths(daDirectionNr, 0.0f);
+
+	// Create Random Directions (Fibonacci Sphere)
+	std::vector<Vec3> dirs(daDirectionNr);
+	const float PI = 3.14159265359f;
+	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
+
+	for (int i = 0; i < daDirectionNr; i++) {
+		float theta = 2.0f * PI * i / goldenRatio;
+		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / daDirectionNr);
+		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
+	}
+
+	// create a generator to sample points inside the domain
+	std::mt19937 rng(1337);
+	std::uniform_real_distribution<float> distX(bounds[0], bounds[1]);
+	std::uniform_real_distribution<float> distY(bounds[2], bounds[3]);
+	std::uniform_real_distribution<float> distZ(bounds[4], bounds[5]);
+	std::uniform_real_distribution<float> distRand(0.0f, 1.0f);
+
+	
+	float maxRayLength = std::min({(bounds[1] - bounds[0]), (bounds[3] - bounds[2]) , (bounds[5] - bounds[4]) }) * 0.45;
+	float rayStepSize = std::min({ stepX, stepY, stepZ }) * 0.5f;
+	int maxRaySteps = static_cast<int>(maxRayLength / rayStepSize);
+
+	float vf = 999.0f;
+	int iteration = 0;
+
+	// a vector to keep da history
+	std::vector<float> daHistory;
+
+	while ((iteration < daMinsteps || vf > vcLimit) && iteration < daMaxsteps) {
+
+		// pick a random point
+		Vec3 center(distX(rng), distY(rng), distZ(rng));
+
+		// ensure that the point is inside
+		int sI = std::clamp((int)((center.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
+		int sJ = std::clamp((int)((center.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
+		int sK = std::clamp((int)((center.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+
+		if (get_data(sI, sJ, sK) >= isoLevel) continue; // skip
+
+		// increase the iteration since we continue
+		iteration++;
+
+		// parallelize the for loop to create the vectors
+		#pragma omp parallel for
+		for (int i = 0; i < daDirectionNr; i++) {
+			int hits = 0;
+			bool currentlyIn = true; // already checked that
+
+			// perform the maximum ray steps
+			for (int s = 1; s <= maxRaySteps; s++) {
+
+				Vec3 pt = center + (dirs[i] * (rayStepSize * s));
+
+				// get index if voxel and check its value
+				int gX = std::clamp((int)((pt.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
+				int gY = std::clamp((int)((pt.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
+				int gZ = std::clamp((int)((pt.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+				bool isInside = (get_data(gX, gY, gZ) < isoLevel);
+
+				// if we were inside and we are still inside we dont have a hit
+				if (isInside != currentlyIn) {
+					hits++;
+					currentlyIn = isInside;
+				}
+			}
+			// update global hits
+			totalHits[i] += hits;
+			totalLengths[i] += maxRayLength;
+		}
+
+		// estimate the point cloud and the covariance matrix
+		Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
+		for (int v = 0; v < daDirectionNr; v++) {
+			// estimate mean interception length so far
+			double mil = (totalHits[v] > 0) ? (totalLengths[v] / (double)totalHits[v]) : (double)totalLengths[v];
+			Vec3 p = dirs[v] * (float)mil;
+			cov(0, 0) += p.x * p.x; cov(0, 1) += p.x * p.y; cov(0, 2) += p.x * p.z;
+			cov(1, 0) += p.y * p.x; cov(1, 1) += p.y * p.y; cov(1, 2) += p.y * p.z;
+			cov(2, 0) += p.z * p.x; cov(2, 1) += p.z * p.y; cov(2, 2) += p.z * p.z;
+		}
+		cov /= daDirectionNr;
+
+		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(cov);
+
+		// get the eigenvalues, the first is the smallest
+		Eigen::Vector3d evals = solver.eigenvalues();
+		float Lmin = std::sqrt(std::abs(evals(0)));
+		float Lmax = std::sqrt(std::abs(evals(2)));
+
+		// estimate degree of anisotropy
+		float currentDa = (Lmax > 1e-6) ? (1.0f - (Lmin / Lmax)) : 0.0f;
+
+		// push back to the da estimated so far
+		daHistory.push_back(currentDa);
+
+		// Step 5: Update Coefficient of Variation
+		if (daHistory.size() >= 5) {
+			float sum = 0, sq_sum = 0;
+			for (float val : daHistory) { sum += val; sq_sum += val * val; }
+			float mean = sum / daHistory.size();
+			float variance = (sq_sum / daHistory.size()) - (mean * mean);
+			vf = (mean > 0) ? (std::sqrt(std::abs(variance)) / mean) : 999.0f;
+		}
+
+		std::cout << "Points Sampled: " << iteration << " | DA: " << currentDa << " | CV: " << vf << "\r" << std::flush;
+	};
+	anisotropyDegree = daHistory.back();
+}
+
+void GeneratorLewiner::estimate_trabecular_number() {
+
+	// a vector holding the values of mil values
+	// to iteratively estimate anisotropy until the coefficient of variation falls down a limit
+	std::vector<float> milVector;
+
+	// vector counts
+	int vecNr = 2000;
+
+	// we should keep vectors for directions, hits and vector lengths
+	std::vector<Vec3> dirs(vecNr);
+	std::vector<float> totalHits(vecNr, 0.0f);
+	std::vector<float> totalLengths(vecNr, 0.0f);
+
+	// populate directions
+	const float PI = 3.14159265359f;
+	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
+	for (int i = 0; i < vecNr; i++) {
+
+		float theta = 2.0f * PI * i / goldenRatio;
+		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / vecNr);
+
+		Vec3 dir(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
+		dirs[i] = dir;
+	}
+
+	std::mt19937 rng(1337);
+	std::uniform_real_distribution<float> distX(bounds[0], bounds[1]);
+	std::uniform_real_distribution<float> distY(bounds[2], bounds[3]);
+	std::uniform_real_distribution<float> distZ(bounds[4], bounds[5]);
+
+	// this is the maximum ray length (almost half the minimum along dimensions)
+	float maxRayLength = std::min({
+		(bounds[1] - bounds[0]), (bounds[3] - bounds[2]), (bounds[5] - bounds[4])
+		}) * 0.45f;
+	// this the step size along the minimum dimension
+	float rayStepSize = std::min({ stepX, stepY, stepZ }) * 0.5f;
+	int maxSteps = static_cast<int>(maxRayLength / rayStepSize);
+	
+	std::vector<float> milHistory;
+	float vf = 999.0f;
+	int iteration = 0;
+	int minIters = 10; // minimum iteration
+	int maxIters = 1000; // maximum iteration
+
+	while ((iteration < minIters || vf > 1e-2) && iteration < maxIters) {
+
+		// 1. Pick a random point in the bounding box
+		Vec3 center(distX(rng), distY(rng), distZ(rng));
+
+		// Get the grid index of this random point
+		int startI = std::clamp((int)((center.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
+		int startJ = std::clamp((int)((center.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
+		int startK = std::clamp((int)((center.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+
+		// If the random point is in AIR, skip it and try again. We only want to measure FOAM.
+		if (get_data(startI, startJ, startK) >= isoLevel) {
+			continue;
+		}
+
+		iteration++; // We found a valid foam point!
+
+		// parallelize the vector casting
+		#pragma omp parallel for schedule(static)
+		for (int i = 0; i < vecNr; i++) {
+
+			int hits = 0;
+			bool currentlyIn = true; // We already checked that the center is inside foam
+			float lengthMarched = maxRayLength;
+
+			// Traverse the grid for this specific ray
+			for (int step = 1; step <= maxSteps; step++) {
+				Vec3 pt = center + (dirs[i] * (rayStepSize * step));
+
+				int gridX = std::clamp((int)((pt.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
+				int gridY = std::clamp((int)((pt.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
+				int gridZ = std::clamp((int)((pt.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+
+				bool isInside = (get_data(gridX, gridY, gridZ) < isoLevel);
+
+				if (isInside != currentlyIn) {
+					hits++;
+					currentlyIn = isInside;
+				}
+			}
+
+			totalHits[i] += hits;
+			totalLengths[i] += lengthMarched;
+		}
+
+		// Build mean interception length
+		float currentIterationMeanMil = 0.0f;
+		for (int v = 0; v < vecNr; v++) {
+			// Global vector length divided by global vector hits
+			float mil = (totalHits[v] > 0) ? (totalLengths[v] / totalHits[v]) : totalLengths[v];
+			currentIterationMeanMil += mil;
+		}
+		currentIterationMeanMil /= vecNr;
+		milHistory.push_back(currentIterationMeanMil);
+
+		if (milHistory.size() >= 3) {
+			float mean = 0.0f;
+			for (float val : milHistory) mean += val;
+			mean /= milHistory.size();
+
+			float variance = 0.0f;
+			for (float val : milHistory) variance += (val - mean) * (val - mean);
+			variance /= (milHistory.size() - 1); // Sample variance
+
+			vf = (mean > 0.0f) ? (std::sqrt(variance) / mean) : 999.0f;
+
+			// Print progress cleanly on one line using \r
+			std::cout << "Sample: " << iteration << " | Current DA: " << mean << " | Variation Coeff: " << vf << "\r" << std::flush;
+		}
+	}
+
+	float aggregateTotalLength = 0.0f;
+	float aggregateTotalHits = 0.0f;
+
+	for (int v = 0; v < vecNr; v++) {
+		aggregateTotalLength += totalLengths[v];
+		aggregateTotalHits += totalHits[v];
+	}
+
+	if (aggregateTotalHits > 0) {
+		// MIL = Total Path Length / Total Intercepts
+		float finalMIL = aggregateTotalLength / aggregateTotalHits;
+		trabecularNr = 1.0f / finalMIL;
+	}
+	else {
+		trabecularNr = 0.0f; // Truly no boundaries found
+	}
+};
+
+void GeneratorLewiner::estimate_connectivity_density() {
+
+	// we can also estimate the connectivity density since we have also the mesh
+	long long V = meshVertices.size();
+	long long F = meshTriangles.size();
+	long long E = edgeSet.size();
+	long long eulerCharacteristic = V - E + F;
+
+	// estimate the genus
+	float genus = 1.0f - (static_cast<float>(eulerCharacteristic) / 2.0f);
+
+	// connectivity density is genus / domain volume
+	connectivityDensity = genus / domainVolume;
+};

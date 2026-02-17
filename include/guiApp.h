@@ -50,6 +50,8 @@ struct poreNetworkObject {
 struct RenderSettings {
 	std::array<float, 4> poreNetworkColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 	float poreNetworkLineSize = 1.0f;
+	std::array<float, 4> tortuosityPathColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+	float tortuosityPathSize = 3.0f;
 };
 
 struct ContainerModel {
@@ -119,7 +121,10 @@ public:
 
 	std::unique_ptr<BoundingBox> box;
 
-	std::unique_ptr<VisualizeSeeds> seedObj;
+	std::unique_ptr<LineModel> lineX;
+	std::unique_ptr<LineModel> lineY;
+	std::unique_ptr<LineModel> lineZ;
+
 	std::unique_ptr<CutPlane> cutPlane;
 	std::unique_ptr<Grid> grid;
 	std::unique_ptr<CutPlane> distPlane;
@@ -178,6 +183,7 @@ public:
 	
 	bool estimatePoreNetwork = { false };
 	bool estimateTortuosity = { false };
+	bool estimateAnisotropy = { false };
 
 	bool updateScaffold = { false };
 	bool translateScaffold = { false };
@@ -198,6 +204,7 @@ public:
 	bool showDisplaySettingsWin{ false };
 	bool showDisplayMeshSettingsWin{ false };
 	bool showPlaneCutSettings{ false };
+	bool showAlgorithmSettings{ false };
 
 	// for console logging
 	//std::vector<std::string> log;
@@ -241,24 +248,13 @@ private:
 	// framebuffer
 	FrameBuffer framebuffer;
 
-	float lineWidth = 0.1f;
-	float pointSize = 1.0f;
-	//float split{ 0.3 };
-
-	// interpolation size
-	double edgeSize{ 2.0 };
-	double scaleFactor{ 0.5f };
-
-	// static pointer
-	//static myGUI* instance;
-
 	// opengl stuff
 	GLFWwindow* window;
 	std::string glsl_version;
 
 	// 1a Camera Managment
 	// camera options
-	bool cameraUpdate{ false };
+	bool cameraUpdate{ true };
 	bool defCameraFlag{ false };
 	bool trackCameraFlag{ true };
 	// camera type
@@ -293,7 +289,7 @@ private:
 	Shader boxShader;
 	Shader containerShader;
 	Shader frameShader;
-
+	Shader lineShader;
 	// -----------------------------------------------------------
 	// 2. Seed Generator
 	std::unique_ptr<SeedGeneratorInterface> seedGenerator;
@@ -301,22 +297,6 @@ private:
 	// -----------------------------------------------------------
 	// 3. Scaffold settings
 	//std::unique_ptr<GeneratorInterface> generator;
-	char version[256]{ "model" };
-	float xDim{ 10.0 };
-	float yDim{ 10.0 };
-	float zDim{ 10.0 };
-	int seedNr{ 100 };
-	float xMin{ 0 }, xMax{ 0 }, yMin{ 0 }, yMax{ 0 }, zMin{ 0 }, zMax{ 0 };
-	float thickness{ 0.3 };
-	float scaffoldConnectivity{ 0.0 };
-	float connectivityThreshold{ 0.5f };
-	int conOption{ 0 };
-	int prevConOption{ -1 };
-	int generateOption{ 0 };
-	int distFunc{ 0 };
-	int radiusFunc{ 0 };
-	int radiusOpt{ 0 };
-	int regSteps{ 0 };
 	int nX{ 10 }, nY{ 10 }, nZ{ 10 };
 	std::array<int, 3> resolution = { 100, 100, 100 };
 	std::array<int, 3> imageResolution = {200, 200, 200};
@@ -325,66 +305,34 @@ private:
 	// determine function to check if a point is inside a container
 	std::function<bool(const std::array<double, 3>&)> inside_check;
 
-	// model details
-	double scaffoldPorosity{ 50.0 };
-	double scaffoldVolume{ 0.0 };
-	int faceNr{ 0 }, vertexNr{ 0 }, edgeNr{ 0 };
-
-	// double domain volume
-	double domainVolume{ 0.0 };
-
-	// container file
-
-
-	// Cylinder Container
-
-
-	// Poisson3d
-	float rMin{ 0.8f };
-	float rMax{ 2.0f };
-	LinearFunction linearFunc;
-	double maxDist{ 5.0 };
-	float distPlaneCenter[3] = { 0.0f, 0.0f, 0.0f };
-	float distPlaneNormal[3] = { 0.0f, 0.0f, 1.0f };
-	float distPoint[3] = {0.0f, 0.0f, 0.0f};
-	std::vector<float> radii;
-
-	// Volume Optimization
-	Eigen::VectorXd wInit;
-	Eigen::VectorXd targetVols;
-	int volOption{ 0 };
-	bool runVolumeOptimization = false;
-
-	// loading flags
-	enum meshType {
-		scaffold, bone
-	};
-	meshType loadedMesh;
-
 	// thread handling
 	//std::atomic<bool> scaffoldGenerating{ false };
 	std::atomic<float> scaffoldProgress{ 0.0f };
 	std::thread scaffoldGenerationThread;
 
-	//
 	std::array<float, 4> logColor = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// textures
 	GLuint boxContainerTexture = 0;
 	GLuint cylinderContainerTexture = 0;
 	GLuint abstractContainerTexture = 0;
-
 	GLuint randomSeedTexture = 0;
 	GLuint uniformSeedTexture = 0;
 	GLuint variedSeedTexture = 0;
-
 	GLuint createScaffoldTexture = 0;
 	GLuint localThicknessTexture = 0;
 	GLuint separationTexture = 0;
 	GLuint tortuosityTexture = 0;
+	GLuint anisotropyTexture = 0;
 	GLuint poreNetworkTexture = 0;
 	GLuint updateScaffoldTexture = 0;
 	GLuint translateTexture = 0;
+
+	// algorithms
+	int daMinsteps = 50;
+	int daMaxsteps = 200;
+	int daDirectionNr = 1000;
+	float daTolerance = 1e-2f;
 
 	// ----------------------------------------------------------------------
 	// 4. Functions
@@ -437,6 +385,8 @@ private:
 	
 	void _render_mesh_settings();
 
+	void _render_algorithm_settings();
+
 	void _render_axes_viewport();
 
 	void _render_main_menu_bar();
@@ -444,10 +394,6 @@ private:
 	void _render_display_settings();
 
 	void _render_seed_generator();
-
-	void _render_volume_optimization();
-	
-	void _render_scaffold_settings();
 
 	void _render_box_container_creator(const char* popupName, bool& showPopup);
 
@@ -481,6 +427,8 @@ private:
 
 	void _action_estimate_tortuosity();
 	
+	void _action_estimate_anisotropy();
+	
 	void _action_estimate_pore_network();
 
 	void _action_generate_scaffold();
@@ -490,6 +438,8 @@ private:
 	void _render_translate_panel(const char* popupName, bool& showPopup);
 
 	void _draw_selected_box();
+
+	void _draw_axes_lines();
 
 	void _create_dockspace();
 

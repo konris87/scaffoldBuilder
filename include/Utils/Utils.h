@@ -47,6 +47,17 @@ struct Aabb {
 	Vec3 pMax{};
 };
 
+struct AStarNode {
+	int idx;
+	float fScore;
+
+	AStarNode(int idx, float fScore) : idx(idx), fScore(fScore) {};
+	// we want the priority queue to order the nodes by their fScore, so we need to overload the < operator
+	bool operator>(const AStarNode& other) const {
+		return fScore > other.fScore; // we want the node with the lowest fScore to be at the top of the priority queue, so we use > instead of <
+	}
+};
+
 // create a class to control seed generator using the strategy pattern
 class SeedGeneratorInterface {
 public:

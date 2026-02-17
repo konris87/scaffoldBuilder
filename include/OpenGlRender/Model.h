@@ -231,4 +231,63 @@ private:
 	void _setup();
 };
 
+// -----------------------------------------------------------------------------------
+// @brief class that creates a simple line for rendering between two points
+class LineModel {
+public:
+
+	~LineModel() {};
+
+	LineModel(const glm::vec3& pt1, const glm::vec3& pt2) : pt1(pt1), pt2(pt2), vertices({
+		pt1.x, pt1.y, pt1.z,
+		pt2.x, pt2.y, pt2.z
+		}) {
+		_setup();
+	};
+
+	LineModel(const Eigen::Vector3f& p1, const Eigen::Vector3f& p2) {
+
+		vertices[0] = p1.x();
+		vertices[1] = p1.y();
+		vertices[2] = p1.z();
+		vertices[3] = p2.x();
+		vertices[4] = p2.y();
+		vertices[5] = p2.z();
+
+		_setup();
+	};
+
+	LineModel(const Vec3& p1, const Vec3& p2) {
+
+		vertices[0] = p1.x;
+		vertices[1] = p1.y;
+		vertices[2] = p1.z;
+		vertices[3] = p2.x;
+		vertices[4] = p2.y;
+		vertices[5] = p2.z;
+
+		_setup();
+
+	};
+
+	void draw();
+
+	void clean();
+
+	void set_vertices(const glm::vec3& pt1, const glm::vec3& pt2);
+
+	void set_vertices(const Vec3& newpt1, const Vec3& newpt2);
+
+private:
+
+	glm::vec3 pt1;
+	glm::vec3 pt2;
+
+	std::array<float, 6> vertices;
+
+	unsigned int VAO{ 0 }, VBO{ 0 };
+
+	void _setup();
+};
+
 #endif MODEL_H

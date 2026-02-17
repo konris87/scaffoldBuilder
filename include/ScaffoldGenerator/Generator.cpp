@@ -1,4 +1,5 @@
 #include "Generator.h"
+#include "LookUpTable.h"
 #include <fstream>
 #include <queue>
 #include <limits>
