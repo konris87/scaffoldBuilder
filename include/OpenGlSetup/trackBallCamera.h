@@ -22,6 +22,7 @@ public:
 
 	// Functions
 	void update();
+	void reset();
 
 	// Setters
 	void set(float r, int w, int h, int originX);

@@ -70,19 +70,23 @@ public:
 
 	void set_seeds(const std::vector<Vec3>& newSeeds);
 
+	void set_stretch(float newStretchX, float newStretchY, float newStretchZ);
+
 	std::array<float, 6> get_bounds() const;
 
 	Aabb get_aabb() const;
 
 	void estimate_local_thickness(float voxelSize, std::array<float, 6>& blockBounds, bool separation = false);
 
-	bool estimate_tortuosity();
+	bool estimate_tortuosity(float voxelSize);
 
-	void estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit);
+	void estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode=0);
 
 	void estimate_trabecular_number();
 
 	void estimate_connectivity_density();
+
+	void estimate_connectivity_network();
 
 	void export_nrrd(const std::string fileName, float voxelSize, std::array<float, 6> blockSize);
 
@@ -156,6 +160,8 @@ private:
 
 	void validate_topology();
 
+	void _update_bounding_box();
+
 	std::vector<uint8_t> get_image_field(
 		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false);
 
@@ -193,6 +199,10 @@ public:
 
 	Vec3 translateVec{0.0f, 0.0f, 0.0f};
 	std::unique_ptr<PoreNetwork> tortuosityPathModel;
+
+	float stretchX{ 1.0f };
+	float stretchY{ 1.0f }; 
+	float stretchZ{ 1.0f };
 
 private:	
 	std::vector<Vec3> seeds;

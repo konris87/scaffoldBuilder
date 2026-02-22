@@ -28,9 +28,21 @@ struct SimInput {
 
 struct SimOutput {
 	int id;
-    double porosity;
-    double svr;
-    double connectivity;   // 0.0 to 1.0
+	float thickness;
+	float minRadius;
+	float maxRadius;
+	float openess;
+    float porosity;
+    float volume;
+	float totalSurface;
+	float surfaceToVolume;
+    float connectivityDenisty;
+	float localThickness;
+	float localThicknessStd;
+	float localSeparation;
+	float localSeparationStd;
+	float trabecularNr;
+	float anisotropy;
 };
 
 // @class a class to create 
@@ -61,8 +73,12 @@ void run_voro(std::vector<std::array<double, 3>>& seeds, std::unique_ptr<Graph>&
 	const SimInput& params, SimOutput& out);
 
 void save_csv(const std::string fileName,
-	const std::vector<SimInput>& inputs,
 	const std::vector<SimOutput>& outputs,
 	const SamplingType& t);
+
+//------------------------------------------------------------------------------
+// load a csv and perform simulations
+
+std::vector<std::vector<float>> read_csv(const std::string& fileName);
 
 #endif MONTESIMULATION_H

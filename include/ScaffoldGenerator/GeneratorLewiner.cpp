@@ -26,8 +26,8 @@ GeneratorLewiner::GeneratorLewiner(
 
 	_setup_edges();
 
-	aabb.pMin = Vec3(bounds[0], bounds[2], bounds[4]);
-	aabb.pMax = Vec3(bounds[1], bounds[3], bounds[5]);
+	//aabb.pMin = Vec3(bounds[0], bounds[2], bounds[4]);
+	//aabb.pMax = Vec3(bounds[1], bounds[3], bounds[5]);
 };
 
 
@@ -37,6 +37,15 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 	domainVolume = con.get_volume();
 
 	update_steps();
+
+	// update seeds to use the stretch factors
+	if (stretchX != 1.0f && stretchY != 1.0f && stretchZ != 1.0f) {
+		for (auto seed : seeds) {
+			seed.x /= stretchX;
+			seed.y /= stretchY;
+			seed.z /= stretchZ;
+		}
+	}
 
 	// first populate the kdtree with the seeds
 	std::unique_ptr<Kdtree>kdtree = std::make_unique<Kdtree>(seeds);
@@ -66,14 +75,21 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 				float containerDist = con.sdf->compute_distance(point);
 				if (containerDist > 2.0f) { // If it's more than 2mm outside, don't bother
+					scalarField[idx] = isoLevel + 1.0f;
 					continue; // scalarField[idx] remains 9999.9f
 				}
 
+				// wrap the point
+				Vec3 wrapped(point.x / stretchX, point.y / stretchY, point.z / stretchZ);
+
 				// we need to find the two nearest seeds to the point, and compute the distance to the nearest seed, and the distance to the second nearest seed
-				auto neighbors = kdtree->knn(point, 3, [](const Vec3& p1, const Vec3& p2) {
-					double dx = p1[0] - p2[0];
-					double dy = p1[1] - p2[1];
-					double dz = p1[2] - p2[2];
+				auto neighbors = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
+					//double dx = (p1[0] - p2[0]) / (this->stretchX);
+					//double dy = (p1[1] - p2[1]) / (this->stretchY);
+					//double dz = (p1[2] - p2[2]) / (this->stretchZ);
+					double dx = (p1[0] - p2[0]);
+					double dy = (p1[1] - p2[1]);
+					double dz = (p1[2] - p2[2]);
 					return dx * dx + dy * dy + dz * dz;
 				});
 
@@ -133,9 +149,9 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 			solidVoxels++;
 		}
 	}
-	std::cout << "finished grids" << std::endl;
+	//std::cout << "finished grids" << std::endl;
 
-	std::cout << "scalar field size: " << scalarField.size() << std::endl;
+	//std::cout << "scalar field size: " << scalarField.size() << std::endl;
 	//volumeFraction = (float)solidVoxels / (float)totalVoxels;
 	//porosity = 1.0 - volumeFraction;
 
@@ -282,9 +298,9 @@ void GeneratorLewiner::marching_cubes() {
 	triangleCount = 0;
 
 	compute_intersection_points();
-	for (int k = 0; k < blockDims[2] - 1; k++) {
+	for (int i = 0; i < blockDims[0] - 1; i++) {
 		for (int j = 0; j < blockDims[1] - 1; j++) {
-			for (int i = 0; i < blockDims[0] - 1; i++) {
+			for (int k = 0; k < blockDims[0] - 1; k++) {
 				
 				int lut_entry = 0;
 
@@ -314,10 +330,44 @@ void GeneratorLewiner::marching_cubes() {
 	meshVertices.resize(vertexCount);
 	meshTriangles.resize(triangleCount);
 
+	// update axis aligned bounding box
+	_update_bounding_box();
+
 	// update opengl objects
 	_update_render();
 
 	validate_topology();
+};
+
+void GeneratorLewiner::_update_bounding_box() {
+
+	aabb.pMin.x = std::numeric_limits<float>::max();
+	aabb.pMin.y = std::numeric_limits<float>::max();
+	aabb.pMin.z = std::numeric_limits<float>::max();
+	aabb.pMax.x = std::numeric_limits<float>::min();
+	aabb.pMax.y = std::numeric_limits<float>::min();
+	aabb.pMax.z = std::numeric_limits<float>::min();
+
+	for (const auto& v : meshVertices) {
+		if (v.x < aabb.pMin.x) {
+			aabb.pMin.x = v.x;
+		}
+		if (v.x > aabb.pMax.x) {
+			aabb.pMax.x = v.x;
+		}
+		if (v.y < aabb.pMin.y) {
+			aabb.pMin.y = v.y;
+		}
+		if (v.y > aabb.pMax.y) {
+			aabb.pMax.y = v.y;
+		}
+		if (v.z < aabb.pMin.z) {
+			aabb.pMin.z = v.z;
+		}
+		if (v.z > aabb.pMax.z) {
+			aabb.pMax.z = v.z;
+		}
+	}
 };
 
 void GeneratorLewiner::compute_intersection_points() {
@@ -406,7 +456,7 @@ float GeneratorLewiner::get_data(const int i, const int j, const int k) const {
 //@brief function to find the index of the vertex in the scalar field vector based on its position in the grid
 int GeneratorLewiner::find_vertex_index(int x, int y, int z) {
 
-	return x * blockDims[1] * blockDims[2] + y * blockDims[2] + z;
+	return x + y * blockDims[0] + z * blockDims[0] * blockDims[1];
 };
 
 Vec3 GeneratorLewiner::get_position(int x, int y, int z) {
@@ -2277,7 +2327,9 @@ void GeneratorLewiner::render_properties() {
 	//ImGui::InputText("Name", buffer, sizeof(buffer));
 	ImGui::InputFloat("Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
 	ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f, "%.3f");
-
+	ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
+	ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
+	ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
 };
 
 void GeneratorLewiner::estimate_metrics(const IContainer& container) {
@@ -2316,24 +2368,51 @@ void GeneratorLewiner::estimate_metrics(const IContainer& container) {
 
 void GeneratorLewiner::render_metrics() {
 
-	ImGui::Text(("Volume: " + std::to_string(volume) + ("mm^3")).c_str(), "%.4f");
-	ImGui::Text(("Total Surface: " + std::to_string(surfaceArea) + (" mm^2")).c_str(), "&.4f");
-	ImGui::Text(("Surface to Volume Ratio: " + std::to_string(surfaceToVolume) + (" 1/mm")).c_str(), "&.4f");
-	ImGui::Text(("Porosity: " + std::to_string(porosity * 100.0f) + " %").c_str(), "%.4f");
+	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
+	// create a table
+	if (ImGui::BeginTable("", 2, flags = flags)) {
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Volume (mm^3)"); // Note: Volume is mm^3
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", volume);
 
-	// convert local thickness and std to string
-	std::string ts = std::to_string(localThickness) + " std: " + std::to_string(localThicknessStd);
-	std::string ps = std::to_string(localSeparation) + " std: " + std::to_string(localSeparationStd);
-	ImGui::Text(("Local Thickness: " + ts + " mm").c_str(), "%.4f");
-	ImGui::Text(("Pore Separation: " + ps + " mm").c_str(), "%.4f");
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Total Surface (mm^2)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceArea);
+		
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Surface to Volume Ratio (1/mm)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceToVolume);
 
-	ImGui::Text(("Trabecular Number: " + std::to_string(trabecularNr) + (" 1/mm")).c_str(), "&.4f");
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Porosity (%%)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", porosity * 100.0f);
 
-	ImGui::Text(("Connectivity Density: " + std::to_string(connectivityDensity) + (" 1/mm^3")).c_str(), "&.4f");
-	
-	ImGui::Text(("Tortuosity: " + std::to_string(tortuosity)).c_str(), "%.4f");
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Local Thickness (mm)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
 
-	ImGui::Text(("Degree of Anisotropy: " + std::to_string(anisotropyDegree)).c_str(), "%.4f");
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Local Separation (mm)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localSeparation, localSeparationStd);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Trabecular Number (1/mm)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", trabecularNr);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Connectivity Density (1/mm^3)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", connectivityDensity);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Tortuosity");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", tortuosity);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Degree of Anisotropy");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", anisotropyDegree);
+
+		ImGui::EndTable();
+	};
 
 };
 
@@ -2347,6 +2426,12 @@ void GeneratorLewiner::set_bounds(const std::array<float, 6>& newBounds) {
 
 void GeneratorLewiner::set_seeds(const std::vector<Vec3>& newSeeds) {
 	seeds = newSeeds;
+};
+
+void GeneratorLewiner::set_stretch(float newStretchX, float newStretchY, float newStretchZ) {
+	this->stretchX = newStretchX;
+	this->stretchY = newStretchY;
+	this->stretchZ = newStretchZ;
 };
 
 std::array<float, 6> GeneratorLewiner::get_bounds() const {
@@ -2683,7 +2768,7 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 
 	int totalVoxels = nx * ny * nz;
 
-	std::vector<uint8_t> field(totalVoxels);
+	std::vector<uint8_t> field(totalVoxels, 0);
 
 	// Helper to clamp indices to avoid segfaults
 	auto clamp_idx = [](int val, int maxVal) {
@@ -2710,15 +2795,18 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 		float oldY = (pY - bounds[2]) / stepY;
 		float oldZ = (pZ - bounds[4]) / stepZ;
 
+		if (oldX < 0.0f || oldX >= (blockDims[0] - 1.0f) ||
+			oldY < 0.0f || oldY >= (blockDims[1] - 1.0f) ||
+			oldZ < 0.0f || oldZ >= (blockDims[2] - 1.0f)) {
+			field[idx] = 0;
+			continue;
+		}
+
 		// this is like 5.1, 7.8, 9.1, we need to find the interpolated value of the scalar field to assing 0 or 255
 		// get the 8 corners
 		int x0 = (int)std::floor(oldX);
 		int y0 = (int)std::floor(oldY);
 		int z0 = (int)std::floor(oldZ);
-
-		x0 = clamp_idx(x0, blockDims[0]);
-		y0 = clamp_idx(y0, blockDims[1]);
-		z0 = clamp_idx(z0, blockDims[2]);
 
 		int x1 = clamp_idx(x0 + 1, blockDims[0]);
 		int y1 = clamp_idx(y0 + 1, blockDims[1]);
@@ -2728,11 +2816,6 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 		float tx = oldX - x0;
 		float ty = oldY - y0;
 		float tz = oldZ - z0;
-
-		// clamp weights
-		if (tx < 0) tx = 0; if (tx > 1) tx = 1;
-		if (ty < 0) ty = 0; if (ty > 1) ty = 1;
-		if (tz < 0) tz = 0; if (tz > 1) tz = 1;
 
 		double c000 = scalarField[find_vertex_index(x0, y0, z0)];
 		double c100 = scalarField[find_vertex_index(x1, y0, z0)];
@@ -2755,138 +2838,171 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 		// 3. Interpolate along Z (Reduce 2 points to 1)
 		double val = c0 * (1 - tz) + c1 * tz;
 
-		// H. Threshold the Interpolated Value
+		bool isSolid = (val < isoLevel);
+
 		if (inverse) {
-			if (val >= isoLevel) {
-				field[idx] = 255;
-			}
-			else {
-				field[idx] = 0;
-			}
-		}
-		else {
-			if (val < isoLevel) {
-				field[idx] = 255;
-			}
-			else {
-				field[idx] = 0;
-			}
+			isSolid = !isSolid;
 		}
 
-
+		field[idx] = isSolid ? 1 : 0;
 	}
 
 	return field;
 };
 
 //@brief function to estimate tortuosity of the porous structure, using the A* algorithm on the grid, we can estimate the shortest path between two points in the porous structure, and compare it to the straight line distance between those points to get an estimate of the tortuosity
-bool GeneratorLewiner::estimate_tortuosity() {
+bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
 
-	int nx = blockDims[0];
-	int ny = blockDims[1];
-	int nz = blockDims[2];
-
-	int totalVoxels = scalarField.size();
+	tortuosityPathModel.reset();
+	tortuosityPathVertices.clear();
 	tortuosityPathEdges.clear();
 
-	std::vector<int> parentMap(totalVoxels, -1);
+	// use the bounds of the aabb
+	std::array<float, 6> aabbBounds = {
+		aabb.pMin.x,
+		aabb.pMax.x,
+		aabb.pMin.y,
+		aabb.pMax.y,
+		aabb.pMin.z,
+		aabb.pMax.z
+	};
 
-	// vectors to store the gScore and fScore for each voxel, initialized to infinity
-	// gscore is the cost from the start voxel to the current voxel, 
-	// fscore is the estimated total cost from the start voxel to the goal voxel through the current voxel,
-	// which is gscore + heuristic cost to goal
-	// f(x,y,z) = g(x,y,z) + h(x,y,z). h is the heuristic function
+	// interpolate the scalar field
+	std::vector<uint8_t> field = get_image_field(voxelSize, aabbBounds);
+
+	// estimate new block dimensions
+	int nx = static_cast<int>(std::ceil((aabbBounds[1] - aabbBounds[0]) / voxelSize));
+	int ny = static_cast<int>(std::ceil((aabbBounds[3] - aabbBounds[2]) / voxelSize));
+	int nz = static_cast<int>(std::ceil((aabbBounds[5] - aabbBounds[4]) / voxelSize));
+
+	// we have to set the height equal to the actual
+	//float height = (aabbBounds[5] - aabbBounds[4]);
+
+	// Safety check: ensure the field size matches our expected dimensions
+	if (field.size() != (size_t)nx * ny * nz) {
+		std::cerr << "Dimension mismatch in tortuosity estimation!" << std::endl;
+		return false;
+	}
+
+	auto get_idx = [&](int x, int y, int z) {
+		return x + y * nx + z * nx * ny; // Consistent Z-Major indexing
+	};
+
+	int totalVoxels = field.size();
+	std::vector<int> parentMap(totalVoxels, -1);
 	std::vector<float> gScore(totalVoxels, std::numeric_limits<float>::max());
 
-	// define inlet as z = 0 plane, outlet as z = max plane
-	float height = bounds[5] - bounds[4];
-	float voxelSize = height / (float)nz;
+	// this is the closed list
+	std::vector<bool> visited(totalVoxels, false);
 
-	// we will use a priority queue to store the open set of voxels to explore, ordered by their fScore
+	// this is the open list, 
+	// we will use a priority queue to store the voxels to explore, ordered by their fScore, use std::greater to 
+	// store the nodes with the minimum fscore at the top
 	std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
+
+	// start from the 2nd voxel up to the -1 voxel
+	int startZ = 1;
+	int targetZ = nz - 2;
 
 	// initialize the open set with the inlet voxels (z = 0 plane), so here we add all voxels 
 	// in the z=0 plane that are below the isoLevel (solid voxels) as starting points for the A* search,
 	// since we want to find paths through the porous structure
-	for (int x{ 10 }; x < nx - 10; x++) {
-		for (int y{ 10 }; y < ny - 10; y++) {
-			int idx = find_vertex_index(x, y, 0);
+	// we also use a smaller grid to search our points
+	int xSize = static_cast<int>(nx * 0.15f);
+	int ySize = static_cast<int>(ny * 0.15f);
+	if (xSize == 0) xSize = 1;
+	if (ySize == 0) ySize = 1;
 
-			// we only consider solid voxels as starting points for the A* search, 
-			// since we want to find paths through the porous structure, 
-			// if the voxel is above the isoLevel, it is considered solid
+	//std::cout << xSize << " " << ySize << std::endl;
+	//std::cout << nx << " " << ny << std::endl;
 
-			// if it is empty we can start from it, since we want to find paths through the porous structure
-			if (scalarField[idx] > isoLevel) {
-				gScore[idx] = 0.0f;
-				// straight line distance from inlet to outlet, since we are starting at z=0 and want to reach z=max, the heuristic is just the height of the box
-				float heuristic = height;
-				openSet.push({ idx, heuristic });
+	bool foundStart = false;
+	for (int x = xSize; x < nx - xSize - 1; x++) {
+		for (int y = ySize; y < ny - ySize - 1; y++) {
+			
+			// get the index of the node
+			int idx = get_idx(x, y, startZ);
 
-				parentMap[idx] = -1; // Roots have no parent
+			// get position
+			float h = (targetZ - startZ) * voxelSize;
+
+			// check if the field at node idx is air or pore, we need air to start
+			if (field[idx] == 0) { 
+				gScore[idx] = 0.0f; // g score is zero as it is a starting candidate
+				openSet.push({ idx, h }); // push to the openset, add the straight line with length equalt to height as fscore
+				foundStart = true;
 			}
 		}
 	}
 
+	if (!foundStart) {
+		std::cout << " not found a starting point " << std::endl;
+		return false;
+	}
+
 	// now we can perform the A* search to find the shortest path from the inlet to the outlet, 
 	// we will keep track of the best path length found to reach the outlet
-
 	float minPathLength = std::numeric_limits<float>::infinity();
-	float pathFound = false;
+
+	// this is the index of the end target, it should lie on the +z plane
 	int goalIndex = -1;
 
-	while (openSet.size() > 0) {
-		// get the current voxel with the lowest fScore from the open set
+	while (!openSet.empty()) {
+
+		// get the node at the top of the priority queue, it has the least f score
 		AStarNode current = openSet.top();
+		
+		// pop it of the list
 		openSet.pop();
 
-		// get its index
+		// find the index of the current node
 		int idx = current.idx;
 
-		// first check if we have already found a shorter path to this voxel, if so we can skip it
-		if (current.fScore > gScore[idx] + height) {
-			continue;
+		// check if we have already visited
+		if (visited[idx]) continue;
+		visited[idx] = true;
+
+		// get the three indices of the current node in the grid (Z-Major)
+		int x = idx % nx;
+		int y = (idx / nx) % ny;
+		int z = idx / (nx * ny);
+
+		// Use the explicit targetZ
+		if (z >= targetZ) {
+			minPathLength = gScore[idx];
+			goalIndex = idx;
+			break;
 		}
 
-		// convert 1d to 3d indices
-		int z = idx % nz;
-		int y = (idx / nz) % ny;
-		int x = idx / (ny * nz);
-
-		// check if we have reached the outlet (z = max plane), if so we can update the minimum path length found
-		if (z == nz - 1) {
-			if (gScore[idx] < minPathLength) {
-				minPathLength = (float)gScore[idx];
-				pathFound = true;
-				goalIndex = idx;
-				break;
-			}
-		}
-
-		// if we haven't reached the outlet, we can explore the neighbors of the current voxel
-		for (const auto& nb : neighbors) {
+		// loop for the successors
+		for (const auto& nb : neighbors6) { // Use the 6-neighbor array we built
+			
+			// get the index of the successor
 			int nx_ = x + nb.dx;
 			int ny_ = y + nb.dy;
 			int nz_ = z + nb.dz;
 
-			// check if the neighbor is within the grid bounds
-			if (nx_ >= 1 && nx_ < nx - 1 &&
-				ny_ >= 1 && ny_ < ny - 1 &&
-				nz_ >= 0 && nz_ < nz) {
-				int nbIdx = find_vertex_index(nx_, ny_, nz_);
-				// we only consider empty voxels as valid neighbors to explore, 
-				// since we want to find paths through the porous structure
-				if (scalarField[nbIdx] > isoLevel) {
-					// the cost to move from the current voxel to the neighbor is just the voxel size, since we are moving through a regular grid
-					double tentative_gScore = gScore[idx] + (nb.cost * voxelSize);
-					if (tentative_gScore < gScore[nbIdx]) {
-						gScore[nbIdx] = tentative_gScore;
-						// heuristic is the straight line distance from the neighbor to the outlet, which is just the remaining height in the z direction
-						float heuristic = (nz - 1 - nz_) * voxelSize;
-						openSet.push({ nbIdx, (float)gScore[nbIdx] + heuristic });
+			// check if is inside the bounds
+			if (nx_ >= 0 && nx_ < nx && ny_ >= 0 && ny_ < ny && nz_ >= 0 && nz_ < nz) {
+				int nbIdx = get_idx(nx_, ny_, nz_);
 
-						parentMap[nbIdx] = idx; // Update parent map for path reconstruction
-						//std::cout << pos << std::endl;
+				// check if we have not visited the neighbor and the field value there is 0 (air)
+				if (!visited[nbIdx] && field[nbIdx] == 0) {
+					
+					// g score is the distance from the start and the distance to travel to the neighbor is cost * the voxel size, this gives the gscore in actual units (mm)
+					float g = gScore[idx] + (nb.cost * voxelSize);
+
+					// if the g score is smaller than the stored g score, update it
+					if (g < gScore[nbIdx]) {
+
+						gScore[nbIdx] = g;
+
+						// f score is the actual height from the current neighbor to end plane (z = zglobal)
+						float h = (nz - 1 - nz_) * voxelSize;
+						openSet.push({ nbIdx, g + h});
+
+						// update the parent map for the neighbor with the current node's id
+						parentMap[nbIdx] = idx;
 					}
 				}
 			}
@@ -2895,19 +3011,23 @@ bool GeneratorLewiner::estimate_tortuosity() {
 
 	if (goalIndex == -1) {
 		std::cerr << "No path found from inlet to outlet!" << std::endl;
+		tortuosity = -1;
 		return false;
 	}
 
-	// update the model
+	// update the model by visiting the parent map
 	int currIdx = goalIndex;
 	int vertexCount = 0;
 
 	while (currIdx != -1) {
-		int z = currIdx % nz;
-		int y = (currIdx / nz) % ny;
-		int x = currIdx / (ny * nz);
+		int cx = currIdx % nx;
+		int cy = (currIdx / nx) % ny;
+		int cz = currIdx / (nx * ny);
 
-		Vec3 pos = get_position(x, y, z);
+		Vec3 pos(
+			aabbBounds[0] + cx * voxelSize,
+			aabbBounds[2] + cy * voxelSize,
+			aabbBounds[4] + cz * voxelSize);
 
 		tortuosityPathVertices.push_back(pos.x);
 		tortuosityPathVertices.push_back(pos.y);
@@ -2917,14 +3037,20 @@ bool GeneratorLewiner::estimate_tortuosity() {
 			tortuosityPathEdges.push_back(vertexCount - 1);
 			tortuosityPathEdges.push_back(vertexCount);
 		}
+
 		currIdx = parentMap[currIdx];
 		vertexCount++;
 	}
 
+	// create a model
 	tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
-
-	tortuosity = minPathLength / height; // tortuosity is the ratio of the actual path length to the straight line distance (height)
-
+	
+	// tortuosity is the ratio of the actual path length to the straight line distance (height)
+	float straightLineDist = (targetZ - startZ) * voxelSize;
+	tortuosity = minPathLength / straightLineDist; 
+	if (tortuosity < 1.0f) {
+		tortuosity = 1.0f;
+	}
 	return true;
 };
 
@@ -2935,7 +3061,7 @@ void GeneratorLewiner::draw_tortuosity_path() {
 	}
 };
 
-void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit) {
+void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode) {
 	
 	// Global tally for MIL
 	std::vector<float> totalHits(daDirectionNr, 0.0f);
@@ -2969,6 +3095,14 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, in
 
 	// a vector to keep da history
 	std::vector<float> daHistory;
+
+	auto f1 = [](const float& lmax, const float& lmin) {
+		return (1.0f - (lmax / lmax));
+	};
+
+	auto f2 = [](const float& lmax, const float& lmin) {
+		return (lmax / lmax);
+	};
 
 	while ((iteration < daMinsteps || vf > vcLimit) && iteration < daMaxsteps) {
 
@@ -3029,11 +3163,29 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, in
 
 		// get the eigenvalues, the first is the smallest
 		Eigen::Vector3d evals = solver.eigenvalues();
-		float Lmin = std::sqrt(std::abs(evals(0)));
-		float Lmax = std::sqrt(std::abs(evals(2)));
+		float Lmin = std::sqrt(std::abs(evals(0))); // lmin is 1 / sqrt(max eigenvalue)
+		float Lmax = std::sqrt(std::abs(evals(2))); // lmin is 1 / sqrt(min eigenvalue)
+		float lambdaMin = std::abs(evals(0));
+		float lambdaMax = std::abs(evals(2));
 
-		// estimate degree of anisotropy
-		float currentDa = (Lmax > 1e-6) ? (1.0f - (Lmin / Lmax)) : 0.0f;
+		// estimate degree of anisotropy using the selected formula
+		float currentDa = 0.f;
+		if (mode == 0) {
+			currentDa = (Lmax > 1e-6) ? (Lmax / Lmin) : 0.0f;
+
+		}
+		else if (mode == 1) {
+			//currentDa = (Lmax > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
+			currentDa = (Lmax > 1e-6) ? (1.0f - (Lmax / Lmin)) : 0.0f;
+		}	
+		else if (mode == 2) {
+			//currentDa = (Lmax > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
+			currentDa = (Lmax > 1e-6) ? (lambdaMax / lambdaMin) : 0.0f;
+		}
+		else if (mode == 3) {
+			//currentDa = (Lmax > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
+			currentDa = (Lmax > 1e-6) ? (1.0f - (lambdaMax / lambdaMin)) : 0.0f;
+		}
 
 		// push back to the da estimated so far
 		daHistory.push_back(currentDa);
@@ -3162,9 +3314,6 @@ void GeneratorLewiner::estimate_trabecular_number() {
 			variance /= (milHistory.size() - 1); // Sample variance
 
 			vf = (mean > 0.0f) ? (std::sqrt(variance) / mean) : 999.0f;
-
-			// Print progress cleanly on one line using \r
-			std::cout << "Sample: " << iteration << " | Current DA: " << mean << " | Variation Coeff: " << vf << "\r" << std::flush;
 		}
 	}
 
@@ -3199,4 +3348,10 @@ void GeneratorLewiner::estimate_connectivity_density() {
 
 	// connectivity density is genus / domain volume
 	connectivityDensity = genus / domainVolume;
+};
+
+void GeneratorLewiner::estimate_connectivity_network() {
+
+
+
 };

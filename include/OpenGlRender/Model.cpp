@@ -566,8 +566,6 @@ void PoreNetwork::draw() {
 	glBindVertexArray(VAO);
 	glDrawElements(GL_LINES, indices.size(), GL_UNSIGNED_INT, 0);
 	glBindVertexArray(0);
-
-	std::cout << "draw" << std::endl;
 };
 
 void PoreNetwork::clean() {

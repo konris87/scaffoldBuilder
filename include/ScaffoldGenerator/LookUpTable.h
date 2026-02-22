@@ -2352,6 +2352,20 @@ const std::array<Neighbor, 26> neighbors = { {
     {  1,  1,  1, 1.73205 }  // Corner
 } };
 
+const std::array<Neighbor, 26> neighbors6 = {
+    {
+    {-1,  0,  0, 1.0f}, // 0: Move Left
+    { 1,  0,  0, 1.0f}, // 1: Move Right
+
+    // -- Y Axis (Back / Front) --
+    { 0, -1,  0, 1.0f}, // 2: Move Back
+    { 0,  1,  0, 1.0f}, // 3: Move Front
+
+    // -- Z Axis (Down / Up) --
+    { 0,  0, -1, 1.0f}, // 4: Move Down
+    { 0,  0,  1, 1.0f}  // 5: Move Up
+} };
+
 // edge table for marching cubes
 const int edgeTable[256] =
 {

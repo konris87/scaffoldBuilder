@@ -184,6 +184,8 @@ public:
 	bool estimatePoreNetwork = { false };
 	bool estimateTortuosity = { false };
 	bool estimateAnisotropy = { false };
+	bool estimateConnectivityDensity = { false };
+	bool estimateTrabecularNr = { false };
 
 	bool updateScaffold = { false };
 	bool translateScaffold = { false };
@@ -327,12 +329,17 @@ private:
 	GLuint poreNetworkTexture = 0;
 	GLuint updateScaffoldTexture = 0;
 	GLuint translateTexture = 0;
+	GLuint trabecularNumberTexture = 0;
+	GLuint connectivityDensityTexture = 0;
 
 	// algorithms
 	int daMinsteps = 50;
 	int daMaxsteps = 200;
 	int daDirectionNr = 1000;
 	float daTolerance = 1e-2f;
+	int daFormulaIdx = 0;
+
+	float tortuosityVoxelSize = 0.02f;
 
 	// ----------------------------------------------------------------------
 	// 4. Functions
@@ -380,6 +387,8 @@ private:
 	void _update_cameras();
 
 	void _update_cameras(IContainer& container);
+
+	void _reset_camera();
 
 	void _update_bounds_center(int& conOption);
 	
@@ -429,6 +438,10 @@ private:
 	
 	void _action_estimate_anisotropy();
 	
+	void _action_estimate_connectivity_density();
+
+	void _action_estimate_trabecular_number();
+
 	void _action_estimate_pore_network();
 
 	void _action_generate_scaffold();

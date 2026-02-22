@@ -529,12 +529,11 @@ void run_voro(
 
 	// estimate connectivity from the graph
 	double connectivity = graph->find_longest_network_new();
-	out.connectivity = connectivity / seeds.size();
+	//out.connectivity = connectivity / seeds.size();
 };
 
 void save_csv(
 	const std::string fileName,
-	const std::vector<SimInput>& inputs,
 	const std::vector<SimOutput>& outputs,
 	const SamplingType& t) {
 
@@ -547,7 +546,7 @@ void save_csv(
 		fout << "SeedDensity,Thickness,PullbackRatio,Porosity,Connectivity\n";
 		break;
 	case uniform:
-		fout << "Radius,Thickness,PullbackRatio,Porosity,Connectivity\n";
+		fout << "Id,Thickness,MinRadius,MaxRadius,Openess,Porosity,Volume,TotalSurface,SurfaceToVolume,Connectivity Density, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy\n";
 		break;
 	case varied:
 		fout << "MinRadius,MaxRadius,Thickness,PullbackRatio,Porosity,Connectivity\n";
@@ -555,22 +554,57 @@ void save_csv(
 	}
 
 	// Values
-	for (size_t i = 0; i < inputs.size(); i++) {
+	for (size_t i = 0; i < outputs.size(); i++) {
 		switch (t) {
 		case random:
-			// ADDED COMMAS HERE
-			fout << inputs[i].p1 << "," << inputs[i].thickness << "," << inputs[i].pullbackRatio << ","
-				<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
+			//fout << inputs[i].p1 << "," << inputs[i].thickness << "," << inputs[i].pullbackRatio << ","
+			//	<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
 			break;
 		case uniform:
-			fout << inputs[i].p1 << "," << inputs[i].thickness << "," << inputs[i].pullbackRatio << ","
-				<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
+			fout << outputs[i].id << "," << outputs[i].thickness << "," << outputs[i].minRadius << ","
+				<< outputs[i].maxRadius << "," << outputs[i].openess << "," << outputs[i].porosity << "," << outputs[i].volume << "," << outputs[i].totalSurface << "," << outputs[i].surfaceToVolume << "," << outputs[i].connectivityDenisty << "," << outputs[i].localThickness << "," << outputs[i].localThicknessStd << "," << outputs[i].localSeparation << "," << outputs[i].localSeparationStd << "," << outputs[i].trabecularNr << "," << outputs[i].anisotropy << "\n";
 			break;
 		case varied:
-			fout << inputs[i].p1 << "," << inputs[i].p2 << "," << inputs[i].thickness << "," << inputs[i].pullbackRatio << ","
-				<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
+			//fout << inputs[i].p1 << "," << inputs[i].p2 << "," << inputs[i].thickness << "," << inputs[i].pullbackRatio << ","
+			//	<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
 			break;
 		}
 	}
 	fout.close();
+};
+
+std::vector<std::vector<float>> read_csv(const std::string& fileName) {
+
+	std::vector<std::vector<float>> data;
+
+	std::ifstream file(fileName);
+
+	if (!file.is_open()) {
+		std::cerr << "Failed to open file: " << fileName << std::endl;
+		return data;
+	}
+
+	std::string line;
+
+	// skip first line
+	std::getline(file, line);
+
+	while (std::getline(file, line)) {
+
+		// row contains the values of a single line
+		std::vector<float> row;
+		std::stringstream ss(line);
+		std::string cell;
+
+		 //skip first cell which is the id
+		//std::getline(ss, cell, ';');
+
+		while (std::getline(ss, cell, ',')) {
+			row.push_back(std::stof(cell));
+		}
+
+		data.push_back(row);
+	}
+	file.close();
+	return data;
 };

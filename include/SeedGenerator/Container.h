@@ -61,19 +61,22 @@ public:
 	void gui_setup() override {
 		
 		ImGui::SetNextItemWidth(200);
-		ImGui::SetItemTooltip("Dimension of Scaffold Along X (mm)");
 		ImGui::InputFloat("x Min (mm)", &xMin, 0.1f, 100.0f, "%.3f");
+		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat("x Max (mm)", &xMax, 0.1f, 100.0f, "%.3f");
+		ImGui::SetItemTooltip("Dimension of Scaffold Along X (mm)");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::SetItemTooltip("Dimension of Scaffold Along Y (mm)");
 		ImGui::InputFloat("y Min (mm)", &yMin, 0.1f, 100.0f, "%.3f");
+		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat("y Max (mm)", &yMax, 0.1f, 100.0f, "%.3f");
+		ImGui::SetItemTooltip("Dimension of Scaffold Along Y (mm)");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::SetItemTooltip("Dimension of Scaffold Along Z (mm)");
 		ImGui::InputFloat("z Min (mm)", &zMin, 0.1f, 100.0f, "%.3f");
+		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat("z Max (mm)", &zMax, 0.1f, 100.0f, "%.3f");
+		ImGui::SetItemTooltip("Dimension of Scaffold Along Z (mm)");
 
 		if (ImGui::Button("Update")) {
 			Bounds bds = compute_bounds();
@@ -133,7 +136,7 @@ public:
 	CylinderContainer() {};
 	~CylinderContainer() {};
 
-	CylinderContainer(const float r, const float h) :cylinderRadius(r), cylinderHeight(h){
+	CylinderContainer(const float r, const float h) : cylinderRadius(r), cylinderHeight(h){
 	
 		// create the sdf
 		sdf = std::make_shared<CylinderSDF>(cylinderRadius, cylinderHeight, Vec3(0.0f, cylinderHeight * 0.5f, 0.0f));

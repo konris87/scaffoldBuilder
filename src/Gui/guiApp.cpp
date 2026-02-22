@@ -253,7 +253,7 @@ void myGUI::_init_opengl() {
 	lineY = std::make_unique<LineModel>(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
 	lineZ = std::make_unique<LineModel>(Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, 1.0f));
 
-	_draw_axes_lines();
+	//_draw_axes_lines();
 
 	frameShader.use();
 	uniManager.add_uniform(frameShader, "projection");
@@ -294,6 +294,8 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/tortuosity.png", &tortuosityTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/anisotropy.png", &anisotropyTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/network.png", &poreNetworkTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/trabecularNumber.png", &trabecularNumberTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/connectivityDensity.png", &connectivityDensityTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/update.png", &updateScaffoldTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/translate.png", &translateTexture, &dummyW, &dummyH);
 };
@@ -423,6 +425,7 @@ void myGUI::run() {
 			view = trackCamera->get_view_matrix();
 			model = model;
 		}
+
 		// pass the standard values to the mesh shader
 		scaffoldShader.use();
 		// pass light
@@ -601,9 +604,9 @@ void myGUI::run() {
 			}
 		}
 
-		_draw_selected_box();
-
 		_draw_axes_lines();
+
+		_draw_selected_box();
 
 		// ----------------------------------------------------------------------------
 		// Pass 2, draw transparent objects
@@ -654,6 +657,11 @@ void myGUI::run() {
 			scaffolds.clear();
 			containers.clear();
 			seedGenerators.clear();
+			selectedPanelObj.ptr = nullptr;
+			selectedPanelObj.type = ObjectType::NoneType;
+			selectedSceneObj = nullptr;
+			box.reset();
+			_reset_camera();
 		}
 
 		// update for next frame
@@ -767,7 +775,18 @@ void myGUI::_render_toolbar() {
 			"Measure Porosity Network", estimatePoreNetwork,
 			"Create a graph that visualizes the connectivity network and estimates the percentage of interconneted seeds.", poreNetworkTexture
 		);
+		ImGui::SameLine();
 
+		create_single_button_textured(
+			"Estimate Connectivity Density", estimateConnectivityDensity,
+			"Estimate connectivity density of the active scaffold.", connectivityDensityTexture
+		);
+		ImGui::SameLine();
+
+		create_single_button_textured(
+			"Estimate Trabecular Numner", estimateTrabecularNr,
+			"Estimate trabecular number of the active scaffold.", trabecularNumberTexture
+		);
 		ImGui::SameLine();
 
 		ImGui::TableNextColumn();
@@ -912,6 +931,7 @@ void myGUI::_render_object_list() {
 						selectedSceneObj = nullptr;
 						selectedPanelObj.ptr = nullptr;
 						selectedPanelObj.type = ObjectType::NoneType;
+						ImGui::PopID();
 						ImGui::EndPopup();
 						break;
 					}
@@ -1218,6 +1238,15 @@ void myGUI::_update_cameras(IContainer& con) {
 	cameraUpdate = false;
 }
 
+void myGUI::_reset_camera() {
+	cameraUpdate = true;
+	trackCamera->reset();
+	trackCamera->update();
+	projection = trackCamera->get_projection_matrix();
+	view = trackCamera->get_view_matrix();
+	cameraUpdate = false;
+};
+
 void myGUI::_render_mesh_settings() {
 
 	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -1273,6 +1302,7 @@ void myGUI::_render_algorithm_settings() {
 		{
 			ImGui::BeginChild("LeftPanel", ImVec2(ImGui::GetContentRegionAvail().x * 0.3f, 300), ImGuiChildFlags_Borders);
 			if (ImGui::Selectable("Anisotropy Settings", picked == 0)) picked = 0;
+			if (ImGui::Selectable("Tortuosity Settings", picked == 1)) picked = 1;
 			ImGui::EndChild();
 		}
 		ImGui::SameLine();
@@ -1290,6 +1320,16 @@ void myGUI::_render_algorithm_settings() {
 					ImGui::InputInt("Max Steps", &daMaxsteps);
 					ImGui::InputInt("Direction Number", &daDirectionNr);
 					ImGui::InputFloat("Tolerance", &daTolerance);
+					ImGui::RadioButton("MaxRadius/MinRadius", &daFormulaIdx, 0);
+					ImGui::RadioButton("1 - (MaxRadius/MinRadius)", &daFormulaIdx, 1);
+					ImGui::RadioButton("MaxEigValue/MinEigValue", &daFormulaIdx, 2);
+					ImGui::RadioButton("1 - MaxEigValue/MinEigValue", &daFormulaIdx, 3);
+				}
+
+
+				if (picked == 1) {
+					ImGui::Text("Tortuosity Algorithm Settings");
+					ImGui::InputFloat("Tolerance", &tortuosityVoxelSize);
 				}
 
 				ImGui::EndChild();
@@ -1569,6 +1609,14 @@ void myGUI::_render_main_menu_bar() {
 		_action_estimate_anisotropy();
 	}
 
+	if (estimateConnectivityDensity) {
+		_action_estimate_connectivity_density();
+	}
+	
+	if (estimateTrabecularNr) {
+		_action_estimate_trabecular_number();
+	}
+
 	if (estimatePoreNetwork) {
 		_action_estimate_pore_network();
 	}
@@ -1828,7 +1876,7 @@ void myGUI::_render_cylinder_container_creator(const char* popupName, bool& show
 
 			containers.push_back(std::move(cyl));
 
-			selectedPanelObj.ptr = &containers.back();
+			selectedPanelObj.ptr = containers.back().get();
 			selectedPanelObj.type = ObjectType::CylinderContainerType;
 			buffer[0] = '\0';
 
@@ -2454,7 +2502,10 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 		static InterfaceSeedGenerator* selectedGen = nullptr;
 		static char buffer[256] = "";
 		static float tempThickness = { 0.3f };
-		static float tempOpeness = {0.5f};
+		static float tempOpeness = { 0.5f };
+		static float tempStretchX = { 1.0f };
+		static float tempStretchY = { 1.0f };
+		static float tempStretchZ = { 1.0f };
 		static int foam = 0;
 
 		ImGui::InputText("Name", buffer, sizeof(buffer));
@@ -2462,6 +2513,9 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 		ImGui::SeparatorText("Parameters");
 		ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
 		ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
+		ImGui::InputFloat("Stretch X", &tempStretchX, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Stretch Y", &tempStretchY, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Stretch Z", &tempStretchZ, 0.01f, 5.0f, "%.3f");
 		
 		ImGui::RadioButton("Porous", &foam, 0);
 		ImGui::RadioButton("Foam", &foam, 1);
@@ -2577,6 +2631,7 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 				);
 
 				// estimate the scalar field
+				scaffold->set_stretch(tempStretchX, tempStretchY, tempStretchZ);
 				scaffold->compute_scalar_field(*selectedCon);
 
 				scaffold->container = selectedCon;
@@ -2692,6 +2747,7 @@ void myGUI::_render_scaffold_properties() {
 				bds.zMax
 			};
 
+			gen->tortuosityPathModel.reset();
 			gen->set_bounds(bounds);
 			gen->set_seeds(seeds);
 			gen->container = selectedContainer;
@@ -2926,9 +2982,33 @@ void myGUI::_action_estimate_tortuosity() {
 	// get the scaffold
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
+	bool flag = false;
+
 	if (scaffold) {
-		scaffold->estimate_tortuosity();
+		auto start = std::chrono::high_resolution_clock::now();
+
+		flag = scaffold->estimate_tortuosity(tortuosityVoxelSize);
+		
+		auto end = std::chrono::high_resolution_clock::now();
+
+		auto duration_ms = std::chrono::duration_cast<std::chrono::seconds>(end - start);
+
+		std::ostringstream oss;
+		oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+			<< duration_ms.count()   // Convert ms to seconds
+			<< " seconds!";
+		if (flag) {
+			add_log(
+				LogPriority::SUCCESS, "Estimated tortuosity in " + oss.str());
+		}
+		else {
+			add_log(
+				LogPriority::ERROR, "Error in estimating tortuosity!");
+		}
+		
 	}
+	
+
 
 	estimateTortuosity = false;
 };
@@ -2948,11 +3028,55 @@ void myGUI::_action_estimate_anisotropy() {
 
 
 	if (scaffold) {
-		scaffold->estimate_anisotropy(daDirectionNr, daMinsteps, daMaxsteps, daTolerance);
+		scaffold->estimate_anisotropy(daDirectionNr, daMinsteps, daMaxsteps, daTolerance, daFormulaIdx);
 	}
 
 	estimateAnisotropy = false;
 };
+
+void myGUI::_action_estimate_connectivity_density() {
+
+	// get the selected scaffold
+	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		return;
+	}
+
+	// get the scaffold
+	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+	// pass settings
+
+
+	if (scaffold) {
+		scaffold->estimate_connectivity_density();
+	}
+
+	estimateConnectivityDensity = false;
+};
+
+void myGUI::_action_estimate_trabecular_number() {
+
+	// get the selected scaffold
+	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		return;
+	}
+
+	// get the scaffold
+	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+	// pass settings
+
+
+	if (scaffold) {
+		scaffold->estimate_trabecular_number();
+	}
+
+	estimateTrabecularNr = false;
+};
+
+
 
 void myGUI::_action_estimate_pore_network() {
 
@@ -2963,7 +3087,7 @@ void myGUI::_action_estimate_pore_network() {
 	}
 
 	// get the scaffold
-	Generator* scaffold = static_cast<Generator*>(selectedPanelObj.ptr);
+	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	if (scaffold) {
 		scaffold->estimate_connectivity_network();
@@ -3041,6 +3165,7 @@ void myGUI::_draw_axes_lines() {
 	float infinity = 10000.0f;
 
 	glDisable(GL_DEPTH_CLAMP);
+	glDepthFunc(GL_LEQUAL);
 	glLineWidth(0.5f);
 	lineShader.use();
 	uniManager.setUniform(lineShader, "projection", projection);

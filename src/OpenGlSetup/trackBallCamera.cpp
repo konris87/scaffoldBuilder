@@ -51,6 +51,26 @@ TrackBall::TrackBall(GLFWwindow* window, float radius, int viewportWidth, int vi
     rotMatrix[2][2] = direction.z;
 };
 
+void TrackBall::reset() {
+    isMiddleDragging = false;
+    isRightDragging = false;
+    isLeftDragging = false;
+    lastMouseX = 0.0; lastMouseY = 0.0;
+
+    lastZoomY = 0.0;
+
+    prevQuat = Quaternion();
+    quat = Quaternion();
+    mouseRotX = 0.0; mouseRotY = 0.0;
+    lastRotX = 0.0; lastRotY = 0.0;
+    rotMatrix = glm::mat4(1.0f);
+    translationMatrix = glm::mat4(1.0f);
+    position = glm::vec3(0.0f, 0.0f, 10.0f);
+    target = glm::vec3(0.0f, 0.0f, 0.0f);
+    viewMatrix = glm::mat4(1.0f);
+
+};
+
 void TrackBall::update() {
 
     static double lastTime = glfwGetTime();
