@@ -2,16 +2,16 @@
 #define WALL_H
 
 #include <voro++.hh>
-#include <vtkPolyData.h>
-#include <vtkSmartPointer.h>
-#include <vtkPolyData.h>
-#include <vtkTriangle.h>
-#include <vtkKdTreePointLocator.h>
+//#include <vtkPolyData.h>
+//#include <vtkSmartPointer.h>
+//#include <vtkPolyData.h>
+//#include <vtkTriangle.h>
+//#include <vtkKdTreePointLocator.h>
 #include "Eigen/Dense"
 
 using namespace voro;
 
-class MeshWall : public voro::wall {
+/*class MeshWall : public voro::wall {
 private:
     std::vector<std::array<double, 3>> barycenters;
     std::vector<std::array<double, 3>> normals;
@@ -108,5 +108,5 @@ public:
         return cut_cell_base(c, x, y, z);
     }
 };
-
+*/
 #endif

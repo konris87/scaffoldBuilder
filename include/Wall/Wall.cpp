@@ -1,8 +1,8 @@
 #include "Wall.h"
 #include "Utils/Utils.h"
-#include <vtkTriangle.h>
+//#include <vtkTriangle.h>
 
-MeshWall::MeshWall(
+/*MeshWall::MeshWall(
 	const vtkSmartPointer<vtkPolyData>& meshData,
 	const std::vector<std::array<double, 3>>& barycenters,
 	const std::vector<std::array<double, 3>>& faceNormals,
@@ -66,7 +66,7 @@ MeshWall::MeshWall(
 		normals.push_back(bc);
 	}
 };
-
+*/
 /**
 * Check if a point is inside the Mesh. A random ray is casted and the number 
 * of intersections with the triangles of the mesh is estimated
@@ -82,6 +82,7 @@ MeshWall::MeshWall(
 * It uses the algorithm: https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
 * 
 */
+/*
 bool MeshWall::isInside(Eigen::Vector3d& point){
 
 	Eigen::Vector3d rayDir(1.0, 0.0, 0.0);
@@ -118,3 +119,4 @@ bool MeshWall::point_inside(double x, double y, double z) {
 
 	return isInside(p);
 }
+*/

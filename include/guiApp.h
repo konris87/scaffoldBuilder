@@ -384,8 +384,6 @@ private:
 
 	void _render_menu_bar();
 
-	void _update_cameras();
-
 	void _update_cameras(IContainer& container);
 
 	void _reset_camera();

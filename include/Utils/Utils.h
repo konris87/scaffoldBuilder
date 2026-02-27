@@ -38,8 +38,9 @@ struct PolygonWidth {
 };
 
 struct Triangle {
-	Vec3 normal;
 	Vec3 v1, v2, v3;
+	unsigned int i1, i2, i3;
+	Vec3 normal;
 };
 
 struct Aabb {

@@ -6,12 +6,6 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <vector>
 #include <array>
-#include <vtkSmartPointer.h>
-#include <vtkSphereSource.h>
-#include <vtkPolyData.h>
-#include <vtkPoints.h>
-#include <vtkCellArray.h>
-#include <vtkCellArrayIterator.h>
 #include "Math/Vec.h"
 
 class VisualizeSeeds {

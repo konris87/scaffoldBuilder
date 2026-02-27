@@ -2112,13 +2112,12 @@ void GeneratorLewiner::add_edge(int idx1, int idx2, int idx3) {
 void GeneratorLewiner::export_nrrd(const std::string fileName, float voxelSize, std::array<float, 6> blockSize) {
 
 	// get a new field
-	std::vector<uint8_t> field = get_image_field(voxelSize, blockSize);
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockSize, false, 255);
 
-	// 1. Calculate required Grid Dimensions
-	// We want voxels to be 'desiredVoxelSize' (e.g. 0.03 mm)
-	int nx = static_cast<int>((blockSize[1] - blockSize[0]) / voxelSize);
-	int ny = static_cast<int>((blockSize[3] - blockSize[2]) / voxelSize);
-	int nz = static_cast<int>((blockSize[5] - blockSize[4]) / voxelSize);
+	// Calculate required Grid Dimensions in the same way as the get_image_field function
+	int nx = static_cast<int>(std::ceil((blockSize[1] - blockSize[0]) / voxelSize));
+	int ny = static_cast<int>(std::ceil((blockSize[3] - blockSize[2]) / voxelSize));
+	int nz = static_cast<int>(std::ceil((blockSize[5] - blockSize[4]) / voxelSize));
 
 	std::cout << "Starting High-Res Export..." << std::endl;
 	std::cout << "Physical Box: " << (blockSize[1] - blockSize[0]) << " mm" << std::endl;
@@ -2160,16 +2159,12 @@ void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, 
 	// We need just the filename for the header (no full path)
 	std::string rawBaseName = std::filesystem::path(rawFileName).filename().string();
 
-	// 2. Get Data (Reuse the helper!)
-	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds);
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds, false, 255);
 
-	float sizeX = blockBounds[1] - blockBounds[0];
-	float sizeY = blockBounds[3] - blockBounds[2];
-	float sizeZ = blockBounds[5] - blockBounds[4];
-
-	int nx = (int)std::ceil(sizeX / voxelSize);
-	int ny = (int)std::ceil(sizeY / voxelSize);
-	int nz = (int)std::ceil(sizeZ / voxelSize);
+	// Calculate required Grid Dimensions in the same way as the get_image_field function
+	int nx = static_cast<int>(std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize));
+	int ny = static_cast<int>(std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize));
+	int nz = static_cast<int>(std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize));
 
 	std::ofstream rawFile(rawFileName, std::ios::binary);
 	if (!rawFile) {
@@ -2443,13 +2438,28 @@ Aabb GeneratorLewiner::get_aabb() const { return aabb; };
 void GeneratorLewiner::estimate_local_thickness(
 	float voxelSize, std::array<float, 6>& blockBounds, bool separation) {
 
+	// we should ensure that the inserted blockbounds are clipped inside the aligned bounding box
+	blockBounds[0] = std::max(blockBounds[0], aabb.pMin.x); // Min X
+	blockBounds[1] = std::min(blockBounds[1], aabb.pMax.x); // Max X
+	blockBounds[2] = std::max(blockBounds[2], aabb.pMin.y); // Min Y
+	blockBounds[3] = std::min(blockBounds[3], aabb.pMax.y); // Max Y
+	blockBounds[4] = std::max(blockBounds[4], aabb.pMin.z); // Min Z
+	blockBounds[5] = std::min(blockBounds[5], aabb.pMax.z); // Max Z
+
+	if (blockBounds[0] >= blockBounds[1] ||
+		blockBounds[2] >= blockBounds[3] ||
+		blockBounds[4] >= blockBounds[5]) {
+		std::cerr << "Error: The requested bounds do not overlap with the mesh AABB." << std::endl;
+		return; // Abort early to prevent voxel creation crashes
+	}
+
 	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds, separation);
 
-	int nx = (int)std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize);
-	int ny = (int)std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize);
-	int nz = (int)std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize);
+	// estimate new block dimensions
+	int nx = static_cast<int>(std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize));
+	int ny = static_cast<int>(std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize));
+	int nz = static_cast<int>(std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize));
 
-	//int totalVoxels = nx * ny * nz;
 	int totalVoxels = (int)field.size();
 
 	// initialize all values to infinity
@@ -2465,10 +2475,7 @@ void GeneratorLewiner::estimate_local_thickness(
 	// initialize to zero the empty voxels
 	#pragma omp parallel for
 	for (int i{ 0 }; i < totalVoxels; i++) {
-		// for measuring thickness set to zero the empty space voxels
-		//if (scalarField[i] >= isoLevel) {
-		//	squaredDistanceField[i] = 0.0f;
-		//}
+
 		if (field[i] == 0) squaredDistanceField[i] = 0.0f;
 	}
 
@@ -2752,7 +2759,7 @@ void GeneratorLewiner::estimate_local_thickness(
 //@Function to get a subregion of the created mesh to compute the image metrics, we also should add
 // an origin (e.g. the centroid).
 std::vector<uint8_t> GeneratorLewiner::get_image_field(
-	float voxelSize, std::array<float, 6>& blockBounds, bool inverse) {
+	float voxelSize, std::array<float, 6>& blockBounds, bool inverse, uint8_t solidValue) {
 
 	float sizeX = blockBounds[1] - blockBounds[0];
 	float sizeY = blockBounds[3] - blockBounds[2];
@@ -2844,7 +2851,7 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 			isSolid = !isSolid;
 		}
 
-		field[idx] = isSolid ? 1 : 0;
+		field[idx] = isSolid ? solidValue : 0;
 	}
 
 	return field;
@@ -2868,7 +2875,7 @@ bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
 	};
 
 	// interpolate the scalar field
-	std::vector<uint8_t> field = get_image_field(voxelSize, aabbBounds);
+	std::vector<uint8_t> field = get_image_field(voxelSize, aabbBounds, 1);
 
 	// estimate new block dimensions
 	int nx = static_cast<int>(std::ceil((aabbBounds[1] - aabbBounds[0]) / voxelSize));
@@ -3175,16 +3182,13 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, in
 
 		}
 		else if (mode == 1) {
-			//currentDa = (Lmax > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
 			currentDa = (Lmax > 1e-6) ? (1.0f - (Lmax / Lmin)) : 0.0f;
 		}	
 		else if (mode == 2) {
-			//currentDa = (Lmax > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
-			currentDa = (Lmax > 1e-6) ? (lambdaMax / lambdaMin) : 0.0f;
+			currentDa = (lambdaMin > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
 		}
 		else if (mode == 3) {
-			//currentDa = (Lmax > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
-			currentDa = (Lmax > 1e-6) ? (1.0f - (lambdaMax / lambdaMin)) : 0.0f;
+			currentDa = (lambdaMin > 1e-6) ? (1.0f - (lambdaMin / lambdaMax)) : 0.0f;
 		}
 
 		// push back to the da estimated so far
@@ -3337,11 +3341,22 @@ void GeneratorLewiner::estimate_trabecular_number() {
 
 void GeneratorLewiner::estimate_connectivity_density() {
 
+	// ensure that edgeset is actually added
+	if (edgeSet.empty()) {
+		// use the triangles to add edges
+		for (const auto& tri : meshTriangles) {
+			add_edge(tri.v1, tri.v2, tri.v3);
+		}
+	}
+
 	// we can also estimate the connectivity density since we have also the mesh
 	long long V = meshVertices.size();
 	long long F = meshTriangles.size();
 	long long E = edgeSet.size();
 	long long eulerCharacteristic = V - E + F;
+
+	std::cout << eulerCharacteristic << std::endl;
+	std::cout << domainVolume << std::endl;
 
 	// estimate the genus
 	float genus = 1.0f - (static_cast<float>(eulerCharacteristic) / 2.0f);

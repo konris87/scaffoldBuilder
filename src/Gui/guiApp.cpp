@@ -284,7 +284,7 @@ void myGUI::_init_opengl() {
 	int dummyW = 0, dummyH = 0;
 	load_texture_from_file("./share/textures/boxContainer.png", &boxContainerTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/cylinderContainer.png", &cylinderContainerTexture, &dummyW, &dummyH);
-	//load_texture_from_file("./share/textures/abstractContainer.png", &abstractContainerTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/abstractContainer.png", &abstractContainerTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/randomSeeds.png", &randomSeedTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/uniformSeeds.png", &uniformSeedTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/variedSeeds.png", &variedSeedTexture, &dummyW, &dummyH);
@@ -558,12 +558,28 @@ void myGUI::run() {
 
 		// containers
 		for (const auto& con : containers) {
-			if (con && !con->hidden) {
-				boxShader.use();
-				uniManager.setUniform(boxShader, "projection", projection);
-				uniManager.setUniform(boxShader, "view", view);
-				uniManager.setUniform(boxShader, "model", model);
-				con->render();
+			if (con->get_type() == ObjectType::AbstractContainerType) {
+				if (con && !con->hidden && con->color[3] == 1.0f) {
+					scaffoldShader.use();
+					uniManager.setUniform(scaffoldShader, "projection", projection);
+					uniManager.setUniform(scaffoldShader, "view", view);
+					uniManager.setUniform(scaffoldShader, "model", model);
+					uniManager.setUniform(scaffoldShader, "cutPlane", 0);
+					uniManager.setUniform(
+						scaffoldShader,
+						"objectColor",
+						con->color[0], con->color[1], con->color[2], con->color[3]);
+					con->render();
+				}
+			}
+			else {
+				if (con && !con->hidden) {
+					boxShader.use();
+					uniManager.setUniform(boxShader, "projection", projection);
+					uniManager.setUniform(boxShader, "view", view);
+					uniManager.setUniform(boxShader, "model", model);
+					con->render();
+				}
 			}
 		}
 
@@ -646,6 +662,23 @@ void myGUI::run() {
 			glDisable(GL_CULL_FACE);
 			cutPlane->draw();
 			glEnable(GL_CULL_FACE);
+		}
+
+		for (const auto& con : containers) {
+			if (con->get_type() == ObjectType::AbstractContainerType) {
+				if (con && !con->hidden && con->color[3] < 1.0f) {
+					scaffoldShader.use();
+					uniManager.setUniform(scaffoldShader, "projection", projection);
+					uniManager.setUniform(scaffoldShader, "view", view);
+					uniManager.setUniform(scaffoldShader, "model", model);
+					uniManager.setUniform(scaffoldShader, "cutPlane", 0);
+					uniManager.setUniform(
+						scaffoldShader,
+						"objectColor",
+						con->color[0], con->color[1], con->color[2], con->color[3]);
+					con->render();
+				}
+			}
 		}
 
 		io = ImGui::GetIO();
@@ -734,8 +767,14 @@ void myGUI::_render_toolbar() {
 
 		create_single_button_textured(
 			"Create Cylinder Container", showCylinderContainerCreator, "Create a cylinder container", cylinderContainerTexture);
+
 		ImGui::SameLine();
 
+		create_single_button_textured(
+			"Create Abstract Container", showAbstractContainerCreator, "Create an abstract container loading an .stl file.", abstractContainerTexture);
+
+		ImGui::SameLine();
+		
 		ImGui::TableNextColumn();
 		create_single_button_textured(
 			"Create Random Seed Generator", showRandomSeedCreator, "create random seeds inside a container", randomSeedTexture);
@@ -855,6 +894,33 @@ void myGUI::_render_settings_panel() {
 				add_log(LogPriority::SUCCESS, "Exported scaffold mesh to " + scaffoldFilePath);
 
 			}
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
+	maxSize = ImVec2(width, height);
+	minSize = ImVec2(500.0f, 500.0f);
+	if (ImGuiFileDialog::Instance()->Display("Load Container", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { 
+
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+			
+			// create a container object
+			std::unique_ptr<AbstractContainer> con = std::make_unique<AbstractContainer>(filePath);
+
+			con->name = fileName;
+			con->hidden = false;
+			con->color[3] = 0.1f;
+			_update_cameras(*con);
+
+			// push it
+			containers.push_back(std::move(con));
+
+			selectedPanelObj.ptr = containers.back().get();
+			selectedPanelObj.type = ObjectType::AbstractContainerType;
+
+			showAbstractContainerCreator = false;
 		}
 		ImGuiFileDialog::Instance()->Close();
 	}
@@ -985,10 +1051,14 @@ void myGUI::_render_properties_panel() {
 				box->gui_setup();
 				break;
 			}
-
 			case ObjectType::CylinderContainerType: {
 				CylinderContainer* cyl = static_cast<CylinderContainer*>(selectedPanelObj.ptr);
 				cyl->gui_setup();
+				break;
+			}
+			case ObjectType::AbstractContainerType: {
+				AbstractContainer* con = static_cast<AbstractContainer*>(selectedPanelObj.ptr);
+				con->gui_setup();
 				break;
 			}
 			case ObjectType::RandomGeneratorType:{
@@ -1575,6 +1645,12 @@ void myGUI::_render_main_menu_bar() {
 
 	if (showCylinderContainerCreator) {
 		_render_cylinder_container_creator("Cylindrical Container Creator", showCylinderContainerCreator);
+	}
+
+	if (showAbstractContainerCreator) {
+		IGFD::FileDialogConfig config;
+		config.path = "../data";
+		ImGuiFileDialog::Instance()->OpenDialog("Load Container", "Load Container Geometry", ".stl", config);
 	}
 
 	if (showRandomSeedCreator) {
@@ -2788,7 +2864,6 @@ void myGUI::_render_visualizer() {
 	ImVec2 availableSize = ImGui::GetContentRegionAvail();
 	ImVec2 pos = ImGui::GetCursorScreenPos();
 
-	// --- RESIZE LOGIC ---
 	if ((int)availableSize.x != framebuffer.width || (int)availableSize.y != framebuffer.height) {
 		framebuffer.width = (int)availableSize.x;
 		framebuffer.height = (int)availableSize.y;
@@ -2802,64 +2877,6 @@ void myGUI::_render_visualizer() {
 
 	// Render the main scene texture
 	ImGui::Image((ImTextureID)(intptr_t)framebuffer.textureId, availableSize, ImVec2(0, 1), ImVec2(1, 0));
-
-	//// --- SCALABLE BOTTOM-RIGHT OVERLAY ---
-	//if (scaffoldModel && showScaffold) {
-
-	//	// 1. Configuration
-	//	float padding = 15.0f;           // Distance from the edge of the viewport
-	//	float widthPct = 0.15f;          // Width is 25% of viewport
-	//	float heightPct = 0.20f;         // Height is 28% of viewport
-
-	//	// 2. Calculate Anchor Point (Bottom-Right of the visualizer area)
-	//	ImVec2 bottomRightAnchor;
-	//	bottomRightAnchor.x = pos.x + availableSize.x - padding;
-	//	bottomRightAnchor.y = pos.y + availableSize.y - padding;
-
-	//	// 3. Calculate Size
-	//	ImVec2 overlaySize = ImVec2(availableSize.x * widthPct, availableSize.y * heightPct);
-
-	//	// 4. Calculate Font Scale (Based on height, reference 1000px)
-	//	float fontScale = availableSize.y / 1000.0f;
-	//	if (fontScale < 0.6f) fontScale = 0.6f; // Minimum readable size
-	//	if (fontScale > 2.0f) fontScale = 2.0f; // Max size cap
-
-	//	// 5. Set Window Properties
-	//	ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration |
-	//		ImGuiWindowFlags_NoDocking |
-	//		ImGuiWindowFlags_NoSavedSettings |
-	//		ImGuiWindowFlags_NoFocusOnAppearing |
-	//		ImGuiWindowFlags_NoNav |
-	//		ImGuiWindowFlags_NoMove |
-	//		ImGuiWindowFlags_NoInputs; // Optional: Click-through
-
-	//	// PIVOT MAGIC: (1.0f, 1.0f) means the coordinates provided are the Bottom-Right corner
-	//	ImGui::SetNextWindowPos(bottomRightAnchor, ImGuiCond_Always, ImVec2(1.0f, 1.0f));
-	//	ImGui::SetNextWindowSize(overlaySize, ImGuiCond_Always);
-	//	ImGui::SetNextWindowBgAlpha(0.45f); // Slightly darker for readability
-
-	//	if (ImGui::Begin("Mesh Properties", nullptr, window_flags))
-	//	{
-	//		ImGui::SetWindowFontScale(fontScale);
-
-	//		ImGui::Text("Mesh Details");
-	//		ImGui::Separator();
-
-	//		// Use WrapPos to prevent text spilling if window gets narrow
-	//		ImGui::PushTextWrapPos(ImGui::GetContentRegionAvail().x);
-
-	//		ImGui::Text("Name: %s", scaffoldFileName.c_str());
-	//		ImGui::Text("Vertices: %d", vertexNr);
-	//		ImGui::Text("Faces: %d", faceNr);
-	//		ImGui::Text("Vol: %.3f", scaffoldVolume);
-	//		ImGui::Text("Porosity: %.3f", scaffoldPorosity);
-	//		ImGui::Text("Conn: %.3f", scaffoldConnectivity);
-
-	//		ImGui::PopTextWrapPos();
-	//		ImGui::SetWindowFontScale(1.0f); // Reset scale
-	//		ImGui::End();
-	//	}
-	//}
 
 	ImGui::End();
 

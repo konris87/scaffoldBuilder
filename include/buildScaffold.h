@@ -4,12 +4,12 @@
 #include <string>
 #include <vector>
 #include <Eigen/Dense>
-#include <vtkPolyData.h>
-#include <vtkSmartPointer.h>
+//#include <vtkPolyData.h>
+//#include <vtkSmartPointer.h>
 #include <json.hpp>
 
 
-class buildScaffold{
+/*class buildScaffold {
 public:	
 
 	std::vector<vtkSmartPointer<vtkPolyData>> polys;
@@ -61,5 +61,5 @@ private:
 	std::function<void(const std::string&)> log_callback;
 };
 
-
+*/
 #endif

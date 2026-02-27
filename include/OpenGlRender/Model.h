@@ -12,32 +12,34 @@
 #include "Math/Quaternion.h"
 #include "Math/Vec.h"
 
+class Model {
 
-//class Model {
-//	
-//public:
-//
-//	unsigned int VAO{ 0 }, edgeVAO{ 0 };
-//
-//	Model() {};
-//	~Model() {};
-//
-//	Model(std::string& modelFile); 
-//
-//	void draw();
-//
-//	void draw_edges();
-//
-//	void clean();
-//
-//	double xMin{ 0.0 }, xMax{ 0.0 }, yMin{ 0.0 }, yMax{ 0.0 }, zMin{ 0.0 }, zMax{ 0.0 };
-//
-//	void get_details(int& faceNr, int& vertexNr, int& edgeNr, double& vol, double& por);
-//
+public:
+
+	unsigned int VAO{ 0 }, edgeVAO{ 0 };
+
+	Model() { setup(); };
+	~Model() { clean(); };
+
+	Model(const std::vector<float>& vertices, const std::vector<unsigned int>& indices, const std::vector<float>& normals);
+
+	void draw();
+
+private:
+
+	std::vector<float> vertices;
+	std::vector<unsigned int> indices;
+	std::vector<float> vertexNormals;
+	unsigned int VBO{ 0 }, EBO{ 0 }, normalsVBO{ 0 };
+
+	void clean();
+
+	void setup();
+};
 //private:
 //	vtkSmartPointer<vtkPolyData> polyData;
-//	std::vector<float> vertices;
-//	std::vector<unsigned int> indices;
+	//std::vector<float> vertices;
+	//std::vector<unsigned int> indices;
 //	std::vector<unsigned int> edgeIndices;
 //	std::vector<float> vertexNormals;
 //	unsigned int VBO{ 0 }, EBO{ 0 }, normalsVBO{ 0 };

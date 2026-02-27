@@ -3,13 +3,15 @@
 
 #include <memory>
 #include <array>
+#include <string>
 #include <functional>
 #include <optional>
-#include <OpenGLRender/Model.h>
 #include "Utils/Utils.h"
 #include "DistanceCalculator.h"
 #include "RadiusCalculator.h"
 #include "Math/Vec.h"
+#include <Openstl/core/stl.h>
+#include <OpenGLRender/Model.h>
 
 using Pt = std::array<double, 3>;
 using Inside = std::function<bool(const Pt&)>;
@@ -28,6 +30,7 @@ public:
 	virtual float get_volume() const = 0;
 	//virtual float sdf(const Vec3&) const = 0;
 	std::string name = "";
+	std::array<float, 4> color = {0.5, 0.5f, 0.5f , 1.0f};
 	bool hidden = true;
 	std::shared_ptr<SDF> sdf;
 protected:
@@ -49,7 +52,7 @@ public:
 
 		sdf = std::make_shared<BoxSDF>(bds);
 		
-		create();
+		//create();
 	};
 
 	std::unique_ptr<BBox> model;
@@ -216,6 +219,74 @@ private:
 			return true;
 		}
 	};
+};
+
+class AbstractContainer : public IContainer {
+public:
+	AbstractContainer() {};
+	~AbstractContainer() {};
+
+	//@brief constructor to load an stl mesh using opensstl
+	AbstractContainer(const std::string& fileName);
+
+	void gui_setup() override;
+
+	ObjectType get_type() const override {
+		return ObjectType::AbstractContainerType;
+	}
+
+	float get_volume() const override {
+		// we can use the tetrahedron formula to get the volume
+
+		return 0.0f;
+	};
+
+	void render() override {
+		if (model) {
+			model->draw();
+		}
+	};
+
+private:
+
+	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+
+	// these are for opengl
+	std::vector<float> vertices;
+	std::vector<unsigned int> indices;
+	std::vector<float> vertexNormals;
+	std::vector<unsigned int> edgeIndices;
+	std::vector<Triangle> triangles;
+	std::set<std::pair<unsigned int, unsigned int>> edgeSet;
+	std::vector<std::vector<unsigned int>> adjacency;
+	std::vector<std::vector<unsigned int>> faceAdjacency;
+	std::unique_ptr<Model> model;
+
+	// functions
+	void create() override {
+
+		model = std::make_unique<Model>(vertices, indices, vertexNormals);
+	};
+
+	Bounds compute_bounds() const override {
+		
+		// find the box center 
+		Vec3 center = {
+			(bounds[1] + bounds[0]) * 0.5f,
+			(bounds[3] + bounds[2]) * 0.5f,
+			(bounds[5] + bounds[4]) * 0.5f };
+
+		return { bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5], center };
+	};
+
+	bool is_inside(const Vec3& pt) const override {
+		return false;
+	};
+
+	std::shared_ptr<const SDF> get_distance_estimator() const override {
+		return sdf;
+	};
+
 };
 
 

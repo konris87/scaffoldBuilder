@@ -8,41 +8,41 @@ set(CMAKE_CXX_STANDARD 17)
 
 # --------------------------
 # VTK
-find_package(VTK COMPONENTS 
-  AcceleratorsVTKmCore
-  AcceleratorsVTKmFilters
-  CommonColor
-  CommonCore
-  CommonDataModel
-  CommonTransforms
-  FiltersGeneral
-  FiltersSources
-  FiltersCore
-  FiltersSources
-  FiltersParallel
-  FiltersGeometry
-  FiltersHybrid
-  FiltersModeling
-  FiltersPoints
-  IOGeometry
-  IOImage
-  IOCore
-  IOLegacy
-  IOXML
-  InteractionStyle
-  RenderingAnnotation
-  RenderingContextOpenGL2
-  RenderingCore
-  RenderingFreeType
-  RenderingGL2PSOpenGL2
-  RenderingOpenGL2
-  RenderingLabel
-  ImagingStencil
-)
+# find_package(VTK COMPONENTS 
+  # AcceleratorsVTKmCore
+  # AcceleratorsVTKmFilters
+  # CommonColor
+  # CommonCore
+  # CommonDataModel
+  # CommonTransforms
+  # FiltersGeneral
+  # FiltersSources
+  # FiltersCore
+  # FiltersSources
+  # FiltersParallel
+  # FiltersGeometry
+  # FiltersHybrid
+  # FiltersModeling
+  # FiltersPoints
+  # IOGeometry
+  # IOImage
+  # IOCore
+  # IOLegacy
+  # IOXML
+  # InteractionStyle
+  # RenderingAnnotation
+  # RenderingContextOpenGL2
+  # RenderingCore
+  # RenderingFreeType
+  # RenderingGL2PSOpenGL2
+  # RenderingOpenGL2
+  # RenderingLabel
+  # ImagingStencil
+# )
 
-if (NOT VTK_FOUND)
-  message(FATAL_ERROR "${sName}: Unable to find the VTK build folder.")
-endif()
+# if (NOT VTK_FOUND)
+  # message(FATAL_ERROR "${sName}: Unable to find the VTK build folder.")
+# endif()
 
 # Find OpenGL
 find_package(OpenGL REQUIRED)
@@ -90,6 +90,7 @@ set(SOURCES
 	# src/Misc/cell_process.cpp
 	include/Math/Quaternion.cpp
 	include/Math/Vec.cpp
+	include/Math/AabbTree.cpp
 	#src/Visualize/visualize.cpp
 	#src/Visualize/loadMesh.cpp
 	src/OpenGlSetup/simpleCamera.cpp
@@ -102,6 +103,7 @@ set(SOURCES
 	# include/SeedGenerator/Random.cpp
 	# include/SeedGenerator/Poisson3D.cpp
 	# include/ScaffoldGenerator/ScaffoldGenerator.cpp
+	include/SeedGenerator/Container.cpp
 	include/ScaffoldGenerator/Generator.cpp
 	include/ScaffoldGenerator/GeneratorLewiner.cpp
 	include/OpenGlRender/Model.cpp

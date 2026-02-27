@@ -163,7 +163,7 @@ private:
 	void _update_bounding_box();
 
 	std::vector<uint8_t> get_image_field(
-		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false);
+		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false, uint8_t solidValue = 1);
 
 	//-------------------------------
 	// rendering

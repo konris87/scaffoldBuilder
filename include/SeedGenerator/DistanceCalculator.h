@@ -36,6 +36,7 @@ public:
 
 		return dout + din;
 	};
+
 private:
 	float radius = 0.0f;
 	float height = 0.0f;
