@@ -22,7 +22,7 @@ void Random::run(const IContainer& adapter) {
 	}
 
 	if (!seeds.empty()) {
-		//model = std::make_unique<VisualizeSeeds>(seeds);
+		model = std::make_unique<VisualizeSeeds>(seeds);
 	}
 };
 

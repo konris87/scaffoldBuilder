@@ -3068,6 +3068,23 @@ void GeneratorLewiner::draw_tortuosity_path() {
 	}
 };
 
+void GeneratorLewiner::apply_scale() {
+	
+	int vertNr = vertices.size() / 3;
+
+	for (int i{ 0 }; i < vertNr; i++) {
+		vertices[i] *= scaleVec.x;
+		vertices[i + 1] *= scaleVec.y;
+		vertices[i + 2] *= scaleVec.z;
+	}
+
+	glBindVertexArray(VAO); // Optional but good practice to ensure we target correct state
+
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+}
+
 void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode) {
 	
 	// Global tally for MIL

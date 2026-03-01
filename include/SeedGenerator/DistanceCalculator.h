@@ -4,6 +4,8 @@
 #include <array>
 #include <vector>
 #include <Math/Vec.h>
+#include <Math/AabbTree.h>
+#include "Utils/Utils.h"
 
 class SDF {
 public:
@@ -121,112 +123,20 @@ private:
 	Vec3 p{ 0.0f, 0.0f, 0.0f };
 };
 
-//
-//class PlaneDistEstimator : public DistanceEstimator {
-//public:
-	//PlaneDistEstimator() = default;
-	//~PlaneDistEstimator() {};
-//	explicit PlaneDistEstimator(
-//		const std::array<double, 3>& originVec,
-//		const std::array<double, 3>& normalVec) : origin(originVec.data()){
-//
-//		Eigen::Vector3d n(normalVec.data());
-//		const float norm = n.norm();
-//		if (norm == 0.0) {
-//			normal.setZero();
-//			dot = 0.0;
-//		}
-//		else {
-//			normal = n / norm;
-//			dot = normal.dot(Eigen::Vector3d(origin.data()));
-//		}		
-//	};
-//	
-//	float compute_distance(const std::array<double, 3>& point) const override {
-//		return std::abs(normal.dot(Eigen::Vector3d(point.data())) - dot);
-//	};
-//
-//	Vec3 get_normal() const { 
-//		Vec3 vec = {
-//			(float)normal.x(),
-//			(float)normal.y(),
-//			(float)normal.z(),
-//		};
-//		return vec; 
-//	};
-//
-//	Vec3 get_origin() const { 
-//		Vec3 vec = {
-//			(float)origin.x(),
-//			(float)origin.y(),
-//			(float)origin.z(),
-//		};
-//		return vec;
-//	};
-//
-//private:
-//	Eigen::Vector3d normal{0.0, 0.0, 1.0};
-//    Eigen::Vector3d origin;
-//	float dot = { 0.0 };
-//};
-//
-//class MeshDistEstimator : public DistanceEstimator {
-//
-//public:
-//	MeshDistEstimator() {};
-//	~MeshDistEstimator() {};
-//	explicit MeshDistEstimator(
-//		vtkSmartPointer<vtkPolyData> containerMesh) : container(std::move(containerMesh)) {
-//		distanceCalculator = vtkSmartPointer<vtkImplicitPolyDataDistance>::New();
-//		distanceCalculator->SetInput(container);
-//	};
-//
-//	float compute_distance(const std::array<double, 3>& point) const override {
-//		return distanceCalculator->EvaluateFunction((double)point[0], (double)point[1], (double)point[2]);
-//	};
-//
-//private:
-//	vtkSmartPointer<vtkPolyData> container;
-//	vtkSmartPointer<vtkImplicitPolyDataDistance> distanceCalculator;
-//};
-//
-//class ImplicitFunctionDistEstimator : public DistanceEstimator {
-//public:
-//	ImplicitFunctionDistEstimator() = default;
-//	~ImplicitFunctionDistEstimator() override = default;
-//
-//	ImplicitFunctionDistEstimator(vtkSmartPointer<vtkImplicitFunction> implicitFunc)
-//		: func(std::move(implicitFunc)) {
-//	}
-//
-//	float compute_distance(const std::array<double, 3>& point) const override {
-//		return std::abs(func->EvaluateFunction(point[0], point[1], point[2]));
-//	}
-//
-//private:
-//	vtkSmartPointer<vtkImplicitFunction> func;
-//};
-//
-//class PointDistEstimator : public DistanceEstimator {
-//public:
-//	explicit PointDistEstimator(const std::array<double, 3>& q) : Q(q.data()) {}
-//	float compute_distance(const std::array<double, 3>& p) const override {
-//		Eigen::Vector3d P(p.data());
-//		return (P - Q).norm();
-//	}
-//
-//	Vec3 get_point() const {
-//		Vec3 vec = {
-//			(float)Q.x(),
-//			(float)Q.y(),
-//			(float)Q.z()
-//		};
-//
-//		return vec;
-//	};
-//
-//private:
-//	Eigen::Vector3d Q{ 0,0,0 };
-//};
+//------------------------------------------
+class MeshSDF : public SDF {
+public: 
+	MeshSDF() = default;
+	~MeshSDF() override = default;
+
+	MeshSDF(const std::vector<Triangle>& tris, const std::vector<Vec3>& psNormals);
+
+	float compute_distance(const Vec3& pt) const override;
+
+private:
+
+	std::unique_ptr<AabbTree> tree;
+};
+
 
 #endif

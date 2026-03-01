@@ -298,6 +298,7 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/connectivityDensity.png", &connectivityDensityTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/update.png", &updateScaffoldTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/translate.png", &translateTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/scale.png", &scaleTexture, &dummyW, &dummyH);
 };
 
 void myGUI::_init_imgui() {
@@ -620,9 +621,13 @@ void myGUI::run() {
 			}
 		}
 
-		_draw_axes_lines();
+		if (showAxesLines) {
+			_draw_axes_lines();
+		}
 
-		_draw_selected_box();
+		if (showBbox) {
+			_draw_selected_box();
+		}
 
 		// ----------------------------------------------------------------------------
 		// Pass 2, draw transparent objects
@@ -845,6 +850,9 @@ void myGUI::_render_toolbar() {
 		ImGui::TableNextColumn();
 
 		create_button_textured("Translate Object", translateScaffold, "Translate selected object.", translateTexture);
+		ImGui::SameLine();
+
+		create_button_textured("Scale Object", scaleScaffold, "Scale selected object.", scaleTexture);
 
 		ImGui::EndTable();
 
@@ -1059,6 +1067,10 @@ void myGUI::_render_properties_panel() {
 			case ObjectType::AbstractContainerType: {
 				AbstractContainer* con = static_cast<AbstractContainer*>(selectedPanelObj.ptr);
 				con->gui_setup();
+				if (con->updated) {
+					_update_cameras(*con);
+					con->updated = false;
+				}
 				break;
 			}
 			case ObjectType::RandomGeneratorType:{
@@ -1552,6 +1564,14 @@ void myGUI::_render_main_menu_bar() {
 				showToolbar = !showToolbar;
 			}
 
+			if (ImGui::MenuItem("Show Bounding Box", NULL, showBbox)) {
+				showBbox = !showBbox;
+			}
+
+			if (ImGui::MenuItem("Show Axes Lines", NULL, showAxesLines)) {
+				showAxesLines = !showAxesLines;
+			}
+
 			ImGui::EndMenu();
 		}
 
@@ -1577,6 +1597,13 @@ void myGUI::_render_main_menu_bar() {
 
 			if (ImGui::MenuItem("Utilities")) {
 				showAlgorithmSettings = true;
+			}
+
+			if (ImGui::BeginMenu("Units")) {
+				if (ImGui::MenuItem("mm")) {
+
+				}
+				ImGui::EndMenu();
 			}
 
 			if (ImGui::BeginMenu("Select Camera")) {
@@ -1703,6 +1730,10 @@ void myGUI::_render_main_menu_bar() {
 
 	if (translateScaffold) {
 		_render_translate_panel("Translate Object", translateScaffold);
+	}
+
+	if (scaleScaffold) {
+		_render_scale_panel("Scale Object", scaleScaffold);
 	}
 };
 
@@ -3142,6 +3173,43 @@ void myGUI::_render_translate_panel(const char* popupName, bool& showPopup) {
 	
 	};
 
+};
+
+void myGUI::_render_scale_panel(const char* popupName, bool& showPopup) {
+	
+	if (!selectedSceneObj) {
+		showPopup = false;
+		return;
+	}
+
+	if (ImGui::Begin(popupName, NULL)) {
+
+		static float tempX = { 1.0f };
+		static float tempY = { 1.0f };
+		static float tempZ = { 1.0f };
+
+		ImGui::InputFloat("Scale X", &tempX, 0.001f, 1000.0f);
+		ImGui::InputFloat("Scale Y", &tempY, 0.001f, 1000.0f);
+		ImGui::InputFloat("Scale Z", &tempZ, 0.001f, 1000.0f);
+
+		// grab the selected panel
+		GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+		gen->scaleVec.x = tempX;
+		gen->scaleVec.y = tempY;
+		gen->scaleVec.z = tempZ;
+
+		if (ImGui::Button("Scale")) {
+			gen->apply_scale();
+		}
+		ImGui::SameLine();
+		
+		if (ImGui::Button("Close")) {
+			showPopup = false;
+		}
+
+		ImGui::End();
+
+	};
 };
 
 void myGUI::_draw_selected_box() {

@@ -120,6 +120,7 @@ public:
 	int activePoreNetworkIndex{ -1 };
 
 	std::unique_ptr<BoundingBox> box;
+	bool showBbox = true;
 
 	std::unique_ptr<LineModel> lineX;
 	std::unique_ptr<LineModel> lineY;
@@ -157,6 +158,7 @@ public:
 	bool showNormals{ false };
 	bool showEdges{ false };
 	bool showGrid{ false };
+	bool showAxesLines{ false };
 	bool showScaffold{ true };
 	bool showContainer{ false };
 	bool showPoreNetwork{ true };
@@ -189,6 +191,7 @@ public:
 
 	bool updateScaffold = { false };
 	bool translateScaffold = { false };
+	bool scaleScaffold = { false };
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -329,6 +332,7 @@ private:
 	GLuint poreNetworkTexture = 0;
 	GLuint updateScaffoldTexture = 0;
 	GLuint translateTexture = 0;
+	GLuint scaleTexture = 0;
 	GLuint trabecularNumberTexture = 0;
 	GLuint connectivityDensityTexture = 0;
 
@@ -445,6 +449,8 @@ private:
 	void _action_generate_scaffold();
 
 	void _render_cutting_plane_settings(const char* popupName, bool& showPopup);
+
+	void _render_scale_panel(const char* popupName, bool& showPopup);
 
 	void _render_translate_panel(const char* popupName, bool& showPopup);
 

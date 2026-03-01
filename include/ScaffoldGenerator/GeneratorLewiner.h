@@ -98,6 +98,7 @@ public:
 	void render_properties();
 	void render_metrics();
 	void draw_tortuosity_path();
+	void apply_scale();
 
 private:
 	void smooth_scalar_field();
@@ -197,7 +198,8 @@ public:
 	float trabecularNr{ 0.0f };
 	float connectivityDensity{ 0.0f };
 
-	Vec3 translateVec{0.0f, 0.0f, 0.0f};
+	Vec3 translateVec{ 0.0f, 0.0f, 0.0f };
+	Vec3 scaleVec{ 0.0f, 0.0f, 0.0f };
 	std::unique_ptr<PoreNetwork> tortuosityPathModel;
 
 	float stretchX{ 1.0f };

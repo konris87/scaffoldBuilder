@@ -180,6 +180,15 @@ public:
 		return PI * (cylinderRadius * cylinderRadius) * cylinderHeight;
 	};
 
+	bool is_inside(const Vec3& pt) const override {
+
+		if (sdf->compute_distance(pt) >= 1e-4) {
+			return false;
+		}
+		else {
+			return true;
+		}
+	};
 private:
 	std::unique_ptr<Cylinder> model;
 	
@@ -209,16 +218,6 @@ private:
 			0.0f, cylinderHeight,
 			-cylinderRadius, cylinderRadius, center};
 	};
-
-	bool is_inside(const Vec3& pt) const override {
-
-		if (sdf->compute_distance(pt) >= 1e-4) {
-			return false;
-		}
-		else {
-			return true;
-		}
-	};
 };
 
 class AbstractContainer : public IContainer {
@@ -247,8 +246,22 @@ public:
 		}
 	};
 
-private:
+	bool is_inside(const Vec3& pt) const override {
 
+		if (sdf->compute_distance(pt) >= 1e-4) {
+			return false;
+		}
+		else {
+			return true;
+		}
+	};
+
+	std::shared_ptr<const SDF> get_distance_estimator() const override {
+		return sdf;
+	};
+	bool updated = false;
+
+private:
 	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
 	// these are for opengl
@@ -260,9 +273,15 @@ private:
 	std::set<std::pair<unsigned int, unsigned int>> edgeSet;
 	std::vector<std::vector<unsigned int>> adjacency;
 	std::vector<std::vector<unsigned int>> faceAdjacency;
+	std::vector<Vec3> pseudonormals;
 	std::unique_ptr<Model> model;
+	std::vector<openstl::Vec3> meshVerts;
+	std::vector<openstl::Face> meshFaces;
+	float scaleFactor = 1.0f;
 
 	// functions
+	void generate();
+
 	void create() override {
 
 		model = std::make_unique<Model>(vertices, indices, vertexNormals);
@@ -278,15 +297,10 @@ private:
 
 		return { bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5], center };
 	};
+	
+	void estimate_pseudonormals();
 
-	bool is_inside(const Vec3& pt) const override {
-		return false;
-	};
-
-	std::shared_ptr<const SDF> get_distance_estimator() const override {
-		return sdf;
-	};
-
+	void apply_scale();
 };
 
 

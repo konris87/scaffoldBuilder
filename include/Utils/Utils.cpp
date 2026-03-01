@@ -1601,3 +1601,75 @@ static float Median(std::vector<float>& v) {
 	}
 	return m;
 };
+
+Vec3 get_barycentric_point(const Vec3& pt, const Triangle& tri) {
+	Vec3 v0 = tri.v2 - tri.v1;
+	Vec3 v1 = tri.v3 - tri.v1;
+	Vec3 v2 = pt - tri.v1;
+
+	float d00 = v0.dot(v0);
+	float d01 = v0.dot(v1);
+	float d11 = v1.dot(v1);
+	float d20 = v2.dot(v0);
+	float d21 = v2.dot(v1);
+
+	float denom = d00 * d11 - d01 * d01;
+
+	// Fallback for degenerate triangles to avoid division by zero
+	if (std::abs(denom) < 1e-8f) {
+		return { 1.0f, 0.0f, 0.0f };
+	}
+
+	Vec3 barycenter;
+	barycenter.y = (d11 * d20 - d01 * d21) / denom; // v
+	barycenter.z = (d00 * d21 - d01 * d20) / denom; // w
+	barycenter.x = 1.0f - barycenter.y - barycenter.z; // u
+
+	return barycenter;
+};
+
+Vec3 closest_triangle_point(const Vec3& pt, const Triangle& tri) {
+
+	Vec3 ab = tri.v2 - tri.v1;
+	Vec3 ac = tri.v3 - tri.v1;
+	Vec3 ap = pt - tri.v1;
+
+	float d1 = ab.dot(ap);
+	float d2 = ac.dot(ap);
+	if (d1 <= 0.0f && d2 <= 0.0f) return tri.v1;
+
+	Vec3 bp = pt - tri.v2;
+	float d3 = ab.dot(bp);
+	float d4 = ac.dot(bp);
+	if (d3 >= 0.0f && d4 <= d3) return tri.v2;
+
+	float vc = d1 * d4 - d3 * d2;
+	if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+		float v = d1 / (d1 - d3);
+		return tri.v1 + ab * v; // Edge AB
+	}
+
+	Vec3 cp = pt - tri.v3;
+	float d5 = ab.dot(cp);
+	float d6 = ac.dot(cp);
+	if (d6 >= 0.0f && d5 <= d6) return tri.v3; // Vertex C
+
+	float vb = d5 * d2 - d1 * d6;
+	if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+		float w = d2 / (d2 - d6);
+		return tri.v1 + ac * w; // Edge AC
+	}
+
+	float va = d3 * d6 - d5 * d4;
+	if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+		float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+		return tri.v2 + (tri.v3 - tri.v2) * w; // Edge BC
+	}
+
+	float denom = 1.0f / (va + vb + vc);
+	float v = vb * denom;
+	float w = vc * denom;
+	return tri.v1 + ab * v + ac * w; // Inside face
+
+};
+

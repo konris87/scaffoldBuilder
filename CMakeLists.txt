@@ -104,6 +104,7 @@ set(SOURCES
 	# include/SeedGenerator/Poisson3D.cpp
 	# include/ScaffoldGenerator/ScaffoldGenerator.cpp
 	include/SeedGenerator/Container.cpp
+	include/SeedGenerator/DistanceCalculator.cpp
 	include/ScaffoldGenerator/Generator.cpp
 	include/ScaffoldGenerator/GeneratorLewiner.cpp
 	include/OpenGlRender/Model.cpp

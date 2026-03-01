@@ -274,6 +274,10 @@ float polygon_inradius(const Eigen::MatrixXd& verts2D);
 
 float get_ground_truth_margin(const Eigen::MatrixXd& verts2D);
 
+Vec3 get_barycentric_point(const Vec3& pt, const Triangle& tri);
+
+Vec3 closest_triangle_point(const Vec3& pt, const Triangle& tri);
+
 // --------------------------------------------------------------------------------------------------------------
 // create a node struct
 class Node {
@@ -476,6 +480,6 @@ public:
 };
 
 // helper: median
-static float Median(std::vector<float>& v); 
+static float Median(std::vector<float>& v);
 
 #endif

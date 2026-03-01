@@ -9,7 +9,28 @@ AbstractContainer::AbstractContainer(const std::string& fileName) {
 	file.close();
 
 	// Deduplicate vertices & get faces
-	auto [meshVerts, meshFaces] = convertToVerticesAndFaces(meshTriangles);
+	std::tuple<std::vector<openstl::Vec3>, std::vector<openstl::Face>> entries;
+
+	//auto [meshVerts, meshFaces] = convertToVerticesAndFaces(meshTriangles);
+	entries = convertToVerticesAndFaces(meshTriangles);
+
+	meshVerts = std::get<0>(entries);
+	meshFaces = std::get<1>(entries);
+
+	// generate
+	generate();
+
+	// create the visualization model
+	create();
+
+	// get the pseudonormals
+	estimate_pseudonormals();
+
+	// create an sdf
+	sdf = std::make_shared<MeshSDF>(this->triangles, this->pseudonormals);
+};
+
+void AbstractContainer::generate() {
 
 	// Fill vertex buffer (flattened floats)
 	vertices.clear();
@@ -128,12 +149,6 @@ AbstractContainer::AbstractContainer(const std::string& fileName) {
 			}
 		}
 	}
-
-	// create the visualization model
-	create();
-
-	// create an sdf
-	sdf = std::make_shared<PointSDF>();
 };
 
 void AbstractContainer::gui_setup() {
@@ -145,4 +160,105 @@ void AbstractContainer::gui_setup() {
 	ImGui::Text("Vertices: %d ", vertices.size() / 3);
 
 	ImGui::Text("Triangles: %d ", triangles.size() / 3);
+
+	ImGui::Text("Bound Box Dimensions: x %.4f, y %.4f, z %.4f",
+		bounds[1] - bounds[0],
+		bounds[3] - bounds[2],
+		bounds[5] - bounds[4]);
+
+	ImGui::InputFloat("Scale", &scaleFactor, 0.01f, 100.0f);
+
+	if (ImGui::Button("Update Scale")) {
+		apply_scale();
+	}
+};
+
+void AbstractContainer::estimate_pseudonormals() {
+
+	size_t numVerts = vertices.size() / 3;
+
+	pseudonormals.assign(numVerts, Vec3(0.0f, 0.0f, 0.0f));
+
+	for (const auto& t : triangles) {
+
+		// Edge vectors emanating from vertex A (for angle A)
+		Vec3 e01 = t.v2 - t.v1;
+		Vec3 e02 = t.v3 - t.v1;
+
+		// Edge vectors emanating from vertex B (for angle B)
+		Vec3 e10 = t.v1 - t.v2;
+		Vec3 e12 = t.v3 - t.v2;
+
+		// Edge vectors emanating from vertex C (for angle C)
+		Vec3 e20 = t.v1 - t.v3;
+		Vec3 e21 = t.v2 - t.v3;
+
+		// Compute the face normal using the cross product
+		Vec3 faceNormal = e01.cross(e02);
+		float normalLen = faceNormal.norm();
+
+		// Safety check: Skip mathematically degenerate (zero-area) triangles
+		if (normalLen < 1e-6f) continue;
+
+		// Normalize the face normal
+		faceNormal = faceNormal / normalLen;
+
+		// Helper lambda to safely compute the angle between two edge vectors
+		auto compute_angle = [](const Vec3& vA, const Vec3& vB) {
+			float lenA = vA.norm();
+			float lenB = vB.norm();
+			if (lenA < 1e-6f || lenB < 1e-6f) return 0.0f;
+
+			float dotVal = vA.dot(vB) / (lenA * lenB);
+			// Crucial: Clamp between -1.0 and 1.0 to prevent std::acos from returning NaN 
+			// due to minor floating-point inaccuracies (e.g., dotVal = 1.0000001)
+			dotVal = std::clamp(dotVal, -1.0f, 1.0f);
+			return std::acos(dotVal);
+		};
+
+		// Calculate the interior angles in radians
+		float angle0 = compute_angle(e01, e02);
+		float angle1 = compute_angle(e10, e12);
+		float angle2 = compute_angle(e20, e21);
+
+		// Accumulate the weighted normals using the triangle's original vertex indices
+		pseudonormals[t.i1] += faceNormal * angle0;
+		pseudonormals[t.i2] += faceNormal * angle1;
+		pseudonormals[t.i3] += faceNormal * angle2;
+	}
+
+	// 4. Normalize all the accumulated pseudonormals
+	for (auto& pn : pseudonormals) {
+		float len = pn.norm();
+		if (len > 1e-6f) {
+			pn = pn / len;
+		}
+		else {
+			// Fallback for completely isolated/unconnected vertices in messy STLs
+			pn = Vec3(0.0f, 1.0f, 0.0f);
+		}
+	}
+};
+
+void AbstractContainer::apply_scale() {
+
+	for (auto& v : meshVerts) {
+		v.x *= scaleFactor;
+		v.y *= scaleFactor;
+		v.z *= scaleFactor;
+	}
+
+	// generate
+	generate();
+
+	// create the visualization model
+	create();
+
+	// get the pseudonormals
+	estimate_pseudonormals();
+
+	// create an sdf
+	sdf = std::make_shared<MeshSDF>(this->triangles, this->pseudonormals);
+
+	updated = true;
 };

@@ -6,7 +6,6 @@ Model::Model(const std::vector<float>& vertices, const std::vector<unsigned int>
 
 };
 
-
 void Model::draw() {
 	glBindVertexArray(VAO);
 	glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);

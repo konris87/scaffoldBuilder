@@ -57,7 +57,7 @@ public:
 private:
 	std::vector<float> sphereVertices;
 	std::vector<unsigned int> sphereIndices;
-	unsigned int VAO, VBO, instanceVBO, EBO;
+	unsigned int VAO{ 0 }, VBO{ 0 }, instanceVBO{ 0 }, EBO{ 0 };
 	std::vector<glm::mat4> modelMatrices;
 	float sphereSize = 0.1f;
 	float radius = 1.0f;
