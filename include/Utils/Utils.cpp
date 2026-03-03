@@ -1,7 +1,9 @@
+#define _USE_MATH_DEFINES
 #include "Utils.h"
 #include "Visualize/visualize.h"
 #include <Eigen/Dense>
 #include <cmath>
+#include <math.h>
 #include <voro++.hh>
 
 bool is_inside_box(const std::array<double, 3>& p, const Bounds& b) {
@@ -1672,4 +1674,49 @@ Vec3 closest_triangle_point(const Vec3& pt, const Triangle& tri) {
 	return tri.v1 + ab * v + ac * w; // Inside face
 
 };
+
+Eigen::Matrix3f rotation_axis_angle(const Vec3& dir, float angle) {
+
+	if (angle == 0.0f) return Eigen::Matrix3f::Identity();
+
+	//Eigen::Matrix3f rot;
+
+	// enusre normalizednDir.x
+	Vec3 nDir = dir.normalized();
+	Eigen::Vector3f k = { nDir.x, nDir.y, nDir.z };
+
+	// convet angle to radians
+	float angleRad = angle * M_PI / 180.0f;
+
+	return Eigen::AngleAxisf(angleRad, k).toRotationMatrix();
+};
+
+Eigen::Matrix3f rotation_from_direction(const Vec3& dir, float angle, float stretchX, float stretchY, float stretchZ) {
+
+	// enusre normalizednDir.x
+	Vec3 nDir = dir.normalized();
+	Eigen::Vector3f targetDir = { nDir.x, nDir.y, nDir.z };
+	Eigen::Vector3f defaultAxis;
+	
+	if (stretchZ >= stretchX && stretchZ >= stretchY) {
+		defaultAxis = Eigen::Vector3f::UnitZ(); // Z is the main stretch
+	}
+	else if (stretchY >= stretchX && stretchY >= stretchZ) {
+		defaultAxis = Eigen::Vector3f::UnitY(); // Y is the main stretch
+	}
+	else {
+		defaultAxis = Eigen::Vector3f::UnitX(); // X is the main stretch
+	}
+
+	Eigen::Quaternionf quat = Eigen::Quaternionf::FromTwoVectors(defaultAxis, targetDir);
+
+	if (std::abs(angle) > 1e-5f) {
+		float rollRad = angle * (M_PI / 180.0f);
+		Eigen::Quaternionf rollQuat(Eigen::AngleAxisf(rollRad, targetDir));
+		quat = rollQuat * quat;
+	}
+
+	return quat.toRotationMatrix();
+};
+
 

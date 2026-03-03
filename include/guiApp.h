@@ -192,6 +192,7 @@ public:
 	bool updateScaffold = { false };
 	bool translateScaffold = { false };
 	bool scaleScaffold = { false };
+	bool taubinSmooth = { false };
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -333,13 +334,13 @@ private:
 	GLuint updateScaffoldTexture = 0;
 	GLuint translateTexture = 0;
 	GLuint scaleTexture = 0;
+	GLuint taubinSmoothTexture = 0;
 	GLuint trabecularNumberTexture = 0;
 	GLuint connectivityDensityTexture = 0;
 
 	// algorithms
-	int daMinsteps = 50;
-	int daMaxsteps = 200;
-	int daDirectionNr = 1000;
+	int daMinLines = 2000;
+	int daMinDirections = 10000;
 	float daTolerance = 1e-2f;
 	int daFormulaIdx = 0;
 
@@ -368,6 +369,8 @@ private:
 
 	void _render_properties_panel();
 
+	void _render_active_model_metrics();
+
 	void write_settings();
 
 	static void help_marker(const char* descr) {
@@ -387,6 +390,8 @@ private:
 	void add_log(LogPriority priority, const std::string& message);
 
 	void _render_menu_bar();
+
+	void _update_cameras(const GeneratorLewiner& gen);
 
 	void _update_cameras(IContainer& container);
 
@@ -451,6 +456,8 @@ private:
 	void _render_cutting_plane_settings(const char* popupName, bool& showPopup);
 
 	void _render_scale_panel(const char* popupName, bool& showPopup);
+
+	void _render_taubin_smooth_panel(const char* popupName, bool& showPopup);
 
 	void _render_translate_panel(const char* popupName, bool& showPopup);
 

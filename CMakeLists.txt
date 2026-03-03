@@ -91,6 +91,7 @@ set(SOURCES
 	include/Math/Quaternion.cpp
 	include/Math/Vec.cpp
 	include/Math/AabbTree.cpp
+	include/Math/Matrix.cpp
 	#src/Visualize/visualize.cpp
 	#src/Visualize/loadMesh.cpp
 	src/OpenGlSetup/simpleCamera.cpp

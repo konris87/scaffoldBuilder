@@ -14,6 +14,7 @@
 
 #include <vector>
 #include <array>
+#include <string>
 #include <atomic>
 #include <string>
 #include <queue>
@@ -38,11 +39,11 @@ typedef struct
 
 struct Vec3i { int x, y, z; };
 
-class GeneratorLewiner{
+class GeneratorLewiner {
 public:
 
 	GeneratorLewiner() {};
-	
+
 	GeneratorLewiner(
 		const std::vector<Vec3>& seeds,
 		const std::array<float, 6>& bounds,
@@ -51,10 +52,14 @@ public:
 		const float isoLevel = 0.1f,
 		const int foam = 0
 	);
-	
+
+	GeneratorLewiner(
+		const std::string fileName
+	);
+
 	~GeneratorLewiner() {};
 
-// functions
+	// functions
 public:
 	void compute_scalar_field(const IContainer& con);
 
@@ -80,7 +85,9 @@ public:
 
 	bool estimate_tortuosity(float voxelSize);
 
-	void estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode=0);
+	//void estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode = 0);
+
+	void estimate_anisotropy(int daDirectionNr = 2000, int linesPerDirection = 10000, int mode = 3);
 
 	void estimate_trabecular_number();
 
@@ -91,6 +98,8 @@ public:
 	void export_nrrd(const std::string fileName, float voxelSize, std::array<float, 6> blockSize);
 
 	void export_mhd(std::filesystem::path& path, float voxelSize, std::array<float, 6> blockBounds);
+
+	void apply_taubin_smooth(int iter, float lambda, float mu);
 	//--------------------------------
 	// rendering
 	void draw();
@@ -114,7 +123,7 @@ private:
 	void update_steps();
 
 	int find_vertex_index(int x, int y, int z);
-	
+
 	Vec3 get_position(int x, int y, int z);
 
 	float smin(float a, float b, float k);
@@ -136,13 +145,13 @@ private:
 	float get_x_grad(const int i, const int j, const int k);
 
 	float get_y_grad(const int i, const int j, const int k);
-	
+
 	float get_z_grad(const int i, const int j, const int k);
 
 	int get_x_vert(int i, int j, int k);
 
 	int get_y_vert(int i, int j, int k);
-	
+
 	int get_z_vert(int i, int j, int k);
 
 	int add_c_vertex(const int i, const int j, const int k);
@@ -161,6 +170,8 @@ private:
 
 	void validate_topology();
 
+	void build_topology();
+
 	void _update_bounding_box();
 
 	std::vector<uint8_t> get_image_field(
@@ -173,7 +184,7 @@ private:
 	void _update_render();
 	void add_edge(int idx1, int idx2, int idx3);
 
-// members
+	// members
 public:
 	void* container = nullptr;
 	void* generator = nullptr;
@@ -203,15 +214,18 @@ public:
 	std::unique_ptr<PoreNetwork> tortuosityPathModel;
 
 	float stretchX{ 1.0f };
-	float stretchY{ 1.0f }; 
+	float stretchY{ 1.0f };
 	float stretchZ{ 1.0f };
 
-private:	
+	Vec3 anisotropyVec{ 1.0f, 0.0f, 0.0f };
+	float anisotropyAngle{ 0.0f };
+
+private:
 	std::vector<Vec3> seeds;
-	float stepX, stepY, stepZ;
+	float stepX{ 0.0f }, stepY{ 0.0f }, stepZ{ 0.0f };
 	std::vector<float> scalarField;
-	std::array<int, 3> blockDims;
-	std::array<float, 6> bounds;
+	std::array<int, 3> blockDims = { 100, 100, 100 };
+	std::array<float, 6> bounds = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 	float isoLevel{ 0.1f };
 	std::vector<int> x_verts;
 	std::vector<int> y_verts;
@@ -237,6 +251,7 @@ private:
 	std::vector<unsigned int> edgeIndices;
 	// this is for rendering the EBO
 	std::vector<unsigned int> indices;
+	std::vector<std::vector<unsigned int>> adjacency;
 
 	// store also a list of edges to draw the tortuosity path
 	std::vector<unsigned int> tortuosityPathEdges;

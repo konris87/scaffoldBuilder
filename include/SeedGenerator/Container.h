@@ -236,8 +236,29 @@ public:
 
 	float get_volume() const override {
 		// we can use the tetrahedron formula to get the volume
+		float volume = 0.0f;
+		float signedVolume = 0.0f;
+	
+		for (const auto& tri : triangles) {
 
-		return 0.0f;
+			// grab the three vertices
+			const Vec3& v1 = tri.v1;
+			const Vec3& v2 = tri.v2;
+			const Vec3& v3 = tri.v3;
+
+			// estimate the surface area
+			Vec3 edge1 = Vec3(v2.x, v2.y, v2.z) - Vec3(v1.x, v1.y, v1.z);
+			Vec3 edge2 = Vec3(v3.x, v3.y, v3.z) - Vec3(v1.x, v1.y, v1.z);
+
+
+			// get the volume using the signed tetrahedron 
+			float vol = Vec3(v1.x, v1.y, v1.z).dot(Vec3(v2.x, v2.y, v2.z).cross(Vec3(v3.x, v3.y, v3.z)));
+			signedVolume += vol;
+		}
+
+		// we need to divide the volume by 1/6
+		volume = std::abs(signedVolume) / 6.0f;
+		return volume;
 	};
 
 	void render() override {

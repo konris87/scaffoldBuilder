@@ -1,10 +1,11 @@
 #include "Container.h"
 #include <limits>
+#include <Openstl/core/stl.h>
 
 //@brief constructor, we use this to 
 AbstractContainer::AbstractContainer(const std::string& fileName) {
 
-	std::ifstream file(fileName, std::ios::binary);
+	std::ifstream file(fileName, std::ios::in | std::ios::binary);
 	std::vector<openstl::Triangle> meshTriangles = openstl::deserializeStl(file);
 	file.close();
 
@@ -77,6 +78,7 @@ void AbstractContainer::generate() {
 			static_cast<unsigned int>(f[2]),
 			});
 	}
+
 	// Normalize vertex normals
 	for (size_t i = 0; i < meshVerts.size(); ++i) {
 		Vec3 n(vertexNormals[i * 3 + 0],

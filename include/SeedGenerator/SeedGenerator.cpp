@@ -50,6 +50,21 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 
 	root = bounds.center;
 
+	// if the root is not inside randomly create it 
+	if (!adapter.is_inside(root)) {
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_real_distribution<> disX(bounds.xMin + 0.1, bounds.xMax - 0.1);
+		std::uniform_real_distribution<> disY(bounds.yMin + 0.1, bounds.yMax - 0.1);
+		std::uniform_real_distribution<> disZ(bounds.zMin + 0.1, bounds.zMax - 0.1);
+
+		while (!adapter.is_inside(root)) {
+			root.x = (float)disX(gen);
+			root.y = (float)disY(gen);
+			root.z = (float)disZ(gen);
+		}
+	}
+
 	double scale = std::sqrt(
 		std::pow(bounds.xMax - bounds.xMin, 2) +
 		std::pow(bounds.yMax - bounds.yMin, 2) +
@@ -253,7 +268,20 @@ void Poisson3D::run(const IContainer& adapter) {
 
 	root = bounds.center;
 
-	std::cout << root << std::endl;
+	// if the root is not inside randomly create it 
+	if (!adapter.is_inside(root)) {
+		std::random_device rd;
+		std::mt19937 gen(rd());
+		std::uniform_real_distribution<> disX(bounds.xMin + 0.1, bounds.xMax - 0.1);
+		std::uniform_real_distribution<> disY(bounds.yMin + 0.1, bounds.yMax - 0.1);
+		std::uniform_real_distribution<> disZ(bounds.zMin + 0.1, bounds.zMax - 0.1);
+
+		while (!adapter.is_inside(root)) {
+			root.x = (float)disX(gen);
+			root.y = (float)disY(gen);
+			root.z = (float)disZ(gen);
+		}
+	}
 
 	double scale = std::sqrt(
 		std::pow(bounds.xMax - bounds.xMin, 2) +

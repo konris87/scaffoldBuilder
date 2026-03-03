@@ -2,6 +2,7 @@
 #include "LookUpTable.h"
 #include "Math/Vec.h"
 #include "Math/Kdtree.h"
+#include "Misc/Imgui_Stdlib.h"
 #include <chrono>
 #include <memory>
 #include <random>
@@ -26,10 +27,95 @@ GeneratorLewiner::GeneratorLewiner(
 
 	_setup_edges();
 
-	//aabb.pMin = Vec3(bounds[0], bounds[2], bounds[4]);
-	//aabb.pMax = Vec3(bounds[1], bounds[3], bounds[5]);
 };
 
+GeneratorLewiner::GeneratorLewiner(
+	const std::string fileName
+) {
+	std::ifstream file(fileName, std::ios::in | std::ios::binary);
+	std::vector<openstl::Triangle> meshTris = openstl::deserializeStl(file);
+	file.close();
+
+	// Deduplicate vertices & get faces
+	auto [meshVs, meshFs] = convertToVerticesAndFaces(meshTris);
+
+	// populate vertices, indices and faces
+	meshVertices.clear();
+	meshVertices.reserve(meshVs.size());
+	meshTriangles.clear();
+	meshTriangles.reserve(meshFs.size());
+
+	// pass the vertices and triangles
+	for (const auto& v : meshVs) {
+		LVertex vertex;
+		vertex.x = v.x;
+		vertex.y = v.y;
+		vertex.z = v.z;
+		vertex.nx = 0.0f;
+		vertex.ny = 0.0f;
+		vertex.nz = 0.0f;
+
+		meshVertices.push_back(vertex);
+	}
+
+	for (const auto& f : meshFs) {
+		LTriangle triangle;
+		triangle.v1 = f[0];
+		triangle.v2 = f[1];
+		triangle.v3 = f[2];
+
+		// add also the normal
+		Vec3 a = { meshVertices[triangle.v1].x, meshVertices[triangle.v1].y, meshVertices[triangle.v1].z };
+		Vec3 b = { meshVertices[triangle.v2].x, meshVertices[triangle.v2].y, meshVertices[triangle.v2].z };
+		Vec3 c = { meshVertices[triangle.v3].x, meshVertices[triangle.v3].y, meshVertices[triangle.v3].z };
+
+		Vec3 normal = (b - a).cross(c - a).normalized();
+
+		triangle.normal = normal;
+
+		// add to all three vertices the face normal to average
+		meshVertices[triangle.v1].nx += normal.x;
+		meshVertices[triangle.v1].ny += normal.y;
+		meshVertices[triangle.v1].nz += normal.z;
+		meshVertices[triangle.v2].nx += normal.x;
+		meshVertices[triangle.v2].ny += normal.y;
+		meshVertices[triangle.v2].nz += normal.z;
+		meshVertices[triangle.v3].nx += normal.x;
+		meshVertices[triangle.v3].ny += normal.y;
+		meshVertices[triangle.v3].nz += normal.z;
+
+		meshTriangles.push_back(triangle);
+	}
+
+	// normalize the vertex normals
+	for (auto& v : meshVertices) {
+		Vec3 normal = { v.nx, v.ny, v.nz };
+		float len = normal.norm();
+
+		if (len > 1e-6f) {
+			normal = normal.normalized();
+			v.nx = normal.x;
+			v.ny = normal.y;
+			v.nz = normal.z;
+		}
+		else {
+			// Fallback for isolated vertices
+			v.nx = 0.0f;
+			v.ny = 1.0f;
+			v.nz = 0.0f;
+		}
+	}
+
+	_setup_mesh();
+
+	_setup_edges();
+
+	// update axis aligned bounding box
+	_update_bounding_box();
+
+	// update opengl objects
+	_update_render();
+};
 
 void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
@@ -38,13 +124,25 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	update_steps();
 
+	// normalize the anisotropy vector
+	//anisotropyVec.normalize();
+
+	Eigen::Matrix3f rot = rotation_from_direction(anisotropyVec, anisotropyAngle, stretchX, stretchY, stretchZ);
+
+	Vec3 center = con.compute_bounds().center;
+
 	// update seeds to use the stretch factors
-	if (stretchX != 1.0f && stretchY != 1.0f && stretchZ != 1.0f) {
-		for (auto seed : seeds) {
-			seed.x /= stretchX;
-			seed.y /= stretchY;
-			seed.z /= stretchZ;
-		}
+	//if (stretchX != 1.0f && stretchY != 1.0f && stretchZ != 1.0f) {
+	for (auto& seed : seeds) {
+
+		Vec3 local = seed - center;
+		// apply the rotation
+		Vec3 rotated = Vec3(rot * Eigen::Vector3f{ local.x, local.y, local.z });
+
+		seed.x = rotated.x / stretchX;
+		seed.y = rotated.y / stretchY;
+		seed.z = rotated.z / stretchZ;
+	//}
 	}
 
 	// first populate the kdtree with the seeds
@@ -79,18 +177,19 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 					continue; // scalarField[idx] remains 9999.9f
 				}
 
+				Vec3 localPt = point - center;
+
+				Vec3 rotatedPt = Vec3(rot * Eigen::Vector3f{ localPt.x, localPt.y, localPt.z });
+
 				// wrap the point
-				Vec3 wrapped(point.x / stretchX, point.y / stretchY, point.z / stretchZ);
+				//Vec3 wrapped(point.x / stretchX, point.y / stretchY, point.z / stretchZ);
+				Vec3 wrapped(rotatedPt.x / stretchX, rotatedPt.y / stretchY, rotatedPt.z / stretchZ);
 
 				// we need to find the two nearest seeds to the point, and compute the distance to the nearest seed, and the distance to the second nearest seed
 				auto neighbors = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
-					//double dx = (p1[0] - p2[0]) / (this->stretchX);
-					//double dy = (p1[1] - p2[1]) / (this->stretchY);
-					//double dz = (p1[2] - p2[2]) / (this->stretchZ);
-					double dx = (p1[0] - p2[0]);
-					double dy = (p1[1] - p2[1]);
-					double dz = (p1[2] - p2[2]);
-					return dx * dx + dy * dy + dz * dz;
+					// apply the formula (p - q)^T M (p - q), where M = diag(stretchX,stretchY,stretchZ)
+					Vec3 v = p2 - p1;
+					return (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
 				});
 
 				// get_distances of three closest seeds
@@ -98,20 +197,69 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 				float d2 = std::sqrt(neighbors[1].second);
 				float d3 = std::sqrt(neighbors[2].second);
 
-				float kf = 0.5f; // Smoothing radius (tunable)
-				float smoothd1 = smin(d1, d2, kf);
-				float smoothd2 = smin(d2, d3, kf);
+				//float kf = 0.5f; // Smoothing radius (tunable)
+				//float smoothd1 = smin(d1, d2, kf);
+				//float smoothd2 = smin(d2, d3, kf);
 
-				float value = 0.0;
+				//float value = 0.0;
+				//if (foam) {
+				//	//value = (smoothd2 - smoothd1) + threshold * (d3 - d2);
+				//	value = d2 - d1;
+				//}
+				//else {
+				//	//value = (d3 - d1) + threshold * (smoothd2 - smoothd1);
+				//	value = (d3 - d1) + threshold * (d2 - d1);
+				//}
+
+				//scalarField[idx] = value;
+				// 4. Retrieve the actual warped seed coordinates using the indices
+				// (Assuming your knn returns std::pair<size_t index, double distSq>)
+				Vec3 p1 = seeds[neighbors[0].first];
+				Vec3 p2 = seeds[neighbors[1].first];
+				Vec3 p3 = seeds[neighbors[2].first];
+
+				// 5. Lambda to calculate the exact analytical gradient of a single distance
+				auto calc_grad = [&](const Vec3& p, float d) -> Vec3 {
+					if (d < 1e-6f) return Vec3(0.0f, 0.0f, 0.0f); // Prevent division by zero at the exact seed center
+					
+					Vec3 local(
+						(wrapped.x - p.x) / (d * stretchX),
+						(wrapped.y - p.y) / (d * stretchY),
+						(wrapped.z - p.z) / (d * stretchZ)
+					);
+
+					Vec3 res = Vec3(rot.transpose() * Eigen::Vector3f(local.x, local.y, local.z));
+
+					return res;
+				};
+
+				// Calculate the individual distance gradients
+				Vec3 grad1 = calc_grad(p1, d1);
+				Vec3 grad2 = calc_grad(p2, d2);
+				Vec3 grad3 = calc_grad(p3, d3);
+
+				float value = 0.0f;
+				Vec3 gradValue;
+
+				// 6. Combine the values and gradients analytically
 				if (foam) {
-					//value = (smoothd2 - smoothd1) + threshold * (d3 - d2);
 					value = d2 - d1;
+					gradValue = grad2 - grad1;
 				}
 				else {
-					value = (d3 - d1) + threshold * (smoothd2 - smoothd1);
+					value = (d3 - d1) + threshold * (d2 - d1);
+					gradValue = (grad3 - grad1) + (grad2 - grad1) * threshold;
 				}
 
-				scalarField[idx] = value;
+				// 7. Normalize immediately!
+				float gradMag = gradValue.norm();
+
+				if (gradMag > 1e-5f) {
+					scalarField[idx] = value / gradMag * 2.0f;
+				}
+				else {
+					scalarField[idx] = value;
+				}
 			}
 		}
 	}
@@ -149,14 +297,6 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 			solidVoxels++;
 		}
 	}
-	//std::cout << "finished grids" << std::endl;
-
-	//std::cout << "scalar field size: " << scalarField.size() << std::endl;
-	//volumeFraction = (float)solidVoxels / (float)totalVoxels;
-	//porosity = 1.0 - volumeFraction;
-
-	//volume = volumeFraction * (paddedBounds[1] - paddedBounds[0]) * (paddedBounds[3] - paddedBounds[2]) * (paddedBounds[5] - paddedBounds[4]);
-
 }
 
 void GeneratorLewiner::smooth_scalar_field() {
@@ -330,13 +470,17 @@ void GeneratorLewiner::marching_cubes() {
 	meshVertices.resize(vertexCount);
 	meshTriangles.resize(triangleCount);
 
+	validate_topology();
+
+	// build adjacency
+	build_topology();
+
 	// update axis aligned bounding box
 	_update_bounding_box();
 
 	// update opengl objects
 	_update_render();
 
-	validate_topology();
 };
 
 void GeneratorLewiner::_update_bounding_box() {
@@ -344,30 +488,31 @@ void GeneratorLewiner::_update_bounding_box() {
 	aabb.pMin.x = std::numeric_limits<float>::max();
 	aabb.pMin.y = std::numeric_limits<float>::max();
 	aabb.pMin.z = std::numeric_limits<float>::max();
-	aabb.pMax.x = std::numeric_limits<float>::min();
-	aabb.pMax.y = std::numeric_limits<float>::min();
-	aabb.pMax.z = std::numeric_limits<float>::min();
+	aabb.pMax.x = std::numeric_limits<float>::lowest();
+	aabb.pMax.y = std::numeric_limits<float>::lowest();
+	aabb.pMax.z = std::numeric_limits<float>::lowest();
 
 	for (const auto& v : meshVertices) {
-		if (v.x < aabb.pMin.x) {
-			aabb.pMin.x = v.x;
-		}
-		if (v.x > aabb.pMax.x) {
-			aabb.pMax.x = v.x;
-		}
-		if (v.y < aabb.pMin.y) {
-			aabb.pMin.y = v.y;
-		}
-		if (v.y > aabb.pMax.y) {
-			aabb.pMax.y = v.y;
-		}
-		if (v.z < aabb.pMin.z) {
-			aabb.pMin.z = v.z;
-		}
-		if (v.z > aabb.pMax.z) {
-			aabb.pMax.z = v.z;
-		}
+		aabb.pMin.x = std::min(aabb.pMin.x, v.x);
+		aabb.pMax.x = std::max(aabb.pMax.x, v.x);
+
+		aabb.pMin.y = std::min(aabb.pMin.y, v.y);
+		aabb.pMax.y = std::max(aabb.pMax.y, v.y);
+
+		aabb.pMin.z = std::min(aabb.pMin.z, v.z);
+		aabb.pMax.z = std::max(aabb.pMax.z, v.z);
 	}
+	
+	bounds[0] = aabb.pMin.x;
+	bounds[1] = aabb.pMax.x;
+	bounds[2] = aabb.pMin.y;
+	bounds[3] = aabb.pMax.y;
+	bounds[4] = aabb.pMin.z;
+	bounds[5] = aabb.pMax.z;
+
+	std::cout << aabb.pMin << std::endl;
+	std::cout << bounds[0] << " " << bounds[2] << std::endl;
+	std::cout << aabb.pMax << std::endl;
 };
 
 void GeneratorLewiner::compute_intersection_points() {
@@ -2214,12 +2359,12 @@ void GeneratorLewiner::export_stl(std::string fileName) {
 	// pass triangle data
 	for (const auto& tri : meshTriangles) {
 
-		// 1. Fetch the actual vertices using the integer indices
+		// Fetch the actual vertices using the integer indices
 		const LVertex& p1 = meshVertices[tri.v1];
 		const LVertex& p2 = meshVertices[tri.v2];
 		const LVertex& p3 = meshVertices[tri.v3];
 
-		// 2. Calculate the Face Normal (Cross Product of Edge 1 and Edge 2)
+		// Calculate the Face Normal (Cross Product of Edge 1 and Edge 2)
 		float e1x = p2.x - p1.x;
 		float e1y = p2.y - p1.y;
 		float e1z = p2.z - p1.z;
@@ -2325,6 +2470,8 @@ void GeneratorLewiner::render_properties() {
 	ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
 	ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
 	ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
+	ImGui::InputFloat3("Material Direction", anisotropyVec, "%.4f");
+	ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
 };
 
 void GeneratorLewiner::estimate_metrics(const IContainer& container) {
@@ -2373,7 +2520,7 @@ void GeneratorLewiner::render_metrics() {
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::Text("Total Surface (mm^2)");
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceArea);
-		
+
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::Text("Surface to Volume Ratio (1/mm)");
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceToVolume);
@@ -2408,7 +2555,6 @@ void GeneratorLewiner::render_metrics() {
 
 		ImGui::EndTable();
 	};
-
 };
 
 void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
@@ -3085,13 +3231,11 @@ void GeneratorLewiner::apply_scale() {
 
 }
 
-void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode) {
-	
-	// Global tally for MIL
-	std::vector<float> totalHits(daDirectionNr, 0.0f);
-	std::vector<float> totalLengths(daDirectionNr, 0.0f);
+void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirection, int mode) {
 
-	// Create Random Directions (Fibonacci Sphere)
+	std::vector<float> milValues(daDirectionNr, 0.0f);
+
+	// 1. Create Random Uniform Directions (Fibonacci Sphere)
 	std::vector<Vec3> dirs(daDirectionNr);
 	const float PI = 3.14159265359f;
 	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
@@ -3102,128 +3246,389 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, in
 		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
 	}
 
-	// create a generator to sample points inside the domain
-	std::mt19937 rng(1337);
-	std::uniform_real_distribution<float> distX(bounds[0], bounds[1]);
-	std::uniform_real_distribution<float> distY(bounds[2], bounds[3]);
-	std::uniform_real_distribution<float> distZ(bounds[4], bounds[5]);
-	std::uniform_real_distribution<float> distRand(0.0f, 1.0f);
+	// 2. Setup Geometry in STRICT VOXEL SPACE
+	float dimX = static_cast<float>(blockDims[0]);
+	float dimY = static_cast<float>(blockDims[1]);
+	float dimZ = static_cast<float>(blockDims[2]);
 
-	
-	float maxRayLength = std::min({(bounds[1] - bounds[0]), (bounds[3] - bounds[2]) , (bounds[5] - bounds[4]) }) * 0.45;
-	float rayStepSize = std::min({ stepX, stepY, stepZ }) * 0.5f;
-	int maxRaySteps = static_cast<int>(maxRayLength / rayStepSize);
+	Vec3 boxCenter(dimX * 0.5f, dimY * 0.5f, dimZ * 0.5f);
 
-	float vf = 999.0f;
-	int iteration = 0;
+	// BoneJ Plane size d = sqrt(w^2 + h^2 + d^2)
+	float d_plane = std::sqrt(dimX * dimX + dimY * dimY + dimZ * dimZ);
+	float R = d_plane * 0.5f;
 
-	// a vector to keep da history
-	std::vector<float> daHistory;
+	int gridN = static_cast<int>(std::ceil(std::sqrt(linesPerDirection)));
+	float gridStep = d_plane / std::max(1, gridN);
 
-	auto f1 = [](const float& lmax, const float& lmin) {
-		return (1.0f - (lmax / lmax));
-	};
+	// THE SECRET SAUCE: BoneJ's exact sampling increment
+	float rayStepSize = std::sqrt(3.0f);
 
-	auto f2 = [](const float& lmax, const float& lmin) {
-		return (lmax / lmax);
-	};
+	// 3. Parallelize Ray Marching
+#pragma omp parallel 
+	{
+		// Thread-local RNG for stratified jittering
+		std::mt19937 rng(1337 + omp_get_thread_num());
+		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-	while ((iteration < daMinsteps || vf > vcLimit) && iteration < daMaxsteps) {
-
-		// pick a random point
-		Vec3 center(distX(rng), distY(rng), distZ(rng));
-
-		// ensure that the point is inside
-		int sI = std::clamp((int)((center.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
-		int sJ = std::clamp((int)((center.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
-		int sK = std::clamp((int)((center.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
-
-		if (get_data(sI, sJ, sK) >= isoLevel) continue; // skip
-
-		// increase the iteration since we continue
-		iteration++;
-
-		// parallelize the for loop to create the vectors
-		#pragma omp parallel for
+#pragma omp for
 		for (int i = 0; i < daDirectionNr; i++) {
-			int hits = 0;
-			bool currentlyIn = true; // already checked that
+			Vec3 d = dirs[i];
 
-			// perform the maximum ray steps
-			for (int s = 1; s <= maxRaySteps; s++) {
+			Vec3 w = (std::abs(d.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
+			Vec3 u = d.cross(w).normalized();
+			Vec3 v = d.cross(u).normalized();
 
-				Vec3 pt = center + (dirs[i] * (rayStepSize * s));
+			long localTransitions = 0;
+			double localBoxLen = 0.0;
 
-				// get index if voxel and check its value
-				int gX = std::clamp((int)((pt.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
-				int gY = std::clamp((int)((pt.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
-				int gZ = std::clamp((int)((pt.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
-				bool isInside = (get_data(gX, gY, gZ) < isoLevel);
+			for (int uIdx = 0; uIdx < gridN; uIdx++) {
+				for (int vIdx = 0; vIdx < gridN; vIdx++) {
 
-				// if we were inside and we are still inside we dont have a hit
-				if (isInside != currentlyIn) {
-					hits++;
-					currentlyIn = isInside;
+					// Stratified Random Grid (Jittering inside the cell)
+					float uPos = -R + (uIdx + dist(rng)) * gridStep;
+					float vPos = -R + (vIdx + dist(rng)) * gridStep;
+
+					Vec3 rayOrigin = boxCenter + (u * uPos) + (v * vPos) - (d * R);
+
+					// --- Exact Voxel AABB Intersection ---
+					float tMin = 0.0f;
+					float tMax = 1e9f;
+					bool hit = true;
+
+					float boundsVoxel[6] = { 0.0f, dimX, 0.0f, dimY, 0.0f, dimZ };
+
+					for (int axis = 0; axis < 3; ++axis) {
+						float invD = 1.0f / (axis == 0 ? d.x : (axis == 1 ? d.y : d.z));
+						float t0 = (boundsVoxel[axis * 2] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
+						float t1 = (boundsVoxel[axis * 2 + 1] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
+						if (invD < 0.0f) std::swap(t0, t1);
+						tMin = std::max(tMin, t0);
+						tMax = std::min(tMax, t1);
+						if (tMax <= tMin) { hit = false; break; }
+					}
+
+					if (hit && tMax > 0.0f) {
+						tMin = std::max(0.0f, tMin);
+						localBoxLen += (tMax - tMin);
+
+						// Random line start offset
+						float startT = tMin + dist(rng) * rayStepSize;
+						long samples = static_cast<long>(std::ceil((tMax - startT) / rayStepSize));
+
+						// BoneJ initial phase state
+						bool previousPhase = false;
+
+						for (long s = 0; s < samples; s++) {
+							Vec3 pt = rayOrigin + d * (startT + s * rayStepSize);
+
+							// EXACT BoneJ Nearest-Neighbor Integer Lookup
+							long vx = static_cast<long>(pt.x);
+							long vy = static_cast<long>(pt.y);
+							long vz = static_cast<long>(pt.z);
+
+							vx = std::clamp<long>(vx, 0, blockDims[0] - 1);
+							vy = std::clamp<long>(vy, 0, blockDims[1] - 1);
+							vz = std::clamp<long>(vz, 0, blockDims[2] - 1);
+
+							bool currentPhase = (get_data(vx, vy, vz) < isoLevel);
+
+							if (currentPhase != previousPhase) {
+								localTransitions++;
+							}
+							previousPhase = currentPhase;
+						}
+					}
 				}
 			}
-			// update global hits
-			totalHits[i] += hits;
-			totalLengths[i] += maxRayLength;
+
+			if (localBoxLen > 0.0) {
+				milValues[i] = (localTransitions > 0) ? static_cast<float>(localBoxLen / localTransitions) : static_cast<float>(localBoxLen);
+			}
+			else {
+				milValues[i] = d_plane;
+			}
 		}
+	}
 
-		// estimate the point cloud and the covariance matrix
-		Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
-		for (int v = 0; v < daDirectionNr; v++) {
-			// estimate mean interception length so far
-			double mil = (totalHits[v] > 0) ? (totalLengths[v] / (double)totalHits[v]) : (double)totalLengths[v];
-			Vec3 p = dirs[v] * (float)mil;
-			cov(0, 0) += p.x * p.x; cov(0, 1) += p.x * p.y; cov(0, 2) += p.x * p.z;
-			cov(1, 0) += p.y * p.x; cov(1, 1) += p.y * p.y; cov(1, 2) += p.y * p.z;
-			cov(2, 0) += p.z * p.x; cov(2, 1) += p.z * p.y; cov(2, 2) += p.z * p.z;
+	// --- 4. GENERAL QUADRIC FIT (BoneJ Scale) ---
+	Eigen::MatrixXd A_mat(daDirectionNr, 9);
+	Eigen::VectorXd b_vec(daDirectionNr);
+
+	for (int v = 0; v < daDirectionNr; v++) {
+		double mil = milValues[v];
+
+		double px = dirs[v].x * mil;
+		double py = dirs[v].y * mil;
+		double pz = dirs[v].z * mil;
+
+		A_mat(v, 0) = px * px;
+		A_mat(v, 1) = py * py;
+		A_mat(v, 2) = pz * pz;
+		A_mat(v, 3) = px * py;
+		A_mat(v, 4) = px * pz;
+		A_mat(v, 5) = py * pz;
+		A_mat(v, 6) = px;
+		A_mat(v, 7) = py;
+		A_mat(v, 8) = pz;
+
+		b_vec(v) = 1.0;
+	}
+
+	Eigen::VectorXd beta = A_mat.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b_vec);
+
+	double a = beta(0), b = beta(1), c = beta(2);
+	double d_val = beta(3) / 2.0;
+	double e_val = beta(4) / 2.0;
+	double f_val = beta(5) / 2.0;
+	double g = beta(6) / 2.0;
+	double h = beta(7) / 2.0;
+	double i_val = beta(8) / 2.0;
+
+	Eigen::Matrix4d quadric;
+	quadric << a, d_val, e_val, g,
+		d_val, b, f_val, h,
+		e_val, f_val, c, i_val,
+		g, h, i_val, -1.0;
+
+	// Find Center
+	Eigen::Matrix3d sub;
+	sub << a, d_val, e_val,
+		d_val, b, f_val,
+		e_val, f_val, c;
+	sub = -1.0 * sub;
+	Eigen::Vector3d translationVec(g, h, i_val);
+	Eigen::Vector3d center = sub.inverse() * translationVec;
+
+	// Translate to origin
+	Eigen::Matrix4d tMat = Eigen::Matrix4d::Identity();
+	tMat(0, 3) = center.x();
+	tMat(1, 3) = center.y();
+	tMat(2, 3) = center.z();
+
+	Eigen::Matrix4d translated = tMat * quadric * tMat.transpose();
+
+	// Eigendecomposition 
+	Eigen::Matrix3d input;
+	double scale = -1.0 / translated(3, 3);
+	for (int row = 0; row < 3; ++row) {
+		for (int col = 0; col < 3; ++col) {
+			input(row, col) = translated(row, col) * scale;
 		}
-		cov /= daDirectionNr;
+	}
 
-		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(cov);
+	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(input);
+	Eigen::Vector3d evals = solver.eigenvalues();
 
-		// get the eigenvalues, the first is the smallest
-		Eigen::Vector3d evals = solver.eigenvalues();
-		float Lmin = std::sqrt(std::abs(evals(0))); // lmin is 1 / sqrt(max eigenvalue)
-		float Lmax = std::sqrt(std::abs(evals(2))); // lmin is 1 / sqrt(min eigenvalue)
-		float lambdaMin = std::abs(evals(0));
-		float lambdaMax = std::abs(evals(2));
+	if (evals(0) <= 0.0 || evals(1) <= 0.0 || evals(2) <= 0.0) {
+		anisotropyDegree = 0.0f;
+	}
+	else {
+		float lambdaMin = evals(0);
+		float lambdaMax = evals(2);
 
-		// estimate degree of anisotropy using the selected formula
-		float currentDa = 0.f;
-		if (mode == 0) {
-			currentDa = (Lmax > 1e-6) ? (Lmax / Lmin) : 0.0f;
-
+		switch (mode) {
+		case 0: {
+			float lenMax = (lambdaMin > 1e-9f) ? (1.0f / std::sqrt(lambdaMin)) : 0.0f;
+			float lenMin = (lambdaMax > 1e-9f) ? (1.0f / std::sqrt(lambdaMax)) : 0.0f;
+			anisotropyDegree = (lenMax > 1e-9f) ? (lenMax / lenMin) : 0.0f;
+			break;
 		}
-		else if (mode == 1) {
-			currentDa = (Lmax > 1e-6) ? (1.0f - (Lmax / Lmin)) : 0.0f;
-		}	
-		else if (mode == 2) {
-			currentDa = (lambdaMin > 1e-6) ? (lambdaMin / lambdaMax) : 0.0f;
+		case 1: {
+			float lenMax = (lambdaMin > 1e-9f) ? (1.0f / std::sqrt(lambdaMin)) : 0.0f;
+			float lenMin = (lambdaMax > 1e-9f) ? (1.0f / std::sqrt(lambdaMax)) : 0.0f;
+			anisotropyDegree = (lenMax > 1e-9f) ? (1.0f - (lenMax / lenMin)) : 0.0f;
+			break;
+			}
+		case 2: {
+			anisotropyDegree = (lambdaMax > 1e-9f) ? static_cast<float>(lambdaMin / lambdaMax) : 0.0f;
+			break;
 		}
-		else if (mode == 3) {
-			currentDa = (lambdaMin > 1e-6) ? (1.0f - (lambdaMin / lambdaMax)) : 0.0f;
+		case 3: {
+			anisotropyDegree = (lambdaMax > 1e-9f) ? static_cast<float>(1.0 - (lambdaMin / lambdaMax)) : 0.0f;
+			break;
 		}
+		}		
+	}
 
-		// push back to the da estimated so far
-		daHistory.push_back(currentDa);
-
-		// Step 5: Update Coefficient of Variation
-		if (daHistory.size() >= 5) {
-			float sum = 0, sq_sum = 0;
-			for (float val : daHistory) { sum += val; sq_sum += val * val; }
-			float mean = sum / daHistory.size();
-			float variance = (sq_sum / daHistory.size()) - (mean * mean);
-			vf = (mean > 0) ? (std::sqrt(std::abs(variance)) / mean) : 999.0f;
-		}
-
-		std::cout << "Points Sampled: " << iteration << " | DA: " << currentDa << " | CV: " << vf << "\r" << std::flush;
-	};
-	anisotropyDegree = daHistory.back();
+	std::cout << "Final Eigenvalues: " << evals(0) << ", " << evals(1) << ", " << evals(2) << std::endl;
+	std::cout << "Final Degree of Anisotropy: " << anisotropyDegree << std::endl;
 }
+
+//void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode) {
+//
+//	// Global tally for MIL
+//	std::vector<float> totalIntercepts(daDirectionNr, 0.0f); // Changed name for clarity
+//	std::vector<float> totalLengths(daDirectionNr, 0.0f);
+//
+//	// Create Random Directions (Fibonacci Sphere)
+//	std::vector<Vec3> dirs(daDirectionNr);
+//	const float PI = 3.14159265359f;
+//	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
+//
+//	for (int i = 0; i < daDirectionNr; i++) {
+//		float theta = 2.0f * PI * i / goldenRatio;
+//		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / daDirectionNr);
+//		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
+//	}
+//
+//	// create a generator to sample points inside the domain
+//	std::mt19937 rng(1337);
+//	std::uniform_real_distribution<float> distX(bounds[0], bounds[1]);
+//	std::uniform_real_distribution<float> distY(bounds[2], bounds[3]);
+//	std::uniform_real_distribution<float> distZ(bounds[4], bounds[5]);
+//
+//	// Ray step constraints
+//	float maxRayLength = std::min({ (bounds[1] - bounds[0]), (bounds[3] - bounds[2]) , (bounds[5] - bounds[4]) }) * 0.45f;
+//	float rayStepSize = std::min({ stepX, stepY, stepZ }) * 0.5f;
+//	int maxRaySteps = static_cast<int>(maxRayLength / rayStepSize);
+//
+//	float vf = 999.0f;
+//	int iteration = 0;
+//	std::vector<float> daHistory;
+//
+//	while ((iteration < daMinsteps || vf > vcLimit) && iteration < daMaxsteps) {
+//
+//		// 1. Pick a completely random point ANYWHERE in the volume
+//		Vec3 center(distX(rng), distY(rng), distZ(rng));
+//
+//		// DO NOT SKIP IF OUTSIDE! We want unbiased parallel lines passing through the volume.
+//		iteration++;
+//
+//		// parallelize the for loop to create the vectors
+//#pragma omp parallel for
+//		for (int i = 0; i < daDirectionNr; i++) {
+//			int intercepts = 0;
+//			float foregroundLength = 0.0f;
+//
+//			// Check the state of the very first point of our ray
+//			int startX = std::clamp((int)((center.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
+//			int startY = std::clamp((int)((center.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
+//			int startZ = std::clamp((int)((center.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+//
+//			bool currentlyIn = (get_data(startX, startY, startZ) < isoLevel);
+//
+//			// If we start inside the solid phase, that counts as our first valid intercept
+//			if (currentlyIn) {
+//				intercepts = 1;
+//			}
+//
+//			for (int s = 1; s <= maxRaySteps; s++) {
+//				Vec3 pt = center + (dirs[i] * (rayStepSize * s));
+//
+//				// Bounds check - break immediately if outside the volume
+//				if (pt.x < bounds[0] || pt.x >= bounds[1] ||
+//					pt.y < bounds[2] || pt.y >= bounds[3] ||
+//					pt.z < bounds[4] || pt.z >= bounds[5]) {
+//					break;
+//				}
+//
+//				int gX = static_cast<int>((pt.x - bounds[0]) / stepX);
+//				int gY = static_cast<int>((pt.y - bounds[2]) / stepY);
+//				int gZ = static_cast<int>((pt.z - bounds[4]) / stepZ);
+//
+//				bool isInside = (get_data(gX, gY, gZ) < isoLevel);
+//
+//				// Accumulate physical length ONLY when inside the solid structure
+//				if (isInside) {
+//					foregroundLength += rayStepSize;
+//				}
+//
+//				// Count a new intercept ONLY when transitioning from AIR to SOLID
+//				if (isInside && !currentlyIn) {
+//					intercepts++;
+//				}
+//
+//				currentlyIn = isInside;
+//			}
+//
+//			// Update global tallies
+//			totalIntercepts[i] += intercepts;
+//			totalLengths[i] += foregroundLength;
+//		}
+//
+//		// estimate the point cloud and the fabric tensor M
+//		Eigen::MatrixXd A(daDirectionNr, 6);
+//		Eigen::VectorXd b(daDirectionNr);
+//
+//		for (int v = 0; v < daDirectionNr; v++) {
+//
+//			// We already calculated true intercepts! No more dividing by 2.0.
+//			double intercepts = totalIntercepts[v];
+//
+//			// Estimate true mean intercept length
+//			double mil = (intercepts > 0) ? (totalLengths[v] / intercepts) : (double)totalLengths[v];
+//
+//			// BoneJ fits 1 / MIL^2
+//			double invMilSq = 1.0 / (mil * mil);
+//
+//			Vec3 dir = dirs[v];
+//
+//			// Populate design matrix A
+//			A(v, 0) = dir.x * dir.x;
+//			A(v, 1) = dir.y * dir.y;
+//			A(v, 2) = dir.z * dir.z;
+//			A(v, 3) = 2.0 * dir.x * dir.y;
+//			A(v, 4) = 2.0 * dir.x * dir.z;
+//			A(v, 5) = 2.0 * dir.y * dir.z;
+//
+//			// Populate target vector b
+//			b(v) = invMilSq;
+//		}
+//
+//		// Solve for x using SVD (Robust for least squares)
+//		Eigen::VectorXd x = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
+//
+//		// Reconstruct the 3x3 symmetric Fabric Tensor M
+//		Eigen::Matrix3d M;
+//		M << x(0), x(3), x(4),
+//			x(3), x(1), x(5),
+//			x(4), x(5), x(2);
+//
+//		// Get the eigenvalues
+//		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(M);
+//		Eigen::Vector3d evals = solver.eigenvalues(); // Sorted ascending by default
+//
+//		// In BoneJ, the eigenvalues are 1/a^2, 1/b^2, 1/c^2.
+//		float lambdaMin = std::abs(evals(0));
+//		float lambdaMax = std::abs(evals(2));
+//
+//		// Radii of the fitted ellipsoid
+		//float lenMax = (lambdaMin > 1e-9f) ? (1.0f / std::sqrt(lambdaMin)) : 0.0f;
+		//float lenMin = (lambdaMax > 1e-9f) ? (1.0f / std::sqrt(lambdaMax)) : 0.0f;
+//
+//		// Estimate degree of anisotropy using the selected formula
+//		float currentDa = 0.f;
+//		if (mode == 0) {
+//			currentDa = (lenMin > 1e-6f) ? (lenMax / lenMin) : 0.0f;
+//		}
+//		else if (mode == 1) {
+//			currentDa = (lenMax > 1e-6f) ? (1.0f - (lenMin / lenMax)) : 0.0f;
+//		}
+//		else if (mode == 2) {
+//			currentDa = (lambdaMax > 1e-6f) ? (lambdaMin / lambdaMax) : 0.0f;
+//		}
+//		else if (mode == 3) {
+//			// Standard BoneJ formula: 1 - (min eigenvalue / max eigenvalue)
+//			currentDa = (lambdaMax > 1e-6f) ? (1.0f - (lambdaMin / lambdaMax)) : 0.0f;
+//		}
+//
+//		// push back to the da estimated so far
+//		daHistory.push_back(currentDa);
+//
+//		// Update Coefficient of Variation
+//		if (daHistory.size() >= 5) {
+//			float sum = 0, sq_sum = 0;
+//			for (float val : daHistory) { sum += val; sq_sum += val * val; }
+//			float mean = sum / daHistory.size();
+//			float variance = (sq_sum / daHistory.size()) - (mean * mean);
+//			vf = (mean > 0) ? (std::sqrt(std::abs(variance)) / mean) : 999.0f;
+//		}
+//
+//		std::cout << "Points Sampled: " << iteration << " | DA: " << currentDa << " | CV: " << vf << "\r" << std::flush;
+//	};
+//
+//	anisotropyDegree = daHistory.back();
+//}
 
 void GeneratorLewiner::estimate_trabecular_number() {
 
@@ -3386,4 +3791,97 @@ void GeneratorLewiner::estimate_connectivity_network() {
 
 
 
+};
+
+void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
+
+	int vertNr = meshVertices.size();
+
+	std::vector<Vec3> currentVerts(vertNr);
+	std::vector<Vec3> tempVerts(vertNr);
+
+	for (int i = 0; i < vertNr; ++i) {
+		currentVerts[i] = Vec3(meshVertices[i].x, meshVertices[i].y, meshVertices[i].z);
+	}
+
+	// 3. Taubin Smoothing Loop
+	for (int k = 0; k < iter; ++k) {
+
+		// Pass 1: Shrink (using lambda > 0)
+		#pragma omp parallel for
+		for (int i = 0; i < vertNr; ++i) {
+			const auto& nbrs = adjacency[i];
+			if (nbrs.empty()) {
+				tempVerts[i] = currentVerts[i];
+				continue;
+			}
+
+			Vec3 avg(0.0f, 0.0f, 0.0f);
+			for (int n : nbrs) {
+				avg = avg + currentVerts[n];
+			}
+			float inv = 1.0f / static_cast<float>(nbrs.size());
+			avg = avg * inv;
+
+			tempVerts[i] = currentVerts[i] + (avg - currentVerts[i]) * lambda;
+		}
+
+	// Pass 2: Inflate (using mu < 0)
+	#pragma omp parallel for
+		for (int i = 0; i < vertNr; ++i) {
+			const auto& nbrs = adjacency[i];
+			if (nbrs.empty()) {
+				currentVerts[i] = tempVerts[i];
+				continue;
+			}
+
+			Vec3 avg(0.0f, 0.0f, 0.0f);
+			for (int n : nbrs) {
+				avg = avg + tempVerts[n];
+			}
+			float inv = 1.0f / static_cast<float>(nbrs.size());
+			avg = avg * inv;
+
+			currentVerts[i] = tempVerts[i] + (avg - tempVerts[i]) * mu;
+		}
+	}
+
+	// 4. Write back to the mesh
+	for (int i = 0; i < vertNr; ++i) {
+		meshVertices[i].x = currentVerts[i].x;
+		meshVertices[i].y = currentVerts[i].y;
+		meshVertices[i].z = currentVerts[i].z;
+	}
+
+	// build the model again
+	_update_bounding_box();
+
+	// update opengl objects
+	_update_render();
+
+};
+
+void GeneratorLewiner::build_topology() {
+
+	adjacency.clear();
+	adjacency.resize(meshVertices.size());
+
+	//int currentIdx = 0;
+	for (const auto& f : meshTriangles) {
+
+		adjacency[f.v1].push_back(f.v2);
+		adjacency[f.v1].push_back(f.v3);
+		adjacency[f.v2].push_back(f.v1);
+		adjacency[f.v2].push_back(f.v3);
+		adjacency[f.v3].push_back(f.v1);
+		adjacency[f.v3].push_back(f.v2);
+
+		//currentIdx++;
+	}
+
+	// Remove duplicates in adjacency
+	for (auto& neighbors : adjacency) {
+		std::sort(neighbors.begin(), neighbors.end());
+		neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+	}
 };

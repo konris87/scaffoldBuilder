@@ -172,8 +172,10 @@ private:
 
 	template <typename DistFunction>
 	void nearestRecurse(
-		Node* node, const Vec3& query,
-		int depth, Node*& best, double& bestDist,
+		Node* node, 
+		const Vec3& query,
+		int depth, 
+		Node*& best, double& bestDist,
 		DistFunction distFunc
 		) const {
 		
@@ -189,24 +191,11 @@ private:
 		}
 
 		// get next node to check
-		int axis = depth % K;
+		int axis = depth % 3;
 
-		Node* nearChild;
-
-		if (query[axis] < node->point[axis]) {
-			nearChild = node->left;
-		}
-		else {
-			nearChild = node->right;
-		}
-
-		Node* farChild;
-		if (query[axis] < node->point[axis]) {
-			farChild = node->right;
-		}
-		else {
-			farChild = node->left;
-		}
+		double diff = query[axis] - node->point[axis];
+        Node* nearChild = (diff < 0) ? node->left : node->right;
+        Node* farChild  = (diff < 0) ? node->right : node->left;
 
 		nearestRecurse(nearChild, query, depth + 1, best, bestDist, distFunc);
 

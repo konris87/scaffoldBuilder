@@ -299,6 +299,7 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/update.png", &updateScaffoldTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/translate.png", &translateTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/scale.png", &scaleTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/tsmooth.png", &taubinSmoothTexture, &dummyW, &dummyH);
 };
 
 void myGUI::_init_imgui() {
@@ -853,6 +854,9 @@ void myGUI::_render_toolbar() {
 		ImGui::SameLine();
 
 		create_button_textured("Scale Object", scaleScaffold, "Scale selected object.", scaleTexture);
+		ImGui::SameLine();
+
+		create_single_button_textured("Taubin Mesh", taubinSmooth, "Smooth With Taubin", taubinSmoothTexture);
 
 		ImGui::EndTable();
 
@@ -900,10 +904,12 @@ void myGUI::_render_settings_panel() {
 				gen->export_stl(scaffoldFilePath);
 
 				add_log(LogPriority::SUCCESS, "Exported scaffold mesh to " + scaffoldFilePath);
+				showGeometryExportWindow = false;
 
 			}
 		}
 		ImGuiFileDialog::Instance()->Close();
+		showGeometryExportWindow = false;
 	}
 
 	maxSize = ImVec2(width, height);
@@ -931,6 +937,7 @@ void myGUI::_render_settings_panel() {
 			showAbstractContainerCreator = false;
 		}
 		ImGuiFileDialog::Instance()->Close();
+		showAbstractContainerCreator = false;
 	}
 
 	maxSize = ImVec2(width, height);
@@ -965,9 +972,32 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
-	//_render_console();
+	if (ImGuiFileDialog::Instance()->Display("Load Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+	
+			// now create a scaffold using these
+			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(filePath);
 
-	//ImGui::End();
+			scaffold->name = fileName;
+
+			_update_cameras(*scaffold);
+
+			// push to the scaffold list
+			scaffolds.push_back(std::move(scaffold));
+
+			// set it as the selected object
+			selectedSceneObj = scaffolds.back().get();
+			selectedPanelObj.ptr = scaffolds.back().get();
+			selectedPanelObj.type = ObjectType::ScaffoldType;
+
+			// create a box container just to update the cameras etc
+
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
 };
 
 void myGUI::_render_object_list() {
@@ -1097,6 +1127,12 @@ void myGUI::_render_properties_panel() {
 
 	}
 	ImGui::End();
+};
+
+void myGUI::_render_active_model_metrics() {
+
+	// grab the active panel object
+
 };
 
 void myGUI::_render_seed_generator_list() {
@@ -1293,6 +1329,43 @@ void myGUI::add_log(LogPriority priority, const std::string& message) {
 	scrollToBottom = true;
 }
 
+void myGUI::_update_cameras(const GeneratorLewiner& gen) {
+
+	auto bnds = gen.get_bounds();
+
+	//float xc = static_cast<float>((xMax + xMin) * 0.5f);
+	//float yc = static_cast<float>((yMax + yMin) * 0.5f);
+	//float zc = static_cast<float>((zMax + zMin) * 0.5f);
+
+	float dx = bnds[1] - bnds[0];
+	float dy = bnds[3] - bnds[2];
+	float dz = bnds[5] - bnds[4];
+	float diagonal = std::sqrt(dx * dx + dy * dy + dz * dz);
+	float distance = 1.1f * diagonal;
+
+	float cx = (bnds[0] + bnds[1]) * 0.5f;
+	float cy = (bnds[2] + bnds[3]) * 0.5f;
+	float cz = (bnds[4] + bnds[5]) * 0.5f;
+
+	cameraUpdate = true;
+	cameraTarget = glm::vec3(cx, cy, cz);
+
+	std::cout << cx << " " << cy << " " << cz << std::endl;
+
+	defCamera->position = cameraPos;
+	defCamera->target = cameraTarget;
+	//trackCamera->position = cameraPos;
+	trackCamera->set_target(cameraTarget.x, cameraTarget.y, cameraTarget.z);
+	trackCamera->set_position(cx, cy, cz + distance);
+	trackCamera->update();
+	//lightPosCamera[0] = cx;
+	//lightPosCamera[1] = cy;
+	//lightPosCamera[2] = cz + distance;
+	projection = trackCamera->get_projection_matrix();
+	view = trackCamera->get_view_matrix();
+	cameraUpdate = false;
+}
+
 void myGUI::_update_cameras(IContainer& con) {
 
 	Bounds bnds = con.compute_bounds();
@@ -1398,10 +1471,10 @@ void myGUI::_render_algorithm_settings() {
 				if (picked == 0) {
 					ImGui::Text("Anisotropy Algorithm Settings");
 
-					ImGui::InputInt("Min Steps", &daMinsteps);
-					ImGui::InputInt("Max Steps", &daMaxsteps);
-					ImGui::InputInt("Direction Number", &daDirectionNr);
-					ImGui::InputFloat("Tolerance", &daTolerance);
+					ImGui::InputInt("daMinVectors", &daMinLines);
+					ImGui::SetItemTooltip("Set the number of parallel lines along each dimension.");
+					ImGui::InputInt("Directions", &daMinDirections);
+					ImGui::SetItemTooltip("Set the number of tested directions.");
 					ImGui::RadioButton("MaxRadius/MinRadius", &daFormulaIdx, 0);
 					ImGui::RadioButton("1 - (MaxRadius/MinRadius)", &daFormulaIdx, 1);
 					ImGui::RadioButton("MaxEigValue/MinEigValue", &daFormulaIdx, 2);
@@ -1494,19 +1567,9 @@ void myGUI::_render_main_menu_bar() {
 				// Call your function to load a model mesh here
 				IGFD::FileDialogConfig config;
 				config.path = "..//data";
-				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl, .vtk", config);
-
+				ImGuiFileDialog::Instance()->OpenDialog("Load Scaffold", "Load Scaffold", ".stl, .vtk", config);
 				//loadedMesh = scaffold;
 				//add_log("Model mesh loaded.");
-			}
-
-			if (ImGui::MenuItem("Load Bone", "load bone mesh file by specifying the path")) {
-				// Call your function to load a model mesh here
-				IGFD::FileDialogConfig config;
-				config.path = "..//data";
-				ImGuiFileDialog::Instance()->OpenDialog("ChooseFileDlgKey", "Choose File", ".stl", config);
-				//add_log("Model mesh loaded.");
-				//loadedMesh = bone;
 			}
 
 			ImGui::SameLine(); help_marker("So far only .stl files are supported");
@@ -1734,6 +1797,10 @@ void myGUI::_render_main_menu_bar() {
 
 	if (scaleScaffold) {
 		_render_scale_panel("Scale Object", scaleScaffold);
+	}
+
+	if (taubinSmooth) {
+		_render_taubin_smooth_panel("Taubin Smoothing", taubinSmooth);
 	}
 };
 
@@ -2068,7 +2135,7 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 					rnd->name = name;
 				}
 				else {
-					rnd->name = "Generator" + std::to_string(seedGenerators.size());
+					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
 				}
 				
 				//ContainerAdapter adapter = { *selectedCon, xDim, yDim, zDim };
@@ -2198,23 +2265,15 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 
 			if (selectedCon) {
 
-				//ContainerAdapter adapter = { *selectedCon, xDim, yDim, zDim };
-
-				// from the container get the center
-				//Bounds bnds = selectedCon->compute_bounds();
-
-				//std::array<double, 3> center = bnds.center;
-
 				std::unique_ptr<Poisson3D> rnd = std::make_unique<Poisson3D>(
 					tempRadius, tempRadius, 30);
 				std::string name = std::string(buffer);
-
 
 				if (!name.empty()) {
 					rnd->name = name;
 				}
 				else {
-					rnd->name = "Generator" + std::to_string(seedGenerators.size());
+					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
 				}
 				rnd->type = ObjectType::UniformGeneratorType;
 
@@ -2613,6 +2672,8 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 		static float tempStretchX = { 1.0f };
 		static float tempStretchY = { 1.0f };
 		static float tempStretchZ = { 1.0f };
+		static Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
+		static float anisotropyAngle = { 0.0f };
 		static int foam = 0;
 
 		ImGui::InputText("Name", buffer, sizeof(buffer));
@@ -2623,6 +2684,8 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 		ImGui::InputFloat("Stretch X", &tempStretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &tempStretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &tempStretchZ, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat3("Material Direction", anisotropyVec, "%.4f");
+		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
 		
 		ImGui::RadioButton("Porous", &foam, 0);
 		ImGui::RadioButton("Foam", &foam, 1);
@@ -2739,6 +2802,8 @@ void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 
 				// estimate the scalar field
 				scaffold->set_stretch(tempStretchX, tempStretchY, tempStretchZ);
+				scaffold->anisotropyAngle = anisotropyAngle;
+				scaffold->anisotropyVec = anisotropyVec;
 				scaffold->compute_scalar_field(*selectedCon);
 
 				scaffold->container = selectedCon;
@@ -3076,7 +3141,7 @@ void myGUI::_action_estimate_anisotropy() {
 
 
 	if (scaffold) {
-		scaffold->estimate_anisotropy(daDirectionNr, daMinsteps, daMaxsteps, daTolerance, daFormulaIdx);
+		scaffold->estimate_anisotropy(daMinDirections, daMinLines, daFormulaIdx);
 	}
 
 	estimateAnisotropy = false;
@@ -3211,6 +3276,45 @@ void myGUI::_render_scale_panel(const char* popupName, bool& showPopup) {
 
 	};
 };
+
+void myGUI::_render_taubin_smooth_panel(const char* popupName, bool& showPopup) {
+
+	if (!selectedSceneObj) {
+		showPopup = false;
+		return;
+	}
+
+	// apply to the vertices of the selected object
+	auto model = static_cast<GeneratorLewiner*>(selectedSceneObj);
+
+	if (ImGui::Begin(popupName, &showPopup, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static int iter = 1;
+		static float lambda = 0.5f;
+		static float mu = -0.3f;
+
+		ImGui::InputInt("Iterations", &iter, 1);
+
+		ImGui::InputFloat("Lambda", &lambda, 0.01f, 10.0f);
+
+		ImGui::InputFloat("Mu", &mu, 0.01f, 10.0f);
+	
+		if (ImGui::Button("Apply")) {
+			model->apply_taubin_smooth(iter, lambda, mu);
+		}
+
+		if (ImGui::Button("Cancel")) {
+
+			//if (model) {
+			//	md->reset_vertices();
+			//}
+			showPopup = false;
+		}
+
+		ImGui::End();
+	}
+};
+
 
 void myGUI::_draw_selected_box() {
 
