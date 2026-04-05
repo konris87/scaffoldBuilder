@@ -1,4 +1,6 @@
+# define _USE_MATH_DEFINES
 #include "Model.h"
+#include <cmath>
 
 Model::Model(const std::vector<float>& vertices, const std::vector<unsigned int>& indices, const std::vector<float>& normals) : vertices(vertices), indices(indices), vertexNormals(normals) {
 
@@ -512,4 +514,91 @@ void LineModel::set_vertices(const Vec3& newpt1, const Vec3& newpt2) {
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(float) * vertices.size(), vertices.data());
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+};
+
+// ----------------------------------------------------------------------------
+Ellipsoid::Ellipsoid(const Eigen::Vector3f& center, const Eigen::Matrix3f& Rot, float r1, float r2, float r3) {
+
+	vertices.clear();
+	Eigen::Vector3f radii(r1, r2, r3);
+
+	const float PI = 3.14159265359f;
+	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
+
+	for (int i = 0; i < 1000; i++) {
+		float theta = 2.0f * PI * i / goldenRatio;
+		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / 300);
+		// Unit sphere coordinates
+		Eigen::Vector3f p_unit(
+			std::sin(phi) * std::cos(theta),
+			std::sin(phi) * std::sin(theta),
+			std::cos(phi)
+		);
+
+		// Scale by radii, Rotate by eigenvectors, Translate to center
+		Eigen::Vector3f p_scaled = p_unit.cwiseProduct(radii);
+		Eigen::Vector3f p_ellipsoid = center + Rot * p_scaled;
+
+		// push to the vector list
+		vertices.push_back(static_cast<float>(p_ellipsoid.x()));
+		vertices.push_back(static_cast<float>(p_ellipsoid.y()));
+		vertices.push_back(static_cast<float>(p_ellipsoid.z()));
+	}
+
+	_setup();
+
+	// create the lines
+	Vec3 c(center);
+	Vec3 xDir(Rot.col(0).x(), Rot.col(0).y(), Rot.col(0).z()) ;
+	Vec3 yDir(Rot.col(1).x(), Rot.col(1).y(), Rot.col(1).z());
+	Vec3 zDir(Rot.col(2).x(), Rot.col(2).y(), Rot.col(2).z());
+
+	// check the order
+	Vec3 diff = xDir.cross(yDir);
+
+	// check the first component. if they have the same sign the leave as it is
+	if ((diff.x * zDir.x) < 0){
+		Vec3 temp = yDir;
+		yDir = zDir;
+		zDir = temp;
+	}
+
+	Vec3 p1(c + xDir * r1);
+	Vec3 p2(c + yDir * r2);
+	Vec3 p3(c + zDir * r3);
+
+	xAxis = std::make_unique<LineModel>(c, p1);
+	yAxis = std::make_unique<LineModel>(c, p2);
+	zAxis = std::make_unique<LineModel>(c, p3);
+
+};
+
+void Ellipsoid::_setup() {
+	glGenVertexArrays(1, &VAO);
+	glGenBuffers(1, &VBO);
+
+	glBindVertexArray(VAO);
+	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+	// position attribute
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+};
+
+void Ellipsoid::draw() {
+	glPointSize(2.0f);
+	glBindVertexArray(VAO);
+	glDrawArrays(GL_POINTS, 0, vertices.size() / 3);
+	glBindVertexArray(0);
+};
+
+void Ellipsoid::_clean() {
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+	glDeleteVertexArrays(1, &VAO);
+	glDeleteBuffers(1, &VBO);
+	VAO = 0;
+	VBO = 0;
 };

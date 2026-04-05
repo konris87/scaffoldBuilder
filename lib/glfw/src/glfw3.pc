@@ -1,7 +1,7 @@
-prefix=C:/Users/Kostas/Desktop/PhD/Repositories/install_dir
+prefix=C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir
 exec_prefix=${prefix}
-includedir=C:/Users/Kostas/Desktop/PhD/Repositories/install_dir/include
-libdir=C:/Users/Kostas/Desktop/PhD/Repositories/install_dir/lib
+includedir=C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/include
+libdir=C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/lib
 
 Name: GLFW
 Description: A multi-platform library for OpenGL, window and input

@@ -292,4 +292,30 @@ private:
 	void _setup();
 };
 
+// -----------------------------------------------
+class Ellipsoid {
+public:
+	Ellipsoid(const Eigen::Vector3f& center, const Eigen::Matrix3f& Rot, float r1, float r2, float r3);
+	~Ellipsoid() { _clean(); };
+
+	void draw();
+
+	std::unique_ptr<LineModel> xAxis;
+	std::unique_ptr<LineModel> yAxis;
+	std::unique_ptr<LineModel> zAxis;
+
+private:
+	std::vector<float> vertices;
+
+	unsigned int VAO{ 0 }, VBO{ 0 };
+
+	int stacks = 20;
+	int slices = 20;
+
+	void _setup();
+	
+	void _clean();
+};
+
+
 #endif MODEL_H

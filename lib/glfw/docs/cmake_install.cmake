@@ -2,7 +2,7 @@
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "C:/Users/Kostas/Desktop/PhD/Repositories/install_dir")
+  set(CMAKE_INSTALL_PREFIX "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 

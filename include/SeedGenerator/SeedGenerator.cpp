@@ -24,6 +24,8 @@ void Random::run(const IContainer& adapter) {
 	if (!seeds.empty()) {
 		model = std::make_unique<VisualizeSeeds>(seeds);
 	}
+
+	version++;
 };
 
 void Random::render_gui() {
@@ -254,6 +256,7 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 	if (!seeds.empty()) {
 		model = std::make_unique<VisualizeSeeds>(seeds);
 	}
+	version++;
 };
 
 void Poisson3D::run(const IContainer& adapter) {
@@ -445,6 +448,7 @@ void Poisson3D::run(const IContainer& adapter) {
 	if (!seeds.empty()) {
 		model = std::make_unique<VisualizeSeeds>(seeds);
 	}
+	version++;
 };
 
 void Poisson3D::render_gui() {

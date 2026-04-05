@@ -1,0 +1,1981 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:212 (message)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      The system is: Windows - 10.0.22621 - AMD64
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:462 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:500 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCCompilerId.c.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeCCompilerId.c.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:122 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      MSBuild version 17.14.23+b0019275e for .NET Framework
+      Build started 3/27/2026 3:22:53 PM.
+      
+      Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdC\\CompilerIdC.vcxproj" on node 1 (default targets).
+      PrepareForBuild:
+        Creating directory "Debug\\".
+        Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+        Creating directory "Debug\\CompilerIdC.tlog\\".
+      InitializeBuildStatus:
+        Creating "Debug\\CompilerIdC.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        Touching "Debug\\CompilerIdC.tlog\\unsuccessfulbuild".
+      VcpkgTripletSelection:
+        Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+        Using normalized configuration "Release"
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
+        CMakeCCompilerId.c
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\lib" /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
+        CompilerIdC.vcxproj -> C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdC\\CompilerIdC.exe
+      AppLocalFromInstalled:
+        pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdC\\CompilerIdC.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+        'pwsh.exe' is not recognized as an internal or external command,
+        operable program or batch file.
+        The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdC\\CompilerIdC.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"" exited with code 9009.
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdC\\CompilerIdC.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_C_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_C_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        Deleting file "Debug\\CompilerIdC.tlog\\unsuccessfulbuild".
+        Touching "Debug\\CompilerIdC.tlog\\CompilerIdC.lastbuildstate".
+      Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdC\\CompilerIdC.vcxproj" (default targets).
+      
+      Build succeeded.
+          0 Warning(s)
+          0 Error(s)
+      
+      Time Elapsed 00:00:02.20
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.vcxproj"
+      
+      The C compiler identification is MSVC, found in:
+        C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/4.1.2/CompilerIdC/CompilerIdC.exe
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:65 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:103 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.com"
+    found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:65 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:104 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.com"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.exe"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/ninja/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/ninja/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/ninja/lld-link"
+      - "C:/OpenSim 4.5/bin/lld-link.com"
+      - "C:/OpenSim 4.5/bin/lld-link.exe"
+      - "C:/OpenSim 4.5/bin/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/lld-link"
+      - "C:/Program Files/CMake/bin/lld-link.com"
+      - "C:/Program Files/CMake/bin/lld-link.exe"
+      - "C:/Program Files/CMake/bin/lld-link"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/lld-link.com"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/lld-link.exe"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/lld-link"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/lld-link.com"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/lld-link.exe"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/lld-link"
+      - "C:/Program Files/FEBioStudio2/bin/lld-link.com"
+      - "C:/Program Files/FEBioStudio2/bin/lld-link.exe"
+      - "C:/Program Files/FEBioStudio2/bin/lld-link"
+      - "C:/Windows/System32/lld-link.com"
+      - "C:/Windows/System32/lld-link.exe"
+      - "C:/Windows/System32/lld-link"
+      - "C:/Windows/lld-link.com"
+      - "C:/Windows/lld-link.exe"
+      - "C:/Windows/lld-link"
+      - "C:/Windows/System32/wbem/lld-link.com"
+      - "C:/Windows/System32/wbem/lld-link.exe"
+      - "C:/Windows/System32/wbem/lld-link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/Windows/System32/OpenSSH/lld-link.com"
+      - "C:/Windows/System32/OpenSSH/lld-link.exe"
+      - "C:/Windows/System32/OpenSSH/lld-link"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link"
+      - "C:/Program Files/Git/cmd/lld-link.com"
+      - "C:/Program Files/Git/cmd/lld-link.exe"
+      - "C:/Program Files/Git/cmd/lld-link"
+      - "C:/Program Files/dotnet/lld-link.com"
+      - "C:/Program Files/dotnet/lld-link.exe"
+      - "C:/Program Files/dotnet/lld-link"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link"
+      - "C:/Program Files/MATLAB/R2024b/bin/lld-link.com"
+      - "C:/Program Files/MATLAB/R2024b/bin/lld-link.exe"
+      - "C:/Program Files/MATLAB/R2024b/bin/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/msys64/ucrt64/bin/lld-link.com"
+      - "C:/msys64/ucrt64/bin/lld-link.exe"
+      - "C:/msys64/ucrt64/bin/lld-link"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/lld-link"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.com"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.exe"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_LINKER"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.com"
+    found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_MT"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "mt"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt.com"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt.exe"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/mt.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/mt.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/mt"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/mt.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/mt.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/mt"
+      - "C:/Users/Kostas/Desktop/Software/ninja/mt.com"
+      - "C:/Users/Kostas/Desktop/Software/ninja/mt.exe"
+      - "C:/Users/Kostas/Desktop/Software/ninja/mt"
+      - "C:/OpenSim 4.5/bin/mt.com"
+      - "C:/OpenSim 4.5/bin/mt.exe"
+      - "C:/OpenSim 4.5/bin/mt"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/mt.com"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/mt.exe"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/mt"
+      - "C:/Program Files/CMake/bin/mt.com"
+      - "C:/Program Files/CMake/bin/mt.exe"
+      - "C:/Program Files/CMake/bin/mt"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/mt.com"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/mt.exe"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/mt"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/mt.com"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/mt.exe"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/mt"
+      - "C:/Program Files/FEBioStudio2/bin/mt.com"
+      - "C:/Program Files/FEBioStudio2/bin/mt.exe"
+      - "C:/Program Files/FEBioStudio2/bin/mt"
+      - "C:/Windows/System32/mt.com"
+      - "C:/Windows/System32/mt.exe"
+      - "C:/Windows/System32/mt"
+      - "C:/Windows/mt.com"
+      - "C:/Windows/mt.exe"
+      - "C:/Windows/mt"
+      - "C:/Windows/System32/wbem/mt.com"
+      - "C:/Windows/System32/wbem/mt.exe"
+      - "C:/Windows/System32/wbem/mt"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/mt"
+      - "C:/Windows/System32/OpenSSH/mt.com"
+      - "C:/Windows/System32/OpenSSH/mt.exe"
+      - "C:/Windows/System32/OpenSSH/mt"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/mt.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/mt.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/mt"
+      - "C:/Program Files/Git/cmd/mt.com"
+      - "C:/Program Files/Git/cmd/mt.exe"
+      - "C:/Program Files/Git/cmd/mt"
+      - "C:/Program Files/dotnet/mt.com"
+      - "C:/Program Files/dotnet/mt.exe"
+      - "C:/Program Files/dotnet/mt"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/mt"
+      - "C:/Program Files/MATLAB/R2024b/bin/mt.com"
+      - "C:/Program Files/MATLAB/R2024b/bin/mt.exe"
+      - "C:/Program Files/MATLAB/R2024b/bin/mt"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/mt"
+      - "C:/msys64/ucrt64/bin/mt.com"
+      - "C:/msys64/ucrt64/bin/mt.exe"
+      - "C:/msys64/ucrt64/bin/mt"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/mt.com"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/mt.exe"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/mt"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/mt.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/mt.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/mt"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/mt.com"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/mt.exe"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/mt"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:238 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCCompiler.cmake:200 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_AR"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lib"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.com"
+    found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.exe"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:462 (find_file)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:500 (CMAKE_DETERMINE_COMPILER_ID_WRITE)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:8 (CMAKE_DETERMINE_COMPILER_ID_BUILD)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "file"
+    variable: "src_in"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "CMakeCXXCompilerId.cpp.in"
+    candidate_directories:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/"
+    found: "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeCXXCompilerId.cpp.in"
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCXXCompiler.cmake:125 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      MSBuild version 17.14.23+b0019275e for .NET Framework
+      Build started 3/27/2026 3:22:56 PM.
+      
+      Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
+      PrepareForBuild:
+        Creating directory "Debug\\".
+        Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+        Creating directory "Debug\\CompilerIdCXX.tlog\\".
+      InitializeBuildStatus:
+        Creating "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        Touching "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+      VcpkgTripletSelection:
+        Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+        Using normalized configuration "Release"
+      ClCompile:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+        CMakeCXXCompilerId.cpp
+      Link:
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\lib" /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
+        CompilerIdCXX.vcxproj -> C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdCXX\\CompilerIdCXX.exe
+      AppLocalFromInstalled:
+        pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+        'pwsh.exe' is not recognized as an internal or external command,
+        operable program or batch file.
+        The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"" exited with code 9009.
+        "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_CXX_COMPILER=C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        Deleting file "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+        Touching "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.lastbuildstate".
+      Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\4.1.2\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (default targets).
+      
+      Build succeeded.
+          0 Warning(s)
+          0 Error(s)
+      
+      Time Elapsed 00:00:01.35
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.vcxproj"
+      
+      The CXX compiler identification is MSVC, found in:
+        C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/4.1.2/CompilerIdCXX/CompilerIdCXX.exe
+      
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:37 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:65 (__resolve_tool_path)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeFindBinUtils.cmake:104 (__resolve_linker_path)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCXXCompiler.cmake:206 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "_CMAKE_TOOL_WITH_PATH"
+    description: "Path to a program."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: false
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: false
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "lld-link"
+    candidate_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+    searched_directories:
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.com"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.exe"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/ninja/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/ninja/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/ninja/lld-link"
+      - "C:/OpenSim 4.5/bin/lld-link.com"
+      - "C:/OpenSim 4.5/bin/lld-link.exe"
+      - "C:/OpenSim 4.5/bin/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/lld-link"
+      - "C:/Program Files/CMake/bin/lld-link.com"
+      - "C:/Program Files/CMake/bin/lld-link.exe"
+      - "C:/Program Files/CMake/bin/lld-link"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/lld-link.com"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/lld-link.exe"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/lld-link"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/lld-link.com"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/lld-link.exe"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/lld-link"
+      - "C:/Program Files/FEBioStudio2/bin/lld-link.com"
+      - "C:/Program Files/FEBioStudio2/bin/lld-link.exe"
+      - "C:/Program Files/FEBioStudio2/bin/lld-link"
+      - "C:/Windows/System32/lld-link.com"
+      - "C:/Windows/System32/lld-link.exe"
+      - "C:/Windows/System32/lld-link"
+      - "C:/Windows/lld-link.com"
+      - "C:/Windows/lld-link.exe"
+      - "C:/Windows/lld-link"
+      - "C:/Windows/System32/wbem/lld-link.com"
+      - "C:/Windows/System32/wbem/lld-link.exe"
+      - "C:/Windows/System32/wbem/lld-link"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/lld-link"
+      - "C:/Windows/System32/OpenSSH/lld-link.com"
+      - "C:/Windows/System32/OpenSSH/lld-link.exe"
+      - "C:/Windows/System32/OpenSSH/lld-link"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/lld-link"
+      - "C:/Program Files/Git/cmd/lld-link.com"
+      - "C:/Program Files/Git/cmd/lld-link.exe"
+      - "C:/Program Files/Git/cmd/lld-link"
+      - "C:/Program Files/dotnet/lld-link.com"
+      - "C:/Program Files/dotnet/lld-link.exe"
+      - "C:/Program Files/dotnet/lld-link"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/lld-link"
+      - "C:/Program Files/MATLAB/R2024b/bin/lld-link.com"
+      - "C:/Program Files/MATLAB/R2024b/bin/lld-link.exe"
+      - "C:/Program Files/MATLAB/R2024b/bin/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/msys64/ucrt64/bin/lld-link.com"
+      - "C:/msys64/ucrt64/bin/lld-link.exe"
+      - "C:/msys64/ucrt64/bin/lld-link"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/lld-link.com"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/lld-link"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/lld-link.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/lld-link.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/lld-link"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.com"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/lld-link.exe"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/lld-link"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "./install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineRCCompiler.cmake:40 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/Platform/Windows-MSVC.cmake:574 (enable_language)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/Platform/Windows-MSVC.cmake:547 (__windows_compiler_msvc_enable_rc)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/Platform/Windows-MSVC-C.cmake:5 (__windows_compiler_msvc)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeCInformation.cmake:48 (include)"
+      - "CMakeLists.txt:4 (project)"
+    mode: "program"
+    variable: "CMAKE_RC_COMPILER"
+    description: "RC compiler"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "rc"
+    candidate_directories:
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/"
+    searched_directories:
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/rc.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/rc.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/rc"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/rc.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/rc.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/rc"
+      - "C:/Users/Kostas/Desktop/Software/ninja/rc.com"
+      - "C:/Users/Kostas/Desktop/Software/ninja/rc.exe"
+      - "C:/Users/Kostas/Desktop/Software/ninja/rc"
+      - "C:/OpenSim 4.5/bin/rc.com"
+      - "C:/OpenSim 4.5/bin/rc.exe"
+      - "C:/OpenSim 4.5/bin/rc"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/rc.com"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/rc.exe"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/rc"
+      - "C:/Program Files/CMake/bin/rc.com"
+      - "C:/Program Files/CMake/bin/rc.exe"
+      - "C:/Program Files/CMake/bin/rc"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/rc.com"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/rc.exe"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/rc"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/rc.com"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/rc.exe"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/rc"
+      - "C:/Program Files/FEBioStudio2/bin/rc.com"
+      - "C:/Program Files/FEBioStudio2/bin/rc.exe"
+      - "C:/Program Files/FEBioStudio2/bin/rc"
+      - "C:/Windows/System32/rc.com"
+      - "C:/Windows/System32/rc.exe"
+      - "C:/Windows/System32/rc"
+      - "C:/Windows/rc.com"
+      - "C:/Windows/rc.exe"
+      - "C:/Windows/rc"
+      - "C:/Windows/System32/wbem/rc.com"
+      - "C:/Windows/System32/wbem/rc.exe"
+      - "C:/Windows/System32/wbem/rc"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/rc.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/rc.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/rc"
+      - "C:/Windows/System32/OpenSSH/rc.com"
+      - "C:/Windows/System32/OpenSSH/rc.exe"
+      - "C:/Windows/System32/OpenSSH/rc"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/rc.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/rc.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/rc"
+      - "C:/Program Files/Git/cmd/rc.com"
+      - "C:/Program Files/Git/cmd/rc.exe"
+      - "C:/Program Files/Git/cmd/rc"
+      - "C:/Program Files/dotnet/rc.com"
+      - "C:/Program Files/dotnet/rc.exe"
+      - "C:/Program Files/dotnet/rc"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/rc.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/rc.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/rc"
+      - "C:/Program Files/MATLAB/R2024b/bin/rc.com"
+      - "C:/Program Files/MATLAB/R2024b/bin/rc.exe"
+      - "C:/Program Files/MATLAB/R2024b/bin/rc"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/rc.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/rc.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/rc"
+      - "C:/msys64/ucrt64/bin/rc.com"
+      - "C:/msys64/ucrt64/bin/rc.exe"
+      - "C:/msys64/ucrt64/bin/rc"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/rc.com"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/rc.exe"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/rc"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/rc.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/rc.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/rc"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/rc.com"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/rc.exe"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/rc"
+      - "C:/Program Files/bin/rc.com"
+      - "C:/Program Files/bin/rc.exe"
+      - "C:/Program Files/bin/rc"
+      - "C:/Program Files/sbin/rc.com"
+      - "C:/Program Files/sbin/rc.exe"
+      - "C:/Program Files/sbin/rc"
+      - "C:/Program Files/rc.com"
+      - "C:/Program Files/rc.exe"
+      - "C:/Program Files/rc"
+      - "C:/Program Files (x86)/bin/rc.com"
+      - "C:/Program Files (x86)/bin/rc.exe"
+      - "C:/Program Files (x86)/bin/rc"
+      - "C:/Program Files (x86)/sbin/rc.com"
+      - "C:/Program Files (x86)/sbin/rc.exe"
+      - "C:/Program Files (x86)/sbin/rc"
+      - "C:/Program Files (x86)/rc.com"
+      - "C:/Program Files (x86)/rc.exe"
+      - "C:/Program Files (x86)/rc"
+      - "C:/Program Files/CMake/bin/rc.com"
+      - "C:/Program Files/CMake/bin/rc.exe"
+      - "C:/Program Files/CMake/bin/rc"
+      - "C:/Program Files/CMake/sbin/rc.com"
+      - "C:/Program Files/CMake/sbin/rc.exe"
+      - "C:/Program Files/CMake/sbin/rc"
+      - "C:/Program Files/CMake/rc.com"
+      - "C:/Program Files/CMake/rc.exe"
+      - "C:/Program Files/CMake/rc"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/rc.com"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/rc.exe"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/rc"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/rc.com"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/rc.exe"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/rc"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/rc.com"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/rc.exe"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/rc"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-08ciq8"
+      binary: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-08ciq8"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+      CMAKE_C_FLAGS_DEBUG: "/MDd /Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-08ciq8'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_e5192.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 3/27/2026 3:22:58 PM.
+        
+        Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\cmTC_e5192.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_e5192.dir\\Debug\\".
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          Creating directory "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\Debug\\".
+          Creating directory "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\unsuccessfulbuild".
+        VcpkgTripletSelection:
+          Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+          Using normalized configuration "Debug"
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_e5192.dir\\Debug\\\\" /Fd"cmTC_e5192.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35217 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_e5192.dir\\Debug\\\\" /Fd"cmTC_e5192.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
+          CMakeCCompilerABI.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\Debug\\cmTC_e5192.exe" /INCREMENTAL /ILK:"cmTC_e5192.dir\\Debug\\cmTC_e5192.ilk" /NOLOGO /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-08ciq8/Debug/cmTC_e5192.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-08ciq8/Debug/cmTC_e5192.lib" /MACHINE:X64  /machine:x64 cmTC_e5192.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_e5192.vcxproj -> C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\Debug\\cmTC_e5192.exe
+        AppLocalFromInstalled:
+          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\Debug\\cmTC_e5192.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\cmTC_e5192.write.1u.tlog" "cmTC_e5192.dir\\Debug\\vcpkg.applocal.log"
+          'pwsh.exe' is not recognized as an internal or external command,
+          operable program or batch file.
+          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\Debug\\cmTC_e5192.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\cmTC_e5192.write.1u.tlog" "cmTC_e5192.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
+          "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\Debug\\cmTC_e5192.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\cmTC_e5192.write.1u.tlog" "cmTC_e5192.dir\\Debug\\vcpkg.applocal.log"
+        FinalizeBuildStatus:
+          Deleting file "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\unsuccessfulbuild".
+          Touching "cmTC_e5192.dir\\Debug\\cmTC_e5192.tlog\\cmTC_e5192.lastbuildstate".
+        Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-08ciq8\\cmTC_e5192.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.78
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'C': C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/Internal/CMakeDetermineLinkerId.cmake:36 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Running the C compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.44.35217.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:83 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-kky7hu"
+      binary: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-kky7hu"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /W3 /GR /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/MDd /Zi /Ob0 /Od /RTC1"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-kky7hu'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_89266.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 3/27/2026 3:23:00 PM.
+        
+        Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\cmTC_89266.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_89266.dir\\Debug\\".
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          Creating directory "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\Debug\\".
+          Creating directory "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\unsuccessfulbuild".
+        VcpkgTripletSelection:
+          Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+          Using normalized configuration "Debug"
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /GR /Fo"cmTC_89266.dir\\Debug\\\\" /Fd"cmTC_89266.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35217 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /GR /Fo"cmTC_89266.dir\\Debug\\\\" /Fd"cmTC_89266.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
+          CMakeCXXCompilerABI.cpp
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\Debug\\cmTC_89266.exe" /INCREMENTAL /ILK:"cmTC_89266.dir\\Debug\\cmTC_89266.ilk" /NOLOGO /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-kky7hu/Debug/cmTC_89266.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-kky7hu/Debug/cmTC_89266.lib" /MACHINE:X64  /machine:x64 cmTC_89266.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_89266.vcxproj -> C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\Debug\\cmTC_89266.exe
+        AppLocalFromInstalled:
+          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\Debug\\cmTC_89266.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\cmTC_89266.write.1u.tlog" "cmTC_89266.dir\\Debug\\vcpkg.applocal.log"
+          'pwsh.exe' is not recognized as an internal or external command,
+          operable program or batch file.
+          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\Debug\\cmTC_89266.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\cmTC_89266.write.1u.tlog" "cmTC_89266.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
+          "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\Debug\\cmTC_89266.exe" "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\cmTC_89266.write.1u.tlog" "cmTC_89266.dir\\Debug\\vcpkg.applocal.log"
+        FinalizeBuildStatus:
+          Deleting file "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\unsuccessfulbuild".
+          Touching "cmTC_89266.dir\\Debug\\cmTC_89266.tlog\\cmTC_89266.lastbuildstate".
+        Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-kky7hu\\cmTC_89266.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.31
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:253 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(|\\.[a-rt-z][a-z]*|\\.s[a-np-z][a-z]*|\\.so[a-z]+)|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'CXX': C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/Internal/CMakeDetermineLinkerId.cmake:36 (message)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineCompilerABI.cmake:299 (cmake_determine_linker_id)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Running the CXX compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.44.35217.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/Internal/CheckSourceCompiles.cmake:104 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CheckCSourceCompiles.cmake:103 (cmake_check_source_compiles)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:97 (check_c_source_compiles)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:163 (_threads_check_libc)"
+      - "lib/glfw/CMakeLists.txt:60 (find_package)"
+    checks:
+      - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
+    directories:
+      source: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-yt33s9"
+      binary: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-yt33s9"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+      CMAKE_C_FLAGS_DEBUG: "/MDd /Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMake/modules"
+    buildResult:
+      variable: "CMAKE_HAVE_LIBC_PTHREAD"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-yt33s9'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_876e4.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 3/27/2026 3:23:02 PM.
+        
+        Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\cmTC_876e4.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_876e4.dir\\Debug\\".
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          Creating directory "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\Debug\\".
+          Creating directory "cmTC_876e4.dir\\Debug\\cmTC_876e4.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_876e4.dir\\Debug\\cmTC_876e4.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_876e4.dir\\Debug\\cmTC_876e4.tlog\\unsuccessfulbuild".
+        VcpkgTripletSelection:
+          Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+          Using normalized configuration "Debug"
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_876e4.dir\\Debug\\\\" /Fd"cmTC_876e4.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\src.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35217 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_876e4.dir\\Debug\\\\" /Fd"cmTC_876e4.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\src.c"
+          src.c
+        C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\cmTC_876e4.vcxproj]
+        Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\cmTC_876e4.vcxproj" (default targets) -- FAILED.
+        
+        Build FAILED.
+        
+        "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\cmTC_876e4.vcxproj" (default target) (1) ->
+        (ClCompile target) -> 
+          C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-yt33s9\\cmTC_876e4.vcxproj]
+        
+            0 Warning(s)
+            1 Error(s)
+        
+        Time Elapsed 00:00:00.39
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CheckLibraryExists.cmake:154 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:112 (check_library_exists)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:175 (_threads_check_lib)"
+      - "lib/glfw/CMakeLists.txt:60 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthreads"
+    directories:
+      source: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-xdu8z6"
+      binary: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-xdu8z6"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+      CMAKE_C_FLAGS_DEBUG: "/MDd /Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMake/modules"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREADS_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-xdu8z6'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_855df.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 3/27/2026 3:23:03 PM.
+        
+        Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\cmTC_855df.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_855df.dir\\Debug\\".
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          Creating directory "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\Debug\\".
+          Creating directory "cmTC_855df.dir\\Debug\\cmTC_855df.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_855df.dir\\Debug\\cmTC_855df.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_855df.dir\\Debug\\cmTC_855df.tlog\\unsuccessfulbuild".
+        VcpkgTripletSelection:
+          Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+          Using normalized configuration "Debug"
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_855df.dir\\Debug\\\\" /Fd"cmTC_855df.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35217 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_855df.dir\\Debug\\\\" /Fd"cmTC_855df.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\CheckFunctionExists.c"
+          CheckFunctionExists.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\Debug\\cmTC_855df.exe" /INCREMENTAL /ILK:"cmTC_855df.dir\\Debug\\cmTC_855df.ilk" /NOLOGO /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-xdu8z6/Debug/cmTC_855df.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-xdu8z6/Debug/cmTC_855df.lib" /MACHINE:X64  /machine:x64 cmTC_855df.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\cmTC_855df.vcxproj]
+        Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\cmTC_855df.vcxproj" (default targets) -- FAILED.
+        
+        Build FAILED.
+        
+        "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\cmTC_855df.vcxproj" (default target) (1) ->
+        (Link target) -> 
+          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-xdu8z6\\cmTC_855df.vcxproj]
+        
+            0 Warning(s)
+            1 Error(s)
+        
+        Time Elapsed 00:00:00.53
+        
+      exitCode: 1
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/CheckLibraryExists.cmake:154 (try_compile)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:112 (check_library_exists)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:176 (_threads_check_lib)"
+      - "lib/glfw/CMakeLists.txt:60 (find_package)"
+    checks:
+      - "Looking for pthread_create in pthread"
+    directories:
+      source: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-6y6x20"
+      binary: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-6y6x20"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS /W3"
+      CMAKE_C_FLAGS_DEBUG: "/MDd /Zi /Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMake/modules"
+    buildResult:
+      variable: "CMAKE_HAVE_PTHREAD_CREATE"
+      cached: true
+      stdout: |
+        Change Dir: 'C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-6y6x20'
+        
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_24d3b.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 3/27/2026 3:23:03 PM.
+        
+        Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\cmTC_24d3b.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_24d3b.dir\\Debug\\".
+          Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
+          Creating directory "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\Debug\\".
+          Creating directory "cmTC_24d3b.dir\\Debug\\cmTC_24d3b.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_24d3b.dir\\Debug\\cmTC_24d3b.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_24d3b.dir\\Debug\\cmTC_24d3b.tlog\\unsuccessfulbuild".
+        VcpkgTripletSelection:
+          Using triplet "x64-windows" from "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\"
+          Using normalized configuration "Debug"
+        ClCompile:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_24d3b.dir\\Debug\\\\" /Fd"cmTC_24d3b.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35217 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          cl /c /I"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\include" /Zi /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_24d3b.dir\\Debug\\\\" /Fd"cmTC_24d3b.dir\\Debug\\vc143.pdb" /external:W3 /Gd /TC /errorReport:queue "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\CheckFunctionExists.c"
+          CheckFunctionExists.c
+        Link:
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\Debug\\cmTC_24d3b.exe" /INCREMENTAL /ILK:"cmTC_24d3b.dir\\Debug\\cmTC_24d3b.ilk" /NOLOGO /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Users\\Kostas\\Desktop\\Software\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-6y6x20/Debug/cmTC_24d3b.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/CMakeScratch/TryCompile-6y6x20/Debug/cmTC_24d3b.lib" /MACHINE:X64  /machine:x64 cmTC_24d3b.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\cmTC_24d3b.vcxproj]
+        Done Building Project "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\cmTC_24d3b.vcxproj" (default targets) -- FAILED.
+        
+        Build FAILED.
+        
+        "C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\cmTC_24d3b.vcxproj" (default target) (1) ->
+        (Link target) -> 
+          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [C:\\Users\\Kostas\\Desktop\\PhD\\Repositories\\scaffoldBuilder_repo\\CMakeFiles\\CMakeScratch\\TryCompile-6y6x20\\cmTC_24d3b.vcxproj]
+        
+            0 Warning(s)
+            1 Error(s)
+        
+        Time Elapsed 00:00:00.53
+        
+      exitCode: 1
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindDoxygen.cmake:753 (find_program)"
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindDoxygen.cmake:937 (_Doxygen_find_doxygen)"
+      - "lib/glfw/docs/CMakeLists.txt:35 (find_package)"
+    mode: "program"
+    variable: "DOXYGEN_EXECUTABLE"
+    description: "Doxygen documentation generation tool (https://www.doxygen.nl)"
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "doxygen"
+    candidate_directories:
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Program Files/bin/"
+      - "C:/Program Files/sbin/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/bin/"
+      - "C:/Program Files (x86)/sbin/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/CMake/sbin/"
+      - "C:/Program Files/CMake/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/"
+      - "/REGISTRY-NOTFOUND/bin/"
+      - "/Applications/Doxygen.app/Contents/Resources/"
+      - "/Applications/Doxygen.app/Contents/MacOS/"
+      - "/Applications/Utilities/Doxygen.app/Contents/Resources/"
+      - "/Applications/Utilities/Doxygen.app/Contents/MacOS/"
+    searched_directories:
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/doxygen.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/doxygen"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/doxygen.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/doxygen"
+      - "C:/Users/Kostas/Desktop/Software/ninja/doxygen.com"
+      - "C:/Users/Kostas/Desktop/Software/ninja/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/Software/ninja/doxygen"
+      - "C:/OpenSim 4.5/bin/doxygen.com"
+      - "C:/OpenSim 4.5/bin/doxygen.exe"
+      - "C:/OpenSim 4.5/bin/doxygen"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/doxygen.com"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/doxygen"
+      - "C:/Program Files/CMake/bin/doxygen.com"
+      - "C:/Program Files/CMake/bin/doxygen.exe"
+      - "C:/Program Files/CMake/bin/doxygen"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/doxygen.com"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/doxygen.exe"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/doxygen"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/doxygen.com"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/doxygen.exe"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/doxygen"
+      - "C:/Program Files/FEBioStudio2/bin/doxygen.com"
+      - "C:/Program Files/FEBioStudio2/bin/doxygen.exe"
+      - "C:/Program Files/FEBioStudio2/bin/doxygen"
+      - "C:/Windows/System32/doxygen.com"
+      - "C:/Windows/System32/doxygen.exe"
+      - "C:/Windows/System32/doxygen"
+      - "C:/Windows/doxygen.com"
+      - "C:/Windows/doxygen.exe"
+      - "C:/Windows/doxygen"
+      - "C:/Windows/System32/wbem/doxygen.com"
+      - "C:/Windows/System32/wbem/doxygen.exe"
+      - "C:/Windows/System32/wbem/doxygen"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/doxygen.com"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/doxygen.exe"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/doxygen"
+      - "C:/Windows/System32/OpenSSH/doxygen.com"
+      - "C:/Windows/System32/OpenSSH/doxygen.exe"
+      - "C:/Windows/System32/OpenSSH/doxygen"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/doxygen.com"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/doxygen.exe"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/doxygen"
+      - "C:/Program Files/Git/cmd/doxygen.com"
+      - "C:/Program Files/Git/cmd/doxygen.exe"
+      - "C:/Program Files/Git/cmd/doxygen"
+      - "C:/Program Files/dotnet/doxygen.com"
+      - "C:/Program Files/dotnet/doxygen.exe"
+      - "C:/Program Files/dotnet/doxygen"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/doxygen.com"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/doxygen.exe"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/doxygen"
+      - "C:/Program Files/MATLAB/R2024b/bin/doxygen.com"
+      - "C:/Program Files/MATLAB/R2024b/bin/doxygen.exe"
+      - "C:/Program Files/MATLAB/R2024b/bin/doxygen"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/doxygen.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/doxygen.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/doxygen"
+      - "C:/msys64/ucrt64/bin/doxygen.com"
+      - "C:/msys64/ucrt64/bin/doxygen.exe"
+      - "C:/msys64/ucrt64/bin/doxygen"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/doxygen.com"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/doxygen.exe"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/doxygen"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/doxygen.com"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/doxygen"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/doxygen.com"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/doxygen.exe"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/doxygen"
+      - "C:/Program Files/bin/doxygen.com"
+      - "C:/Program Files/bin/doxygen.exe"
+      - "C:/Program Files/bin/doxygen"
+      - "C:/Program Files/sbin/doxygen.com"
+      - "C:/Program Files/sbin/doxygen.exe"
+      - "C:/Program Files/sbin/doxygen"
+      - "C:/Program Files/doxygen.com"
+      - "C:/Program Files/doxygen.exe"
+      - "C:/Program Files/doxygen"
+      - "C:/Program Files (x86)/bin/doxygen.com"
+      - "C:/Program Files (x86)/bin/doxygen.exe"
+      - "C:/Program Files (x86)/bin/doxygen"
+      - "C:/Program Files (x86)/sbin/doxygen.com"
+      - "C:/Program Files (x86)/sbin/doxygen.exe"
+      - "C:/Program Files (x86)/sbin/doxygen"
+      - "C:/Program Files (x86)/doxygen.com"
+      - "C:/Program Files (x86)/doxygen.exe"
+      - "C:/Program Files (x86)/doxygen"
+      - "C:/Program Files/CMake/bin/doxygen.com"
+      - "C:/Program Files/CMake/bin/doxygen.exe"
+      - "C:/Program Files/CMake/bin/doxygen"
+      - "C:/Program Files/CMake/sbin/doxygen.com"
+      - "C:/Program Files/CMake/sbin/doxygen.exe"
+      - "C:/Program Files/CMake/sbin/doxygen"
+      - "C:/Program Files/CMake/doxygen.com"
+      - "C:/Program Files/CMake/doxygen.exe"
+      - "C:/Program Files/CMake/doxygen"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/doxygen.com"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/bin/doxygen"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/doxygen.com"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/sbin/doxygen"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/doxygen.com"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/doxygen.exe"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/doxygen"
+      - "/REGISTRY-NOTFOUND/bin/doxygen.com"
+      - "/REGISTRY-NOTFOUND/bin/doxygen.exe"
+      - "/REGISTRY-NOTFOUND/bin/doxygen"
+      - "/Applications/Doxygen.app/Contents/Resources/doxygen.com"
+      - "/Applications/Doxygen.app/Contents/Resources/doxygen.exe"
+      - "/Applications/Doxygen.app/Contents/Resources/doxygen"
+      - "/Applications/Doxygen.app/Contents/MacOS/doxygen.com"
+      - "/Applications/Doxygen.app/Contents/MacOS/doxygen.exe"
+      - "/Applications/Doxygen.app/Contents/MacOS/doxygen"
+      - "/Applications/Utilities/Doxygen.app/Contents/Resources/doxygen.com"
+      - "/Applications/Utilities/Doxygen.app/Contents/Resources/doxygen.exe"
+      - "/Applications/Utilities/Doxygen.app/Contents/Resources/doxygen"
+      - "/Applications/Utilities/Doxygen.app/Contents/MacOS/doxygen.com"
+      - "/Applications/Utilities/Doxygen.app/Contents/MacOS/doxygen.exe"
+      - "/Applications/Utilities/Doxygen.app/Contents/MacOS/doxygen"
+    found: false
+    search_context:
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+  -
+    kind: "find_package-v1"
+    backtrace:
+      - "CMakeLists.txt:74 (find_package)"
+    name: "VORO"
+    configs:
+      -
+        filename: "VOROConfig.cmake"
+        kind: "cmake"
+      -
+        filename: "voro-config.cmake"
+        kind: "cmake"
+    version_request:
+      exact: false
+    settings:
+      required: "required_explicit"
+      quiet: false
+      global: false
+      policy_scope: true
+      bypass_provider: false
+      names:
+        - "VORO"
+      path_suffixes:
+        - ""
+      paths:
+        CMAKE_FIND_USE_CMAKE_PATH: true
+        CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+        CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+        CMAKE_FIND_USE_INSTALL_PREFIX: true
+        CMAKE_FIND_USE_PACKAGE_ROOT_PATH: true
+        CMAKE_FIND_USE_CMAKE_PACKAGE_REGISTRY: true
+        CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY: true
+        CMAKE_FIND_ROOT_PATH_MODE: "BOTH"
+    candidates:
+      -
+        path: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/pkgRedirects/VOROConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/pkgRedirects/voro-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/Software/vtk-try/install/VOROConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/Software/vtk-try/install/voro-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/Software/ninja/VOROConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/Software/ninja/voro-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/OpenSim 4.5/VOROConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/OpenSim 4.5/voro-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/OpenSim 4.5/cmake/VOROConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/OpenSim 4.5/cmake/voro-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/Software/voro/install/VOROConfig.cmake"
+        mode: "config"
+        reason: "no_exist"
+      -
+        path: "C:/Users/Kostas/Desktop/Software/voro/install/voro-config.cmake"
+        mode: "config"
+        reason: "no_exist"
+    found:
+      path: "C:/Users/Kostas/Desktop/Software/voro/install/lib/cmake/VORO/VOROConfig.cmake"
+      mode: "config"
+      version: "0.4.6"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "C:/Users/Konst/Desktop/Software/voro-install/bin/"
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+  -
+    kind: "find-v1"
+    backtrace:
+      - "C:/Program Files/CMake/share/cmake-4.1/Modules/InstallRequiredSystemLibraries.cmake:314 (find_path)"
+      - "CMakeLists.txt:228 (include)"
+    mode: "path"
+    variable: "MSVC_REDIST_DIR"
+    description: "Path to a file."
+    settings:
+      SearchFramework: "NEVER"
+      SearchAppBundle: "NEVER"
+      CMAKE_FIND_USE_CMAKE_PATH: true
+      CMAKE_FIND_USE_CMAKE_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH: true
+      CMAKE_FIND_USE_CMAKE_SYSTEM_PATH: true
+      CMAKE_FIND_USE_INSTALL_PREFIX: true
+    names:
+      - "x64/Microsoft.VC143.CRT"
+    candidate_directories:
+      - "C:/Users/Konst/Desktop/Software/voro-install/bin/include/"
+      - "C:/Users/Konst/Desktop/Software/voro-install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/"
+      - "C:/Users/Kostas/Desktop/Software/ninja/"
+      - "C:/OpenSim 4.5/bin/"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/"
+      - "C:/Program Files/CMake/bin/"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/"
+      - "C:/Program Files/FEBioStudio2/bin/"
+      - "C:/Windows/System32/"
+      - "C:/Windows/"
+      - "C:/Windows/System32/wbem/"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/"
+      - "C:/Windows/System32/OpenSSH/"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/"
+      - "C:/Program Files/Git/cmd/"
+      - "C:/Program Files/dotnet/"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/"
+      - "C:/Program Files/MATLAB/R2024b/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/msys64/ucrt64/bin/"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/"
+      - "C:/Program Files/include/"
+      - "C:/Program Files/"
+      - "C:/Program Files (x86)/include/"
+      - "C:/Program Files (x86)/"
+      - "C:/Program Files/CMake/include/"
+      - "C:/Program Files/CMake/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/include/"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Redist/MSVC/v143/"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Redist/MSVC/14.44.35112/"
+    searched_directories:
+      - "C:/Users/Konst/Desktop/Software/voro-install/bin/include/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Konst/Desktop/Software/voro-install/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/Software/vtk-try/install/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/Software/ninja/x64/Microsoft.VC143.CRT"
+      - "C:/OpenSim 4.5/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/Software/voro/install/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/CMake/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/gmsh-4.11.1-Windows64/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/Blender Foundation/Blender 3.4/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/FEBioStudio2/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Windows/System32/x64/Microsoft.VC143.CRT"
+      - "C:/Windows/x64/Microsoft.VC143.CRT"
+      - "C:/Windows/System32/wbem/x64/Microsoft.VC143.CRT"
+      - "C:/Windows/System32/WindowsPowerShell/v1.0/x64/Microsoft.VC143.CRT"
+      - "C:/Windows/System32/OpenSSH/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/Git/cmd/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/dotnet/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/MATLAB/R2024b/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/x64/Microsoft.VC143.CRT"
+      - "C:/msys64/ucrt64/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/AppData/Local/Microsoft/WindowsApps/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/Software/vtk/install/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/AppData/Local/Programs/Microsoft VS Code/bin/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/include/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files (x86)/include/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files (x86)/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/CMake/include/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/CMake/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/include/x64/Microsoft.VC143.CRT"
+      - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir/x64/Microsoft.VC143.CRT"
+      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Redist/MSVC/v143/x64/Microsoft.VC143.CRT"
+    found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Redist/MSVC/14.44.35112/"
+    search_context:
+      CMAKE_PREFIX_PATH:
+        - "C:/Users/Konst/Desktop/Software/voro-install/bin/"
+      ENV{PATH}:
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk-try\\install\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\voro\\install"
+        - "C:\\Program Files\\CMake\\bin"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\ninja"
+        - "C:\\Program Files\\gmsh-4.11.1-Windows64"
+        - "C:\\Program Files\\Blender Foundation\\Blender 3.4"
+        - "C:\\Program Files\\FEBioStudio2\\bin"
+        - "C:\\Windows\\system32"
+        - "C:\\Windows"
+        - "C:\\Windows\\System32\\Wbem"
+        - "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\"
+        - "C:\\Windows\\System32\\OpenSSH\\"
+        - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
+        - "C:\\Program Files\\Git\\cmd"
+        - "C:\\Program Files\\dotnet\\"
+        - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
+        - "C:\\Program Files\\MATLAB\\R2024b\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
+        - "C:\\msys64\\ucrt64\\bin"
+        - "C:\\OpenSim 4.5\\bin"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Microsoft\\WindowsApps"
+        - "C:\\Users\\Kostas\\Desktop\\Software\\vtk\\install\\bin\\"
+        - "C:\\Users\\Kostas\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
+      CMAKE_INSTALL_PREFIX: "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+      CMAKE_SYSTEM_PREFIX_PATH:
+        - "C:/Program Files"
+        - "C:/Program Files (x86)"
+        - "C:/Program Files/CMake"
+        - "C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/install_dir"
+...

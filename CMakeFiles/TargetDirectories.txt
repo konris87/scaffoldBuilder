@@ -1,0 +1,14 @@
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/scaffoldBuilder.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/PACKAGE.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/INSTALL.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/ALL_BUILD.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/CMakeFiles/ZERO_CHECK.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMakeFiles/PACKAGE.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMakeFiles/INSTALL.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMakeFiles/ALL_BUILD.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/src/CMakeFiles/glfw.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/src/CMakeFiles/update_mappings.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/src/CMakeFiles/PACKAGE.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/src/CMakeFiles/INSTALL.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/docs/CMakeFiles/PACKAGE.dir
+C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/docs/CMakeFiles/INSTALL.dir

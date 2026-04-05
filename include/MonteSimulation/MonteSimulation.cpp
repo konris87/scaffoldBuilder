@@ -538,7 +538,7 @@ void save_csv(
 	const SamplingType& t) {
 
 	std::ofstream fout;
-	fout.open(fileName); // Removed ios::app to avoid appending duplicates on re-runs
+	fout.open(fileName); 
 
 	// Header
 	switch (t) {

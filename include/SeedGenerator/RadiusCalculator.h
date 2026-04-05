@@ -37,10 +37,11 @@ private:
 
 class QuadraticFunction : public RadiusFunction {
 public:
-	explicit QuadraticFunction(double distMax) : distMax(distMax) {}
+	QuadraticFunction() {};
+	QuadraticFunction(double distMax) : distMax(distMax) {}
 	double estimate_radius(double distance, double rMin, double rMax) const override {
 		const double t = std::clamp(distance / std::max(1e-9, distMax), 0.0, 1.0);
-		return rMin + (rMax - rMin) * (1.0 - t * t);
+		return rMin + (rMax - rMin) * (t * t);
 	}
 private:
 	double distMax{ 10.0 };

@@ -51,18 +51,37 @@ public:
 		return logger;
 	};
 
-	void log(LogPriority priority, const std::string& message, const std::array<float, 4>& color) {
+	void log(LogPriority priority, const std::string& message) {
 		
+		std::array<float, 4> color;
+
+		if (priority == LogPriority::SUCCESS) {
+			color = { 0.0f, 1.0f, 0.0f, 1.0f };
+		}
+		else if (priority == LogPriority::ERROR) {
+			color = { 1.0f, 0.0f, 0.0f, 1.0f };
+			}
+		else {
+			color = { 1.0f, 1.0f, 1.0f, 1.0f }; // Default white
+		}
+
 		std::ostringstream logEntry;
 		logEntry << "[" << priority_to_string(priority) << "]: " << message << std::endl;
 		logs.push_back(logEntry.str());
 		colors.push_back(color);
+		hasNewMessages = true;
 	};
 
 	void clear() {
 		logs.clear();
 		colors.clear();
 	};
+
+	bool check_and_clear_new_messages() {
+		bool result = hasNewMessages;
+		hasNewMessages = false;
+		return result;
+	}
 
 	const std::vector<std::string>& get_logs() {
 		return logs;
@@ -71,6 +90,8 @@ public:
 	const std::vector<std::array<float, 4>>& get_colors() {
 		return colors;
 	};
+private:
+	bool hasNewMessages = false;
 };
 
 #endif

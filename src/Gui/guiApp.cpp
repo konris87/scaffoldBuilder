@@ -77,7 +77,7 @@ void myGUI::_init_opengl() {
 	// ----------------------------------------------------------------
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
-		add_log(LogPriority::ERROR, "Failed to initialize GLAD!");
+		logger.log(LogPriority::ERROR, "Failed to initialize GLAD!");
 		//std::cerr << "Failed to initialize GLAD" << std::endl;
 		return;
 	}
@@ -87,8 +87,8 @@ void myGUI::_init_opengl() {
 	std::string glsVersion = std::string((const char*)glGetString(GL_SHADING_LANGUAGE_VERSION));
 
 	// Print the OpenGL version
-	add_log(LogPriority::INFO, "OpenGL Version: " + version);
-	add_log(LogPriority::INFO, "GLSL Version: " + glsVersion);
+	logger.log(LogPriority::INFO, "OpenGL Version: " + version);
+	logger.log(LogPriority::INFO, "GLSL Version: " + glsVersion);
 
 	// Ensure we can capture the escape key being pressed below
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
@@ -219,8 +219,6 @@ void myGUI::_init_opengl() {
 	frameShader = Shader(
 		std::filesystem::relative(std::filesystem::path("./share/shaders/frameVShader.vs")).string().c_str(),
 		std::filesystem::relative(std::filesystem::path("./share/shaders/frameFShader.fs")).string().c_str(),
-		//"shaders/frameVShader.vs",
-		//"shaders/frameFShader.fs",
 		NULL
 	);
 	frameShader.use();
@@ -236,8 +234,6 @@ void myGUI::_init_opengl() {
 	lineShader = Shader(
 		"./share/shaders/lineShader.vs",
 		"./share/shaders/lineShader.fs",
-		//"shaders/frameVShader.vs",
-		//"shaders/frameFShader.fs",
 		NULL
 	);
 	lineShader.use();
@@ -304,14 +300,12 @@ void myGUI::_init_opengl() {
 
 void myGUI::_init_imgui() {
 
-	//std::cout << "Starting imgui" << std::endl;
-
 	// Setup Dear ImGui context
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 
 	io = ImGui::GetIO(); (void)io;
-	io.Fonts->AddFontFromFileTTF("./share/fonts/DroidSans.ttf", 18.0f);
+	io.Fonts->AddFontFromFileTTF("./share/fonts/DroidSans.ttf", fontSize);
 	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
 	io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -336,12 +330,32 @@ void myGUI::run() {
 
 	grid = std::make_unique<Grid>(Grid::XY);
 
+	io = ImGui::GetIO();
+	
+	newFontSize = fontSize;
+
 	while (!glfwWindowShouldClose(window))
 	{
 
-		//glfwGetFramebufferSize(window, &width, &height);
-
 		glfwPollEvents();
+
+		if (rebuildFont) {
+			// Destroy the old OpenGL font texture to prevent memory leaks
+			ImGui_ImplOpenGL3_DestroyFontsTexture();
+
+			// Clear the CPU-side font data
+			io.Fonts->Clear();
+
+			// Load the newly sized font
+			io.Fonts->AddFontFromFileTTF("./share/fonts/DroidSans.ttf", newFontSize);
+
+			// Rebuild the OpenGL texture with the backend
+			ImGui_ImplOpenGL3_CreateFontsTexture();
+
+			// Reset the flag and sync the current size
+			rebuildFont = false;
+			fontSize = newFontSize;
+		}
 
 		// Start a new ImGui frame
 		ImGui_ImplOpenGL3_NewFrame();
@@ -536,6 +550,47 @@ void myGUI::run() {
 				gen->draw_tortuosity_path();
 			}
 
+			if (!gen->hiddenEllipsoid && gen->ellipsoidModel && gen.get() == selectedSceneObj) {
+				boxShader.use();
+				uniManager.setUniform(boxShader, "projection", projection);
+				uniManager.setUniform(boxShader, "view", view);
+				uniManager.setUniform(boxShader, "model", model);
+				uniManager.setUniform(boxShader, "boxColor", 0.1f, 1.0f, 0.1f, 1.0f);
+				gen->ellipsoidModel->draw();
+
+				glDepthFunc(GL_LEQUAL);
+				glLineWidth(2.0f);
+				lineShader.use();
+				uniManager.setUniform(lineShader, "projection", projection);
+				uniManager.setUniform(lineShader, "view", view);
+				uniManager.setUniform(
+					lineShader,
+					"lineColor",
+					0.0f, 0.0f, 0.0f, 1.0f
+				);
+				
+				uniManager.setUniform(lineShader, "model", glm::mat4(1.0f));
+				gen->ellipsoidModel->xAxis->draw();
+
+				uniManager.setUniform(
+					lineShader,
+					"lineColor",
+					0.0f, 0.0f, 0.0f, 1.0f
+				);
+
+				uniManager.setUniform(lineShader, "model", glm::mat4(1.0f));
+				gen->ellipsoidModel->yAxis->draw();
+
+				uniManager.setUniform(
+					lineShader,
+					"lineColor",
+					0.0f, 0.0f, 0.0f, 1.0f
+				);
+
+				uniManager.setUniform(lineShader, "model", glm::mat4(1.0f));
+				gen->ellipsoidModel->zAxis->draw();
+			};
+
 			if (showPoreNetwork && gen.get() == selectedSceneObj) {
 				glDepthFunc(GL_LEQUAL);
 				glLineWidth(renderSettings.poreNetworkLineSize);
@@ -585,7 +640,6 @@ void myGUI::run() {
 			}
 		}
 
-		io = ImGui::GetIO();
 		if (!io.WantCaptureKeyboard) {
 			if (ImGui::IsKeyPressed(ImGuiKey_M)) {
 				showEdges = !showEdges;
@@ -691,7 +745,7 @@ void myGUI::run() {
 
 		if (ImGui::IsKeyPressed(ImGuiKey::ImGuiKey_Delete) && !io.WantCaptureKeyboard) {
 			
-			add_log(LogPriority::INFO, "Deleting everything!");
+			logger.log(LogPriority::INFO, "Deleting everything!");
 
 			scaffolds.clear();
 			containers.clear();
@@ -836,10 +890,13 @@ void myGUI::_render_toolbar() {
 
 		ImGui::TableNextColumn();
 
-		create_single_button_textured(
+		if (create_single_button_textured(
 			"Create Scaffold", showScaffoldCreator,
 			"Create the scaffold selecting a container and a generator", createScaffoldTexture
-		);
+		)) {
+			factory->launch();
+		};
+		
 		ImGui::SameLine();
 
 		create_single_button_textured(
@@ -903,7 +960,7 @@ void myGUI::_render_settings_panel() {
 
 				gen->export_stl(scaffoldFilePath);
 
-				add_log(LogPriority::SUCCESS, "Exported scaffold mesh to " + scaffoldFilePath);
+				logger.log(LogPriority::SUCCESS, "Exported scaffold mesh to " + scaffoldFilePath);
 				showGeometryExportWindow = false;
 
 			}
@@ -956,7 +1013,7 @@ void myGUI::_render_settings_panel() {
 
 				gen->export_mhd(filePath, voxelSize, voxelBounds);
 
-				add_log(LogPriority::SUCCESS, "Exported scaffold as a binary image to " + scaffoldFilePath);
+				logger.log(LogPriority::SUCCESS, "Exported scaffold as a binary image to " + scaffoldFilePath);
 
 			}
 
@@ -964,10 +1021,27 @@ void myGUI::_render_settings_panel() {
 
 				gen->export_nrrd(scaffoldFilePath, voxelSize, voxelBounds);
 
-				add_log(LogPriority::SUCCESS, "Exported scaffold as a binary image to " + scaffoldFilePath +
+				logger.log(LogPriority::SUCCESS, "Exported scaffold as a binary image to " + scaffoldFilePath +
 					" with voxelSize: " + std::to_string(voxelSize) + ".");
 
 			}
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
+	if (ImGuiFileDialog::Instance()->Display("Export Metrics", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+			std::string folder = ImGuiFileDialog::Instance()->GetCurrentPath();
+
+			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+			std::filesystem::path path = scaffoldFilePath;
+
+			gen->export_metrics(filePath);
+
+			logger.log(LogPriority::SUCCESS, "metrics exported to: " + filePath + "!");
 		}
 		ImGuiFileDialog::Instance()->Close();
 	}
@@ -1009,6 +1083,9 @@ void myGUI::_render_object_list() {
 			ImGui::SetTooltip("Scaffold objects");
 		}
 		if (open) {
+
+			static RenameState state;
+
 			for (int i = 0; i < scaffolds.size(); ++i) {
 
 				ImGui::PushID(i);
@@ -1030,6 +1107,9 @@ void myGUI::_render_object_list() {
 					if (ImGui::MenuItem(!gen->hiddenTortuosityPath ? "Hide Tortuosity Model" : "Show Tortuosity Model")) {
 						gen->hiddenTortuosityPath = !gen->hiddenTortuosityPath;
 					}
+					if (ImGui::MenuItem(!gen->hiddenEllipsoid ? "Hide Ellipsoid Model" : "Show Ellipsoid Model")) {
+						gen->hiddenEllipsoid = !gen->hiddenEllipsoid;
+					}
 					if (ImGui::MenuItem("Delete")) {
 						auto it = scaffolds.erase(scaffolds.begin() + i);
 						selectedSceneObj = nullptr;
@@ -1047,6 +1127,19 @@ void myGUI::_render_object_list() {
 					}
 					if (ImGui::MenuItem("Export as Image")) {
 						showBinaryImageWindow = true;
+					}
+					if (ImGui::MenuItem("Export Metrics")) {
+						showMetricsExportWindow = true;
+						IGFD::FileDialogConfig config;
+						config.path = "../data";
+						ImGuiFileDialog::Instance()->OpenDialog("Export Metrics", "Export Scaffold Metrics", ".csv", config);
+					}
+					if (ImGui::MenuItem("Edit Name")) {
+						// index to change the name
+						state.targetIdx = i;
+						strncpy_s(state.buffer, gen->name.c_str(), sizeof(state.buffer));
+						state.buffer[sizeof(state.buffer) - 1] = 0;
+						state.showPopup = true;
 					}
 
 					ImGui::EndPopup();
@@ -1068,6 +1161,9 @@ void myGUI::_render_object_list() {
 				ImGui::PopID();
 
 			}
+
+			render_change_name_popup(scaffolds, state);
+
 			ImGui::TreePop();
 
 		}
@@ -1116,11 +1212,11 @@ void myGUI::_render_properties_panel() {
 				break;
 			}
 			case ObjectType::ScaffoldType: {
-				_render_scaffold_properties();
+				GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+				scaffold->render_properties(&logger, updateScaffold);
 				break;
 			}
 			case ObjectType::NoneType: {
-				//std::cout << "None" << std::endl;
 				break;
 			}
 		}
@@ -1129,18 +1225,15 @@ void myGUI::_render_properties_panel() {
 	ImGui::End();
 };
 
-void myGUI::_render_active_model_metrics() {
-
-	// grab the active panel object
-
-};
-
 void myGUI::_render_seed_generator_list() {
 	bool open = ImGui::TreeNodeEx("Seed Generators", ImGuiDockNodeFlags_None | ImGuiTreeNodeFlags_DefaultOpen);
 	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_NoSharedDelay)) {
 		ImGui::SetTooltip("Created Seed Generators");
 	}
 	if (open) {
+
+		static RenameState state;
+
 		for (int i = 0; i < seedGenerators.size(); ++i) {
 
 			auto& gen = seedGenerators[i];
@@ -1161,6 +1254,14 @@ void myGUI::_render_seed_generator_list() {
 					selectedPanelObj.type = ObjectType::NoneType;
 					break;
 				}
+
+				if (ImGui::MenuItem("Edit Name")) {
+					// index to change the name
+					state.targetIdx = i;
+					strncpy_s(state.buffer, gen->name.c_str(), sizeof(state.buffer));
+					state.buffer[sizeof(state.buffer) - 1] = 0;
+					state.showPopup = true;
+				}
 				ImGui::EndPopup();
 			}
 			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsItemHovered()) {
@@ -1168,6 +1269,8 @@ void myGUI::_render_seed_generator_list() {
 				selectedPanelObj.type = gen->type;
 			}
 		}
+		render_change_name_popup(seedGenerators, state);
+
 		ImGui::TreePop();
 	}
 };
@@ -1179,6 +1282,9 @@ void myGUI::_render_container_list() {
 		ImGui::SetTooltip("Created container objects");
 	}
 	if (open) {
+
+		static RenameState state;
+
 		for (int i = 0; i < containers.size(); ++i) {
 
 			auto& con = containers[i];
@@ -1199,6 +1305,15 @@ void myGUI::_render_container_list() {
 					selectedPanelObj.type = ObjectType::NoneType;
 					break;
 				}
+
+				if (ImGui::MenuItem("Edit Name")) {
+					// index to change the name
+					state.targetIdx = i;
+					strncpy_s(state.buffer, con->name.c_str(), sizeof(state.buffer));
+					state.buffer[sizeof(state.buffer) - 1] = 0;
+					state.showPopup = true;
+				}
+
 				ImGui::EndPopup();
 			}
 
@@ -1207,6 +1322,8 @@ void myGUI::_render_container_list() {
 				selectedPanelObj.type = con->get_type();
 			}
 		}
+		render_change_name_popup(containers, state);
+
 		ImGui::TreePop();
 	}
 
@@ -1247,7 +1364,7 @@ std::string myGUI::_get_glsl_version() {
 	}
 
 	//std::cout << "OpenGL version: " << glVersion << std::endl;
-	//add_log(LogPriority::INFO, "OpenGL version: " + std::string(glVersion));
+	//logger.log(LogPriority::INFO, "OpenGL version: " + std::string(glVersion));
 
 	// Extract the major and minor OpenGL version numbers
 	int major, minor;
@@ -1293,8 +1410,8 @@ void myGUI::_render_console() {
 			ImGui::TextColored(color, logger.get_logs().at(i).c_str());
 		}
 		
-		if (scrollToBottom) {
-			ImGui::SetScrollHereY(1.0f);  // scroll to bottom
+		if (logger.check_and_clear_new_messages() || scrollToBottom) {
+			ImGui::SetScrollHereY(1.0f);
 			scrollToBottom = false;
 		}
 		
@@ -1302,7 +1419,7 @@ void myGUI::_render_console() {
 
 		if (ImGui::Button("Clear")) {
 			logger.clear();
-			add_log(LogPriority::INFO, "Cleared.");
+			logger.log(LogPriority::INFO, "Cleared.");
 		}
 	}
 
@@ -1310,24 +1427,24 @@ void myGUI::_render_console() {
 
 }
 
-void myGUI::add_log(LogPriority priority, const std::string& message) {
-
-	if (priority == LogPriority::SUCCESS) {
-		logColor = { 0.0f, 1.0f, 0.0f, 1.0f };
-	}
-
-	else if (priority == LogPriority::ERROR) {
-		logColor = { 1.0f, 0.0f, 0.0f, 1.0f };
-	}
-
-	else {
-		logColor = { 1.0f, 1.0f, 1.0f, 1.0f };
-	}
-
-	logger.log(priority, message, logColor);
-
-	scrollToBottom = true;
-}
+//void myGUI::logger.log(LogPriority priority, const std::string& message) {
+//
+//	if (priority == LogPriority::SUCCESS) {
+//		logColor = { 0.0f, 1.0f, 0.0f, 1.0f };
+//	}
+//
+//	else if (priority == LogPriority::ERROR) {
+//		logColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+//	}
+//
+//	else {
+//		logColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+//	}
+//
+//	logger.log(priority, message, logColor);
+//
+//	scrollToBottom = true;
+//}
 
 void myGUI::_update_cameras(const GeneratorLewiner& gen) {
 
@@ -1408,7 +1525,7 @@ void myGUI::_render_mesh_settings() {
 	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 	ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_Appearing);
 
-	if (ImGui::Begin("Display Settings", &showDisplayMeshSettingsWin, ImGuiWindowFlags_AlwaysAutoResize)) {
+	if (ImGui::Begin("Mesh Settings", &showDisplayMeshSettingsWin, ImGuiWindowFlags_AlwaysAutoResize)) {
 
 		static int picked = { -99 };
 		// Left side - Selectable items
@@ -1561,7 +1678,7 @@ void myGUI::_render_main_menu_bar() {
 			if (ImGui::MenuItem("Save Settings", "CTRL+S")) {
 				// Call your function to save model settings here
 				write_settings();
-				add_log(LogPriority::INFO, "Settings saved.");
+				logger.log(LogPriority::INFO, "Settings saved.");
 			}
 			if (ImGui::MenuItem("Load Scaffold", "load mesh file by specifying the path")) {
 				// Call your function to load a model mesh here
@@ -1569,7 +1686,7 @@ void myGUI::_render_main_menu_bar() {
 				config.path = "..//data";
 				ImGuiFileDialog::Instance()->OpenDialog("Load Scaffold", "Load Scaffold", ".stl, .vtk", config);
 				//loadedMesh = scaffold;
-				//add_log("Model mesh loaded.");
+				//logger.log("Model mesh loaded.");
 			}
 
 			ImGui::SameLine(); help_marker("So far only .stl files are supported");
@@ -1707,7 +1824,7 @@ void myGUI::_render_main_menu_bar() {
 			if (ImGui::MenuItem("Cut With Plane")) {
 
 				if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-					add_log(LogPriority::ERROR, "Selected a scaffold from the panel!");
+					logger.log(LogPriority::ERROR, "Selected a scaffold from the panel!");
 				}
 				else {
 					showPlaneCutSettings = true;
@@ -1756,7 +1873,13 @@ void myGUI::_render_main_menu_bar() {
 	}
 
 	if (showScaffoldCreator) {
-		_render_scaffold_creator("Scaffold Creator", showScaffoldCreator);
+		//_render_scaffold_creator("Scaffold Creator", showScaffoldCreator);
+		factory->gui_draw(
+			&logger,
+			"Scaffold Creator", showScaffoldCreator,
+			&selectedPanelObj, selectedSceneObj, 
+			scaffolds, containers, seedGenerators
+		);
 	}
 
 	if (measureThickness) {
@@ -1823,6 +1946,7 @@ void myGUI::_render_display_settings() {
 			if (ImGui::Selectable("Container", pickedItem == 5)) pickedItem = 5;
 			if (ImGui::Selectable("Pore Network", pickedItem == 6)) pickedItem = 6;
 			if (ImGui::Selectable("Tortuosity Rendering", pickedItem == 7)) pickedItem = 7;
+			if (ImGui::Selectable("Gui Settings", pickedItem == 8)) pickedItem = 8;
 			ImGui::EndChild();
 		}
 		ImGui::SameLine();
@@ -1871,6 +1995,15 @@ void myGUI::_render_display_settings() {
 					ImGui::Text("Tortuosity Display Settings");
 					ImGui::ColorEdit4("Line Color", renderSettings.tortuosityPathColor.data());
 					ImGui::InputFloat("Line Size", &renderSettings.tortuosityPathSize, 0.1f, 1.0f, "%.3f");
+				}
+
+				if (pickedItem == 8) {
+					ImGui::Text("Gui Panel Settings");
+					if (ImGui::InputFloat("Font Size", &newFontSize, 0.1f, 1.0f, "%.3f")) {
+						if (newFontSize > 4.0f && newFontSize != fontSize) { // Prevent crashes from 0 or negative sizes
+							rebuildFont = true;
+						}
+					};
 				}
 
 				ImGui::EndChild();
@@ -1996,7 +2129,7 @@ void myGUI::_render_box_container_creator(const char* popupName, bool& showPopup
 			buffer[0] = '\0';
 			selectedPanelObj.ptr = containers.back().get();
 
-			add_log(LogPriority::SUCCESS, "Created box container!");
+			logger.log(LogPriority::SUCCESS, "Created box container!");
 
 			showPopup = false;
 		}
@@ -2054,7 +2187,7 @@ void myGUI::_render_cylinder_container_creator(const char* popupName, bool& show
 			selectedPanelObj.type = ObjectType::CylinderContainerType;
 			buffer[0] = '\0';
 
-			add_log(LogPriority::SUCCESS, "Created cylindrical container!");
+			logger.log(LogPriority::SUCCESS, "Created cylindrical container!");
 
 			showPopup = false;
 		}
@@ -2096,6 +2229,21 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 	{
 
 		ImGui::SeparatorText("Select Container");
+
+		static float warningFlashTimer = 0.0f;
+
+		if (warningFlashTimer > 0.0f) {
+			warningFlashTimer -= ImGui::GetIO().DeltaTime;
+		}
+
+		bool isFlashing = (warningFlashTimer > 0.0f);
+		if (isFlashing) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
+
 		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
 
 		for (const auto& md : containers) {
@@ -2112,6 +2260,12 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 				ImGui::PopID();
 			}
 		}
+
+		if (isFlashing) {
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar();   
+		}
+
 		ImGui::EndChild();
 
 		ImGui::SeparatorText("Parameters");
@@ -2126,9 +2280,13 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 
 		if (ImGui::Button("Generate")) {
 
+			if (!selectedCon) {
+				warningFlashTimer = 1.5f;
+			}
+
 			if (selectedCon) {
 				// create the generator
-				std::unique_ptr<Random> rnd = std::make_unique<Random>(tempSeedNr);
+				std::shared_ptr<Random> rnd = std::make_shared<Random>(tempSeedNr);
 				std::string name = std::string(buffer);
 
 				if (!name.empty()) {
@@ -2152,7 +2310,7 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 				selectedPanelObj.type = ObjectType::RandomGeneratorType;
 				buffer[0] = '\0';
 
-				add_log(
+				logger.log(
 					LogPriority::SUCCESS,
 					std::to_string(nr) + " seeds created randomly inside " + selectedCon->name + "!");
 
@@ -2212,7 +2370,7 @@ void myGUI::_render_random_seed_generator_properties() {
 			//ContainerAdapter adapter = { *selectedContainer, xDim, yDim, zDim };
 			random->run(*selectedContainer);
 			random->container = selectedContainer;
-			add_log(LogPriority::SUCCESS, "Seeds Updated");
+			logger.log(LogPriority::SUCCESS, "Seeds Updated");
 		}
 	}
 };
@@ -2234,6 +2392,20 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 		static float tempRadius = { 1.0f };
 
 		ImGui::SeparatorText("Select Container");
+		
+		static float warningFlashTimer = 0.0f;
+
+		if (warningFlashTimer > 0.0f) {
+			warningFlashTimer -= ImGui::GetIO().DeltaTime;
+		}
+
+		bool isFlashing = (warningFlashTimer > 0.0f);
+		if (isFlashing) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
 
 		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
 
@@ -2249,6 +2421,12 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 				};
 			}
 		}
+
+		if (isFlashing) {
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar();
+		}
+
 		ImGui::EndChild();
 
 		ImGui::SeparatorText("Parameters");
@@ -2263,9 +2441,13 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 		ImGui::NewLine();
 		if (ImGui::Button("Generate")) {
 
+			if (!selectedCon) {
+				warningFlashTimer = 1.5f;
+			}
+
 			if (selectedCon) {
 
-				std::unique_ptr<Poisson3D> rnd = std::make_unique<Poisson3D>(
+				std::shared_ptr<Poisson3D> rnd = std::make_shared<Poisson3D>(
 					tempRadius, tempRadius, 30);
 				std::string name = std::string(buffer);
 
@@ -2287,17 +2469,14 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 				selectedPanelObj.type = ObjectType::UniformGeneratorType;
 				buffer[0] = '\0';
 
-				add_log(LogPriority::SUCCESS, std::to_string(nr) + " uniform seeds created inside " + selectedCon->name + "!");
+				logger.log(LogPriority::SUCCESS, std::to_string(nr) + " uniform seeds created inside " + selectedCon->name + "!");
 
 				_update_cameras(*selectedCon);
 				selectedCon = nullptr;
-
+				buffer[0] = '\0';
+				tempRadius = 1.0f;
 				showPopup = false;
 			}
-
-			buffer[0] = '\0';
-			tempRadius = 1.0f;
-			showPopup = false;
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) {
@@ -2348,7 +2527,7 @@ void myGUI::_render_uniform_seed_generator_properties() {
 			//ContainerAdapter adapter = { *selectedContainer, xDim, yDim, zDim };
 			poisson->run(*selectedContainer);
 			poisson->container = selectedContainer;
-			add_log(LogPriority::SUCCESS, "Seeds Updated");
+			logger.log(LogPriority::SUCCESS, "Seeds Updated");
 		}
 	}
 };
@@ -2379,6 +2558,20 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 
 		ImGui::SeparatorText("Select Container");
 
+		static float warningFlashTimer = 0.0f;
+
+		if (warningFlashTimer > 0.0f) {
+			warningFlashTimer -= ImGui::GetIO().DeltaTime;
+		}
+
+		bool isFlashing = (warningFlashTimer > 0.0f);
+		if (isFlashing) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
+
 		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
 
 		for (const auto& md : containers) {
@@ -2393,7 +2586,13 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 				};
 			}
 		}
+		if (isFlashing) {
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar();
+		}
+		
 		ImGui::EndChild();
+		
 		ImGui::SeparatorText("Select Distance Function");
 		ImGui::RadioButton("Distance From Plane", &distanceFunc, 0);
 		if (distanceFunc == 0) {
@@ -2437,7 +2636,7 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 						break;
 					}
 					case 1: {
-						//cfg.rad = std::make_shared<QuadraticFunction>();
+						cfg.rad = std::make_shared<QuadraticFunction>(minRadius);
 						break;
 					}
 					case 2: {
@@ -2472,7 +2671,7 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 				// from the container get the center
 				Bounds bnds = selectedCon->compute_bounds();
 
-				std::unique_ptr<Poisson3D> rnd = std::make_unique<Poisson3D>(
+				std::shared_ptr<Poisson3D> rnd = std::make_shared<Poisson3D>(
 					minRadius, maxRadius, 30);
 				std::string name = std::string(buffer);
 
@@ -2499,7 +2698,7 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 				selectedPanelObj.type = ObjectType::VariedGeneratorType;
 				buffer[0] = '\0';
 
-				add_log(
+				logger.log(
 					LogPriority::SUCCESS,
 					std::to_string(nr) + " varied seeds created inside " + selectedCon->name + "!");
 
@@ -2508,7 +2707,9 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 
 				showPopup = false;
 			}
-		
+			else {
+				warningFlashTimer = 1.5f;
+			}
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) {
@@ -2595,6 +2796,7 @@ void myGUI::_render_varied_seed_generator_properties() {
 	ImGui::RadioButton("Linear", &radiusFunc, 0);
 	ImGui::RadioButton("Quadratic", &radiusFunc, 1);
 	ImGui::RadioButton("Constant", &radiusFunc, 2);
+	ImGui::RadioButton("Random", &radiusFunc, 3);
 
 	ImGui::SeparatorText("Parameters");
 	ImGui::InputFloat("Minimum Distance", &minRadius);
@@ -2613,12 +2815,15 @@ void myGUI::_render_varied_seed_generator_properties() {
 					break;
 				}
 				case 1: {
-					//cfg.rad = std::make_shared<QuadraticFunction>();
+					cfg.rad = std::make_shared<QuadraticFunction>(minRadius);
 					break;
 				}
 				case 2: {
 					cfg.rad = std::make_shared<ConstantRadiusFunction>();
 					break;
+				}
+				case 3: {
+					cfg.rad = std::make_shared<RandomRadiusFunction>();
 				}
 				}
 
@@ -2647,299 +2852,324 @@ void myGUI::_render_varied_seed_generator_properties() {
 			poisson->set_min_radius(minRadius);
 			poisson->set_max_radius(maxRadius);
 			poisson->run(*selectedContainer, cfg);
-			add_log(LogPriority::SUCCESS, "Seeds Updated");
+			logger.log(LogPriority::SUCCESS, "Seeds Updated");
 		}
 	}
 };
 
 void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
 
-	if (showPopup) {
-		ImGui::OpenPopup(popupName);
-	}
+	//if (showPopup) {
+	//	ImGui::OpenPopup(popupName);
+	//}
 
-	// always centered
-	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	//// always centered
+	//ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	//ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-	if (ImGui::BeginPopupModal("Scaffold Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize))
-	{
-		static IContainer* selectedCon = nullptr;
-		static InterfaceSeedGenerator* selectedGen = nullptr;
-		static char buffer[256] = "";
-		static float tempThickness = { 0.3f };
-		static float tempOpeness = { 0.5f };
-		static float tempStretchX = { 1.0f };
-		static float tempStretchY = { 1.0f };
-		static float tempStretchZ = { 1.0f };
-		static Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
-		static float anisotropyAngle = { 0.0f };
-		static int foam = 0;
+	//if (ImGui::BeginPopupModal("Scaffold Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	//{
+	//	static IContainer* selectedCon = nullptr;
+	//	static InterfaceSeedGenerator* selectedGen = nullptr;
+	//	static char buffer[256] = "";
+	//	static float tempThickness = { 0.3f };
+	//	static float tempOpeness = { 0.5f };
+	//	static float tempStretchX = { 1.0f };
+	//	static float tempStretchY = { 1.0f };
+	//	static float tempStretchZ = { 1.0f };
+	//	static Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
+	//	static float anisotropyAngle = { 0.0f };
+	//	static int foam = 0;
 
-		ImGui::InputText("Name", buffer, sizeof(buffer));
+	//	ImGui::InputText("Name", buffer, sizeof(buffer));
 
-		ImGui::SeparatorText("Parameters");
-		ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
-		ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
-		ImGui::InputFloat("Stretch X", &tempStretchX, 0.01f, 5.0f, "%.3f");
-		ImGui::InputFloat("Stretch Y", &tempStretchY, 0.01f, 5.0f, "%.3f");
-		ImGui::InputFloat("Stretch Z", &tempStretchZ, 0.01f, 5.0f, "%.3f");
-		ImGui::InputFloat3("Material Direction", anisotropyVec, "%.4f");
-		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
-		
-		ImGui::RadioButton("Porous", &foam, 0);
-		ImGui::RadioButton("Foam", &foam, 1);
+	//	ImGui::SeparatorText("Parameters");
+	//	ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
+	//	ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
+	//	ImGui::InputFloat("Stretch X", &tempStretchX, 0.01f, 5.0f, "%.3f");
+	//	ImGui::InputFloat("Stretch Y", &tempStretchY, 0.01f, 5.0f, "%.3f");
+	//	ImGui::InputFloat("Stretch Z", &tempStretchZ, 0.01f, 5.0f, "%.3f");
+	//	ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
+	//	//ImGui::InputFloat3("Material Direction", anisotropyVec, "%.4f");
+	//	ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+	//	
+	//	ImGui::RadioButton("Porous", &foam, 0);
+	//	ImGui::RadioButton("Foam", &foam, 1);
 
-		// here we should get the seeds from the corresponding creator
-		ImGui::SeparatorText("Select Container and generator");
+	//	// here we should get the seeds from the corresponding creator
+	//	ImGui::SeparatorText("Select Container and generator");
 
-		// timer for flashing
-		static float warningFlashTimer1 = 0.0f;
+	//	// timer for flashing
+	//	static float warningFlashTimer1 = 0.0f;
 
-		if (warningFlashTimer1 > 0.0f) {
-			warningFlashTimer1 -= ImGui::GetIO().DeltaTime;
-		}
+	//	if (warningFlashTimer1 > 0.0f) {
+	//		warningFlashTimer1 -= ImGui::GetIO().DeltaTime;
+	//	}
 
-		bool isFlashing1 = (warningFlashTimer1 > 0.0f);
-		if (isFlashing1) {
-			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-		}
+	//	bool isFlashing1 = (warningFlashTimer1 > 0.0f);
+	//	if (isFlashing1) {
+	//		float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+	//		ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+	//		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+	//		ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+	//	}
 
-		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 80), ImGuiChildFlags_Borders);
+	//	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 80), ImGuiChildFlags_Borders);
 
-		for (const auto& md : containers) {
+	//	for (const auto& md : containers) {
 
-			IContainer* con = dynamic_cast<IContainer*>(md.get());
+	//		IContainer* con = dynamic_cast<IContainer*>(md.get());
 
-			if (con) {
-				bool isSelected = (selectedCon && selectedCon == con);
+	//		if (con) {
+	//			bool isSelected = (selectedCon && selectedCon == con);
 
-				if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-					selectedCon = md.get();
-				};
-			}
-		}
+	//			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+	//				selectedCon = md.get();
+	//			};
+	//		}
+	//	}
 
-		if (isFlashing1) {
-			ImGui::PopStyleColor(); // Pop the red border color
-			ImGui::PopStyleVar();   // Pop the thick border size
-		}
+	//	if (isFlashing1) {
+	//		ImGui::PopStyleColor(); // Pop the red border color
+	//		ImGui::PopStyleVar();   // Pop the thick border size
+	//	}
 
-		ImGui::EndChild();
+	//	ImGui::EndChild();
 
-		ImGui::SameLine();
+	//	ImGui::SameLine();
 
-		static float warningFlashTimer2 = 0.0f;
+	//	static float warningFlashTimer2 = 0.0f;
 
-		if (warningFlashTimer2 > 0.0f) {
-			warningFlashTimer2 -= ImGui::GetIO().DeltaTime;
-		}
-		bool isFlashing2 = (warningFlashTimer2 > 0.0f);
-		if (isFlashing2) {
-			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-		}
+	//	if (warningFlashTimer2 > 0.0f) {
+	//		warningFlashTimer2 -= ImGui::GetIO().DeltaTime;
+	//	}
+	//	bool isFlashing2 = (warningFlashTimer2 > 0.0f);
+	//	if (isFlashing2) {
+	//		float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+	//		ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+	//		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+	//		ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+	//	}
 
-		ImGui::BeginChild("Generators", ImVec2(0.0, 80), ImGuiChildFlags_Borders);
+	//	ImGui::BeginChild("Generators", ImVec2(0.0, 80), ImGuiChildFlags_Borders);
 
-		for (const auto& md : seedGenerators) {
+	//	for (const auto& md : seedGenerators) {
 
-			InterfaceSeedGenerator* gen = dynamic_cast<InterfaceSeedGenerator*>(md.get());
+	//		InterfaceSeedGenerator* gen = dynamic_cast<InterfaceSeedGenerator*>(md.get());
 
-			if (gen) {
-				bool isSelected = (selectedGen && selectedGen == gen);
+	//		if (gen) {
+	//			bool isSelected = (selectedGen && selectedGen == gen);
 
-				if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-					selectedGen = md.get();
-				};
-			}
-		}
-		
-		if (isFlashing2) {
-			ImGui::PopStyleColor(); // Pop the red border color
-			ImGui::PopStyleVar();   // Pop the thick border size
-		}
+	//			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+	//				selectedGen = md.get();
+	//			};
+	//		}
+	//	}
+	//	
+	//	if (isFlashing2) {
+	//		ImGui::PopStyleColor(); // Pop the red border color
+	//		ImGui::PopStyleVar();   // Pop the thick border size
+	//	}
 
-		ImGui::EndChild();
-		ImGui::Separator();
-		ImGui::NewLine();
+	//	ImGui::EndChild();
+	//	ImGui::Separator();
+	//	ImGui::NewLine();
 
-		if (ImGui::Button("Generate")) {
+	//	if (ImGui::Button("Generate")) {
 
-			if (!selectedCon) {
-				warningFlashTimer1 = 1.5f;
-			}
+	//		if (!selectedCon) {
+	//			warningFlashTimer1 = 1.5f;
+	//		}
 
-			if (!selectedGen) {
-				warningFlashTimer2 = 1.5f;
-			}
+	//		if (!selectedGen) {
+	//			warningFlashTimer2 = 1.5f;
+	//		}
 
-			else if (selectedCon && selectedGen) {
+	//		else if (selectedCon && selectedGen) {
 
-				auto start_time = std::chrono::steady_clock::now();
-				
-				std::string name = std::string(buffer);
-				std::vector<Vec3> seeds = selectedGen->get_seeds();
-				Bounds bds = selectedCon->compute_bounds();
+	//			auto start_time = std::chrono::steady_clock::now();
+	//			
+	//			std::string name = std::string(buffer);
+	//			std::vector<Vec3> seeds = selectedGen->get_seeds();
+	//			Bounds bds = selectedCon->compute_bounds();
 
-				std::array<float, 6> bounds = {
-					bds.xMin,
-					bds.xMax,
-					bds.yMin,
-					bds.yMax,
-					bds.zMin,
-					bds.zMax
-				};
+	//			std::array<float, 6> bounds = {
+	//				bds.xMin,
+	//				bds.xMax,
+	//				bds.yMin,
+	//				bds.yMax,
+	//				bds.zMin,
+	//				bds.zMax
+	//			};
 
-				std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
-					seeds, bounds, resolution, tempOpeness, tempThickness, foam
-				);
+	//			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
+	//				seeds, bounds, resolution, tempOpeness, tempThickness, foam
+	//			);
 
-				// estimate the scalar field
-				scaffold->set_stretch(tempStretchX, tempStretchY, tempStretchZ);
-				scaffold->anisotropyAngle = anisotropyAngle;
-				scaffold->anisotropyVec = anisotropyVec;
-				scaffold->compute_scalar_field(*selectedCon);
+	//			// estimate the scalar field
+	//			scaffold->set_stretch(tempStretchX, tempStretchY, tempStretchZ);
+	//			scaffold->anisotropyAngle = anisotropyAngle;
+	//			scaffold->anisotropyVec = anisotropyVec;
+	//			scaffold->compute_scalar_field(*selectedCon);
 
-				scaffold->container = selectedCon;
-				scaffold->generator = selectedGen;
+	//			scaffold->container = selectedCon;
+	//			scaffold->generator = selectedGen;
 
-				if (foam == 1) {
-					std::cout << " create foam " << std::endl;
-					scaffold->foam = true;
-				}
+	//			if (foam == 1) {
+	//				std::cout << " create foam " << std::endl;
+	//				scaffold->foam = true;
+	//			}
 
-				if (!name.empty()) {
-					scaffold->name = name;
-				}
-				else {
-					scaffold->name = "Scaffold" + std::to_string(scaffolds.size() + 1);
-				}
+	//			if (!name.empty()) {
+	//				scaffold->name = name;
+	//			}
+	//			else {
+	//				scaffold->name = "Scaffold" + std::to_string(scaffolds.size() + 1);
+	//			}
 
-				scaffold->marching_cubes();
+	//			scaffold->marching_cubes();
 
-				scaffold->estimate_metrics(*selectedCon);
+	//			scaffold->estimate_metrics(*selectedCon);
 
-				// push to the scaffold list
-				scaffolds.push_back(std::move(scaffold));
+	//			// push to the scaffold list
+	//			scaffolds.push_back(std::move(scaffold));
 
-				// set it as the selected object
-				selectedSceneObj = scaffolds.back().get();
-				selectedPanelObj.ptr = scaffolds.back().get();
-				selectedPanelObj.type = ObjectType::ScaffoldType;
+	//			// set it as the selected object
+	//			selectedSceneObj = scaffolds.back().get();
+	//			selectedPanelObj.ptr = scaffolds.back().get();
+	//			selectedPanelObj.type = ObjectType::ScaffoldType;
 
-				auto end_time = std::chrono::steady_clock::now();
+	//			auto end_time = std::chrono::steady_clock::now();
 
-				// Calculate the duration in milliseconds
-				auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-				
-				std::ostringstream oss;
-				oss	<< std::fixed << std::setprecision(3) // Set precision to 3 decimal places
-					<< duration_ms.count() / 1000.0   // Convert ms to seconds
-					<< " seconds!";
+	//			// Calculate the duration in milliseconds
+	//			auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+	//			
+	//			std::ostringstream oss;
+	//			oss	<< std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+	//				<< duration_ms.count() / 1000.0   // Convert ms to seconds
+	//				<< " seconds!";
 
-				add_log(
-					LogPriority::SUCCESS,
-					"Created scaffold succesffully using container " + selectedCon->name +
-					" and generator " + selectedGen->name + " in" + oss.str());
+	//			logger.log(
+	//				LogPriority::SUCCESS,
+	//				"Created scaffold succesffully using container " + selectedCon->name +
+	//				" and generator " + selectedGen->name + " in" + oss.str());
 
-				// restore ptrs
-				selectedCon = nullptr;
-				selectedGen = nullptr;
-				buffer[0] = '\0';
-				showPopup = false;
-			}
-		}
+	//			// restore ptrs
+	//			selectedCon = nullptr;
+	//			selectedGen = nullptr;
+	//			buffer[0] = '\0';
+	//			showPopup = false;
+	//		}
+	//	}
 
-		ImGui::SameLine();
+	//	ImGui::SameLine();
 
-		if (ImGui::Button("Cancel")) {
-			buffer[0] = '\0';
-			selectedCon = nullptr;
-			selectedGen = nullptr;
-			showPopup = false;
-		};
-		ImGui::EndPopup();
-	}
+	//	if (ImGui::Button("Cancel")) {
+	//		buffer[0] = '\0';
+	//		selectedCon = nullptr;
+	//		selectedGen = nullptr;
+	//		showPopup = false;
+	//	};
+	//	ImGui::EndPopup();
+	//}
 };
 
 void myGUI::_render_scaffold_properties() {
 
-	GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+	//GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
-	ImGui::ColorEdit4("Color", (float*)&gen->color);
+	//ImGui::ColorEdit4("Color", (float*)&gen->color);
 
-	static IContainer* selectedContainer = static_cast<IContainer*>(gen->container);
+	//static IContainer* selectedContainer = static_cast<IContainer*>(gen->container);
 
-	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 100), ImGuiChildFlags_Borders);
+	//ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 100), ImGuiChildFlags_Borders);
 
-	render_selectable_list(containers, selectedContainer, "Containers");
+	//for (const auto& md : containers) {
 
-	ImGui::EndChild();
+	//	auto obj = md.get();
 
-	static InterfaceSeedGenerator* selectedGenerator = static_cast<InterfaceSeedGenerator*>(gen->generator);
-	ImGui::SameLine();
+	//	if (obj) {
 
-	ImGui::BeginChild("Generator List", ImVec2(0, 100), ImGuiChildFlags_Borders);
-	
-	render_selectable_list(seedGenerators, selectedGenerator, "Generators");
+	//		bool isSelected = (selectedContainer && selectedContainer == obj);
 
-	ImGui::EndChild();
+	//		if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+	//			selectedContainer = md.get();
+	//		};
 
-	//ImGui::SeparatorText("Parameters");
-	
-	gen->render_properties();
+	//		if (isSelected) ImGui::SetItemDefaultFocus();
+	//	}
+	//}
 
-	//ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
-	//ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
-	
-	ImGui::SeparatorText("Metrics");
+	//ImGui::EndChild();
 
-	//static Metrics metrics = gen->get_metrics();
+	//static InterfaceSeedGenerator* selectedGenerator = static_cast<InterfaceSeedGenerator*>(gen->generator);
+	//ImGui::SameLine();
 
-	gen->render_metrics();
+	//ImGui::BeginChild("Generator List", ImVec2(0, 100), ImGuiChildFlags_Borders);
+	//
+	//for (const auto& md : seedGenerators) {
 
-	if (updateScaffold) {
+	//	auto obj = md.get();
 
-		if (selectedContainer && selectedGenerator) {
-			std::vector<Vec3> seeds = selectedGenerator->get_seeds();
-			Bounds bds = selectedContainer->compute_bounds();
+	//	if (obj) {
 
-			std::array<float, 6> bounds = {
-				bds.xMin,
-				bds.xMax,
-				bds.yMin,
-				bds.yMax,
-				bds.zMin,
-				bds.zMax
-			};
+	//		bool isSelected = (selectedGenerator && selectedGenerator == obj);
 
-			gen->tortuosityPathModel.reset();
-			gen->set_bounds(bounds);
-			gen->set_seeds(seeds);
-			gen->container = selectedContainer;
-			gen->generator = selectedGenerator;
+	//		if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+	//			selectedGenerator = md.get();
+	//		};
 
-			gen->set_resolution(resolution);
-			gen->compute_scalar_field(*selectedContainer);
-			gen->marching_cubes();
-			gen->estimate_metrics(*selectedContainer);
+	//		if (isSelected) ImGui::SetItemDefaultFocus();
+	//	}
+	//}
 
-			add_log(LogPriority::SUCCESS, "Updated Scaffold Successfully");
+	//ImGui::EndChild();
 
-			// reset
-			updateScaffold = false;
-		}
-	}
+	////ImGui::SeparatorText("Parameters");
+	//
+	//gen->render_properties();
 
+	////ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
+	////ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
+	//
+	//ImGui::SeparatorText("Metrics");
 
-	//if (ImGui::Button("Update")) {	}
+	////static Metrics metrics = gen->get_metrics();
 
+	//gen->render_metrics();
+
+	//if (updateScaffold) {
+
+	//	if (selectedContainer && selectedGenerator) {
+	//		std::vector<Vec3> seeds = selectedGenerator->get_seeds();
+	//		Bounds bds = selectedContainer->compute_bounds();
+
+	//		std::array<float, 6> bounds = {
+	//			bds.xMin,
+	//			bds.xMax,
+	//			bds.yMin,
+	//			bds.yMax,
+	//			bds.zMin,
+	//			bds.zMax
+	//		};
+
+	//		gen->tortuosityPathModel.reset();
+	//		gen->set_bounds(bounds);
+	//		gen->set_seeds(seeds);
+	//		gen->container = selectedContainer;
+	//		gen->generator = selectedGenerator;
+
+	//		gen->set_resolution(resolution);
+	//		gen->compute_scalar_field(*selectedContainer);
+	//		gen->marching_cubes();
+	//		gen->estimate_metrics(*selectedContainer);
+
+	//		logger.log(LogPriority::SUCCESS, "Updated Scaffold Successfully");
+
+	//		// reset
+	//		updateScaffold = false;
+	//	}
+	//}
 };
 
 void myGUI::_create_dockspace() {
@@ -3032,7 +3262,7 @@ void myGUI::_local_thickness_measure(const char* popupName, bool& showPopup, boo
 	// grab the active generatior
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
 
-		add_log(LogPriority::ERROR, "Select a scaffold in the panel.");
+		logger.log(LogPriority::ERROR, "Select a scaffold in the panel.");
 		showPopup = false;
 		return;
 	}
@@ -3043,14 +3273,28 @@ void myGUI::_local_thickness_measure(const char* popupName, bool& showPopup, boo
 		return;
 	}
 
-	// fire up a modal
-	if (showPopup) {
-		ImGui::OpenPopup(popupName);
-	}
 	static float tempVoxelSize = 0.05f;
-	static std::array<float, 2> xDims = { 0.0f, 5.0f};
+
+	static std::array<float, 2> xDims = { 0.0f, 5.0f };
 	static std::array<float, 2> yDims = { 0.0f, 5.0f };
 	static std::array<float, 2> zDims = { 0.0f, 5.0f };
+
+	// fire up a modal
+	if (showPopup) {
+		if (!ImGui::IsPopupOpen(popupName)) {
+			ImGui::OpenPopup(popupName);
+			std::array<float, 6> bds = gen->get_bounds();
+			xDims[0] = bds[0];
+			xDims[1] = bds[1];
+			yDims[0] = bds[2];
+			yDims[1] = bds[3];
+			zDims[0] = bds[4];
+			zDims[1] = bds[5];
+		}
+	}
+
+	// get the active
+
 	if (ImGui::BeginPopupModal(popupName, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 		
 		ImGui::SeparatorText("Parameters");
@@ -3088,7 +3332,7 @@ void myGUI::_action_estimate_tortuosity() {
 
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
 		return;
 	}
 
@@ -3111,18 +3355,16 @@ void myGUI::_action_estimate_tortuosity() {
 			<< duration_ms.count()   // Convert ms to seconds
 			<< " seconds!";
 		if (flag) {
-			add_log(
+			logger.log(
 				LogPriority::SUCCESS, "Estimated tortuosity in " + oss.str());
 		}
 		else {
-			add_log(
+			logger.log(
 				LogPriority::ERROR, "Error in estimating tortuosity!");
 		}
 		
 	}
 	
-
-
 	estimateTortuosity = false;
 };
 
@@ -3130,7 +3372,7 @@ void myGUI::_action_estimate_anisotropy() {
 
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
 		return;
 	}
 
@@ -3151,7 +3393,7 @@ void myGUI::_action_estimate_connectivity_density() {
 
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
 		return;
 	}
 
@@ -3172,7 +3414,7 @@ void myGUI::_action_estimate_trabecular_number() {
 
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
 		return;
 	}
 
@@ -3195,7 +3437,7 @@ void myGUI::_action_estimate_pore_network() {
 
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-		add_log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
 		return;
 	}
 

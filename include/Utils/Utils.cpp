@@ -1679,8 +1679,6 @@ Eigen::Matrix3f rotation_axis_angle(const Vec3& dir, float angle) {
 
 	if (angle == 0.0f) return Eigen::Matrix3f::Identity();
 
-	//Eigen::Matrix3f rot;
-
 	// enusre normalizednDir.x
 	Vec3 nDir = dir.normalized();
 	Eigen::Vector3f k = { nDir.x, nDir.y, nDir.z };
@@ -1693,7 +1691,7 @@ Eigen::Matrix3f rotation_axis_angle(const Vec3& dir, float angle) {
 
 Eigen::Matrix3f rotation_from_direction(const Vec3& dir, float angle, float stretchX, float stretchY, float stretchZ) {
 
-	// enusre normalizednDir.x
+	// ensure direction is normalized
 	Vec3 nDir = dir.normalized();
 	Eigen::Vector3f targetDir = { nDir.x, nDir.y, nDir.z };
 	Eigen::Vector3f defaultAxis;

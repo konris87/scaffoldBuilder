@@ -17,15 +17,22 @@
 #include <ImGuiFileDialog/ImGuiFileDialog.h>
 #include "Math/Vec.h"
 
+
 enum ObjectType {
 	BoxContainerType,
 	CylinderContainerType,
 	AbstractContainerType,
 	RandomGeneratorType,
+	PoissonGeneratorType,
 	UniformGeneratorType,
 	VariedGeneratorType,
 	ScaffoldType,
 	NoneType
+};
+
+struct SelectedObject {
+	void* ptr = nullptr;
+	ObjectType type = ObjectType::NoneType;
 };
 
 struct Bounds {
@@ -57,6 +64,12 @@ struct AStarNode {
 	bool operator>(const AStarNode& other) const {
 		return fScore > other.fScore; // we want the node with the lowest fScore to be at the top of the priority queue, so we use > instead of <
 	}
+};
+
+struct RenameState {
+	char buffer[128] = "";
+	int targetIdx = -1;
+	bool showPopup = false;
 };
 
 // create a class to control seed generator using the strategy pattern
@@ -485,5 +498,40 @@ public:
 
 // helper: median
 static float Median(std::vector<float>& v);
+
+// ---------------------------------------------------------------------------
+template <typename L>
+void render_change_name_popup(const L& list, RenameState& state) {
+
+	if (state.showPopup) {
+		ImGui::OpenPopup("Change Name");
+		state.showPopup = false;
+	}
+	if (ImGui::BeginPopupModal("Change Name", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+
+		if (ImGui::IsWindowAppearing())
+			ImGui::SetKeyboardFocusHere();
+
+		bool enterPressed = ImGui::InputText("New Name", state.buffer, sizeof(state.buffer), ImGuiInputTextFlags_EnterReturnsTrue);
+		if (ImGui::Button("OK", ImVec2(120, 0)) || enterPressed) {
+			// Safety Check: Ensure index is valid
+			if (state.targetIdx >= 0 && state.targetIdx < list.size()) {
+				list[state.targetIdx]->name = std::string(state.buffer);
+			}
+
+			state.targetIdx = -1;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+			state.targetIdx = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+};
 
 #endif

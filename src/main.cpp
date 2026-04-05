@@ -15,7 +15,7 @@
 #include <SeedGenerator/SeedGenerator.h>
 //#include <Visualize/VisualizeSeeds.h>
 //#include "ScaffoldGenerator/ScaffoldGenerator.h"
-#include "SeedGenerator/DistanceCalculator.h"
+#include "SeedGenerator/RadiusCalculator.h"
 #include "Utils/Utils.h"
 
 // test global
@@ -35,22 +35,19 @@ int main(){
 
      //run first the uniform
     //run_monte_carlo_simulations(2000, 3, SamplingType::random);
-
+    
     //std::unique_ptr<BoxContainer> container = std::make_unique<BoxContainer>(
     //    0.0f, 5.0f, 0.0f, 5.0f, 0.0f, 5.0f
     //);
     //
     //// load data
-    //std::vector<std::vector<float>> csvData = read_csv("../data/uniform_random_scaffolds.csv");
+    ////std::vector<std::vector<float>> csvData = read_csv("../data/uniform_random_scaffolds.csv");
+    ////std::vector<std::vector<float>> csvData = read_csv("../data/bonej_comparison.csv");
+    //std::vector<std::vector<float>> csvData = read_csv("../data/varied.csv");
 
     //std::array<int, 3> resolution = { 120, 120, 120 };
-
-    //int daMinsteps = 50;
-    //int daMaxsteps = 200;
-    //int daDirectionNr = 1000;
-    //float daTolerance = 1e-2f;
-    //int daFormulaIdx = 0;
-    //float voxelSize = 0.02;
+    //
+    //float voxelSize = 0.025;
     //float openess = 0.5f;
 
     //std::vector<SimOutput> results(csvData.size());
@@ -58,13 +55,19 @@ int main(){
     //// run as many simulations as the rows
     //for (int row = 0; row < csvData.size(); row++) {
 
-    //    float radius = csvData[row][1];
     //    float thickness = csvData[row][0];
+    //    float radiusMin = csvData[row][1];
+    //    float radiusMax = csvData[row][2];
+    //    float stretchY = csvData[row][3];
 
-    //    Poisson3D rng = Poisson3D(radius, radius, 30);
+    //    Poisson3D rng = Poisson3D(radiusMin, radiusMax, 30);
+
+    //    RunConfig cfg;
+    //    cfg.dist = container->get_distance_estimator();
+    //    cfg.rad = std::make_shared<QuadraticFunction>(radiusMin);
 
     //    // create the seeds
-    //    rng.run(*container);
+    //    rng.run(*container, cfg);
 
     //    std::vector<Vec3> seeds = rng.get_seeds();
     //    Bounds bds = container->compute_bounds();
@@ -82,6 +85,7 @@ int main(){
     //        seeds, bounds, resolution, openess, thickness
     //    );
 
+    //    scaffold->stretchY = stretchY;
 
     //    // create the scaffold
     //    scaffold->compute_scalar_field(*container);
@@ -90,14 +94,14 @@ int main(){
 
     //    scaffold->estimate_metrics(*container);
 
-    //    scaffold->estimate_anisotropy(daDirectionNr, daMinsteps, daMaxsteps, daTolerance, 3);
+    //    scaffold->estimate_anisotropy(2000, 10000, 3);
 
     //    scaffold->estimate_local_thickness(voxelSize, bounds);
 
     //    // estimate separation
     //    scaffold->estimate_local_thickness(voxelSize, bounds, 1);
 
-    //    scaffold->estimate_trabecular_number();
+    ////    scaffold->estimate_trabecular_number();
 
     //    scaffold->estimate_connectivity_density();
 
@@ -106,8 +110,8 @@ int main(){
     //    SimOutput res = {
     //        row + 1,
     //        thickness,
-    //        radius,
-    //        radius,
+    //        radiusMin,
+    //        radiusMax,
     //        openess,
     //        scaffold->porosity,
     //        scaffold->volume,
@@ -130,12 +134,11 @@ int main(){
     //    //std::string fName = std::format("");
 
     //    std::stringstream stlStream;
-    //    stlStream << "../data/bonej_comparison/scaffold" << row << ".stl";
-
-    //    //scaffold->export_stl(stlStream.str());
+    //    stlStream << "../data/varied/scaffold" << row << ".stl";
+    //    scaffold->export_stl(stlStream.str());
 
     //    stlStream.str(std::string());
-    //    stlStream << "../data/bonej_comparison/scaffold" << row << ".nrrd";
+    //    stlStream << "../data/varied/scaffold" << row << ".nrrd";
     //    scaffold->export_nrrd(stlStream.str(), voxelSize, bounds);
 
     //    std::cout << "scaffold " << row << " done!" << std::endl;
@@ -144,11 +147,12 @@ int main(){
 
     //// write the results to a csv
     //std::stringstream folderName;
-    //folderName << "../data/bonej_comparison/op" << openess << "_vs" << voxelSize << "_uniform_results.csv";
+    //folderName << "../data/varied/op" << openess << "_vs" << voxelSize << "_varied_quadratic_results.csv";
 
     //std::cout << folderName.str() << std::endl;
 
     //save_csv(folderName.str(), results, SamplingType::uniform);
     
+
     return 0;
 }

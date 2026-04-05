@@ -28,6 +28,8 @@ public:
 
 	virtual void render_gui() = 0;
 
+	virtual ObjectType get_type() = 0;
+
 	void draw() { 
 		if (model) model->draw();
 		else { std::cout << "no model found" << std::endl; }
@@ -41,6 +43,8 @@ public:
 
 	// keep a pointer to the container
 	IContainer* container = nullptr;
+
+	uint32_t version = 1;
 
 protected:
 	std::unique_ptr<VisualizeSeeds> model;
@@ -57,6 +61,8 @@ public:
 	void run(const IContainer& adapter) override;
 
 	void render_gui() override;
+
+	ObjectType get_type() override { return ObjectType::RandomGeneratorType; };
 
 private:
 	int seedNr{ 0 };
@@ -103,6 +109,8 @@ public:
 	float get_max_radius() { return rMax; };
 
 	RunConfig get_config() const { return config; };
+
+	ObjectType get_type() override { return ObjectType::PoissonGeneratorType; };
 
 	// keep here the indices for distance and radius function
 	int radiusIdx = 0;

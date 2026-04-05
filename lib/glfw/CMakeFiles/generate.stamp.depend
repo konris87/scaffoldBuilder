@@ -9,6 +9,7 @@ C:/Program Files/CMake/share/cmake-4.1/Modules/FindPackageHandleStandardArgs.cma
 C:/Program Files/CMake/share/cmake-4.1/Modules/FindPackageMessage.cmake
 C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake
 C:/Program Files/CMake/share/cmake-4.1/Modules/GNUInstallDirs.cmake
+C:/Program Files/CMake/share/cmake-4.1/Modules/Internal/CheckSourceCompiles.cmake
 C:/Program Files/CMake/share/cmake-4.1/Modules/WriteBasicConfigVersionFile.cmake
 C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMake/glfw3Config.cmake.in
 C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/CMakeLists.txt

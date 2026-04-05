@@ -20,8 +20,10 @@
 #include <queue>
 
 #include "SeedGenerator/Container.h"
+#include <SeedGenerator/SeedGenerator.h>
 #include "Math/Vec.h"
 #include "Utils/Utils.h"
+#include "Logger/Logger.h"
 
 typedef struct
 {
@@ -89,7 +91,7 @@ public:
 
 	void estimate_anisotropy(int daDirectionNr = 2000, int linesPerDirection = 10000, int mode = 3);
 
-	void estimate_trabecular_number();
+	void estimate_trabecular_number(int daDirectionNr = 2000, int linesPerDirection = 10000);
 
 	void estimate_connectivity_density();
 
@@ -100,11 +102,16 @@ public:
 	void export_mhd(std::filesystem::path& path, float voxelSize, std::array<float, 6> blockBounds);
 
 	void apply_taubin_smooth(int iter, float lambda, float mu);
+
+	void export_metrics(std::string fileName);
+	
+	void export_parameters(std::string fileName);
+
 	//--------------------------------
 	// rendering
 	void draw();
 	void draw_edges();
-	void render_properties();
+	void render_properties(Logger* logger, bool& updateScaffold);
 	void render_metrics();
 	void draw_tortuosity_path();
 	void apply_scale();
@@ -186,13 +193,14 @@ private:
 
 	// members
 public:
-	void* container = nullptr;
-	void* generator = nullptr;
+	std::weak_ptr<IContainer> container;
+	std::weak_ptr<InterfaceSeedGenerator> generator;
 	bool foam = false;
 	std::string name = "";
 	std::array<float, 4> color = { 0.5f, 0.5f, 0.5f, 1.0f };
 	bool hidden = false;
 	bool hiddenTortuosityPath = false;
+	bool hiddenEllipsoid = false;
 	bool hiddenNetworkPath = false;
 
 	float volume{ 0.0f };
@@ -219,6 +227,8 @@ public:
 
 	Vec3 anisotropyVec{ 1.0f, 0.0f, 0.0f };
 	float anisotropyAngle{ 0.0f };
+	std::unique_ptr<Ellipsoid> ellipsoidModel;
+	std::array<int, 3> resolution = { 150, 150, 150 };
 
 private:
 	std::vector<Vec3> seeds;
@@ -260,6 +270,46 @@ private:
 	unsigned int VAO{ 0 }, VBO{ 0 }, EBO{ 0 };
 	unsigned int edgeVAO{ 0 }, edgeVBO{ 0 }, edgeEBO{ 0 }, normalsVBO{ 0 };
 	unsigned int tortuosityPathVAO{ 0 }, tortuosityPathVBO{ 0 };
+
+	// ---------------------------------------------------
+	// version handling
+	uint32_t meshVersion = 0;
+	uint32_t thicknessVersion = 0;
+	uint32_t separationVersion = 0;
+	uint32_t trabecularNrVersion = 0;
+	uint32_t connectivityVersion = 0;
+	uint32_t tortuosityVersion = 0;
+	uint32_t anisotropyVersion = 0;
+};
+
+class ScaffoldFactory {
+
+public:
+	void launch();
+
+	void gui_draw(
+		Logger* logger,
+		const char* popupName, bool& showPopup,
+		SelectedObject* selectedPanelObj, void* selectedSceneObj,
+		std::vector<std::unique_ptr<GeneratorLewiner>>& scaffoldList,
+		std::vector<std::shared_ptr<IContainer>>& containers,
+		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators);
+
+private:
+	std::weak_ptr<IContainer> selectedCon;
+	std::weak_ptr<InterfaceSeedGenerator> selectedGen;
+	char buffer[256] = "";
+	float thickness = { 0.3f };
+	float openess = { 0.5f };
+	float stretchX = { 1.0f };
+	float stretchY = { 1.0f };
+	float stretchZ = { 1.0f };
+	Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
+	float anisotropyAngle = { 0.0f };
+	int foam = 0;
+	std::array<int, 3> resolution = { 100, 100, 100 };
+	uint32_t lastUsedContainerVersion = 0;
+	uint32_t lastUsedGeneratorVersion = 0;
 };
 
 #endif // ! "GENERATOR_LEWINER_H"

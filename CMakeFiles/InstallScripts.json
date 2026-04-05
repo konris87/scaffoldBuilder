@@ -1,0 +1,10 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/cmake_install.cmake",
+		"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/cmake_install.cmake",
+		"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/src/cmake_install.cmake",
+		"C:/Users/Kostas/Desktop/PhD/Repositories/scaffoldBuilder_repo/lib/glfw/docs/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

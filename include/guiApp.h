@@ -77,11 +77,6 @@ struct ContainerModel {
 //	void* ptr = nullptr;
 //};
 
-struct SelectedObject {
-	void* ptr = nullptr;
-	ObjectType type = ObjectType::NoneType;
-};
-
 class myGUI {
 
 public:
@@ -110,11 +105,11 @@ public:
 	// mesh objects
 	std::vector<std::unique_ptr<GeneratorLewiner>> scaffolds;
 
-	std::vector<std::unique_ptr<InterfaceSeedGenerator>> seedGenerators;
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>> seedGenerators;
 
-	std::vector<std::unique_ptr<IContainer>> containers;
+	std::vector<std::shared_ptr<IContainer>> containers;
 
-	//std::unique_ptr<Generator> scaffoldGenerator;
+	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>();
 
 	std::vector<poreNetworkObject> poreNetworkList;
 	int activePoreNetworkIndex{ -1 };
@@ -165,6 +160,7 @@ public:
 	bool showDistancePlane{ false };
 	bool showBinaryImageWindow{ false };
 	bool showGeometryExportWindow{ false };
+	bool showMetricsExportWindow{ false };
 	bool showVisualizer{ true };
 	bool showTortuosityPath{ false };
 	bool showScaffoldList{ false };
@@ -250,6 +246,9 @@ private:
 
 		// background color
 	glm::vec4 fontColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+	float fontSize = 18.0f;
+	float newFontSize = 18.0f;
+	bool rebuildFont = false;
 
 	// framebuffer
 	FrameBuffer framebuffer;
@@ -387,7 +386,7 @@ private:
 	// console stuff
 	void _render_console();
 
-	void add_log(LogPriority priority, const std::string& message);
+	//void add_log(LogPriority priority, const std::string& message);
 
 	void _render_menu_bar();
 

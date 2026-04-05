@@ -52,7 +52,7 @@ public:
 
 		sdf = std::make_shared<BoxSDF>(bds);
 		
-		//create();
+		create();
 	};
 
 	std::unique_ptr<BBox> model;
@@ -281,6 +281,8 @@ public:
 		return sdf;
 	};
 	bool updated = false;
+
+	uint32_t version = 1;
 
 private:
 	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};

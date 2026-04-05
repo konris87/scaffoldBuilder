@@ -152,21 +152,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Eigen
 target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# also copy the shaders and fonts to the build file during development
-add_custom_command(TARGET scaffoldBuilder POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/share
-        $<TARGET_FILE_DIR:scaffoldBuilder>/share
-    COMMENT "Copying assets to output directory..."
-)
-
-# Repeat for shaders if they are separate
-add_custom_command(TARGET scaffoldBuilder POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/src/shaders
-        $<TARGET_FILE_DIR:scaffoldBuilder>/shaders
-)
-
 # -----------------------------
 # Installation rules
 # -----------------------------
@@ -180,48 +165,9 @@ install(TARGETS scaffoldBuilder
 
 # Install shader files (uncomment if needed)
 # install(DIRECTORY src/shaders/ DESTINATION bin/shaders)
-install(DIRECTORY share/ DESTINATION bin/share)
+# install(DIRECTORY share/ DESTINATION bin/share)
 
-# vtk dlls
-# if(WIN32)
-    # # Strategy 1: Try finding the Release DLL specifically
-    # get_target_property(VTK_DLL_CORE VTK::CommonCore IMPORTED_LOCATION_RELEASE)
-
-    # # Strategy 2: If that failed, try the generic location
-    # if(NOT VTK_DLL_CORE)
-        # get_target_property(VTK_DLL_CORE VTK::CommonCore IMPORTED_LOCATION)
-    # endif()
-
-    # # Strategy 3: Fallback - Guess based on where VTKConfig.cmake was found
-    # if(NOT VTK_DLL_CORE)
-        # # VTK_DIR usually points to .../lib/cmake/vtk-x.x
-        # # We assume the bin folder is at .../bin
-        # get_filename_component(VTK_ROOT_GUESS "${VTK_DIR}/../../.." ABSOLUTE)
-        # set(VTK_RUNTIME_DIR "${VTK_ROOT_GUESS}/bin")
-        # message(STATUS "Strategy 3 (Guess) - VTK Binaries might be at: ${VTK_RUNTIME_DIR}")
-    # else()
-        # # If Strategy 1 or 2 worked, get the directory from the file path
-        # get_filename_component(VTK_RUNTIME_DIR "${VTK_DLL_CORE}" DIRECTORY)
-    # endif()
-
-    # # --------------------------------------------------
-    # # DEBUG: Check the output
-    # message(STATUS "--------------------------------------------------")
-    # message(STATUS "FINAL DETECTED VTK BIN FOLDER: ${VTK_RUNTIME_DIR}")
-    # message(STATUS "--------------------------------------------------")
-    # # --------------------------------------------------
-
-    # # SAFETY: Ensure we found a valid path and it is NOT your source folder
-    # if(EXISTS "${VTK_RUNTIME_DIR}" AND NOT "${VTK_RUNTIME_DIR}" STREQUAL "${CMAKE_SOURCE_DIR}")
-        
-        # install(DIRECTORY "${VTK_RUNTIME_DIR}/" 
-                # DESTINATION bin 
-                # FILES_MATCHING PATTERN "*.dll")
-    # else()
-        # message(WARNING "Could not find valid VTK DLLs to install. Check the path above.")
-    # endif()
-# endif()
-
+install(DIRECTORY ${CMAKE_BINARY_DIR}/share/ DESTINATION bin/share)
 # -----------------------------
 # CPack setup (packaging)
 # -----------------------------

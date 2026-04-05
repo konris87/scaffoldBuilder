@@ -127,7 +127,8 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 	// normalize the anisotropy vector
 	//anisotropyVec.normalize();
 
-	Eigen::Matrix3f rot = rotation_from_direction(anisotropyVec, anisotropyAngle, stretchX, stretchY, stretchZ);
+	//Eigen::Matrix3f rot = rotation_from_direction(anisotropyVec, anisotropyAngle, stretchX, stretchY, stretchZ);
+	Eigen::Matrix3f rot = rotation_axis_angle(anisotropyVec, anisotropyAngle);
 
 	Vec3 center = con.compute_bounds().center;
 
@@ -247,11 +248,13 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 					gradValue = grad2 - grad1;
 				}
 				else {
-					value = (d3 - d1) + threshold * (d2 - d1);
-					gradValue = (grad3 - grad1) + (grad2 - grad1) * threshold;
+					value = (d3 - d1) + (1.0 - threshold) * (d2 - d1);
+					gradValue = (grad3 - grad1) + (grad2 - grad1) * (1.0 - threshold);
+					//value = (d2 - d1) + threshold * (d3 - d1);
+					//gradValue = (grad2 - grad1) + (grad3 - grad1) * threshold;
 				}
 
-				// 7. Normalize immediately!
+				// normalize the gradient
 				float gradMag = gradValue.norm();
 
 				if (gradMag > 1e-5f) {
@@ -481,6 +484,8 @@ void GeneratorLewiner::marching_cubes() {
 	// update opengl objects
 	_update_render();
 
+	// update mesh version
+	meshVersion++;
 };
 
 void GeneratorLewiner::_update_bounding_box() {
@@ -510,9 +515,6 @@ void GeneratorLewiner::_update_bounding_box() {
 	bounds[4] = aabb.pMin.z;
 	bounds[5] = aabb.pMax.z;
 
-	std::cout << aabb.pMin << std::endl;
-	std::cout << bounds[0] << " " << bounds[2] << std::endl;
-	std::cout << aabb.pMax << std::endl;
 };
 
 void GeneratorLewiner::compute_intersection_points() {
@@ -2346,6 +2348,7 @@ void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, 
 
 void GeneratorLewiner::export_stl(std::string fileName) {
 
+
 	std::ofstream out(fileName, std::ios::binary);
 
 	// header (80 bytes of zeroes/comments)
@@ -2408,6 +2411,14 @@ void GeneratorLewiner::export_stl(std::string fileName) {
 
 	out.close();
 	std::cout << "Successfully exported STL to: " << fileName << std::endl;
+	
+	std::filesystem::path parent = std::filesystem::path(fileName).parent_path();
+	std::string stlName = std::filesystem::path(fileName).stem().string();
+	std::string parameterFileName = stlName + "_parameters.csv";
+	std::filesystem::path parameterPath = parent / parameterFileName;
+
+	std::cout << parameterPath.string() << std::endl;
+	export_parameters(parameterPath.string());
 };
 
 void GeneratorLewiner::validate_topology() {
@@ -2461,17 +2472,142 @@ void GeneratorLewiner::validate_topology() {
 	std::cout << "-----------------------------------\n" << std::endl;
 }
 
-void GeneratorLewiner::render_properties() {
+void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold) 
+{
+	std::shared_ptr<IContainer> lockedCon = container.lock();
+	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
+
+	// first render the applied generator and container
+	if (!lockedCon) {
+		ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "ERROR: Container was deleted!");
+	}
+	else {
+		ImGui::Text("Container: %s", lockedCon->name.c_str());
+	}
+	if (!lockedGen) {
+		ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "ERROR: Generator was deleted!");
+	}
+	else {
+		ImGui::Text("Generator: %s", lockedGen->name.c_str());
+	}
 
 	ImGui::SeparatorText("Parameters");
-	//ImGui::InputText("Name", buffer, sizeof(buffer));
-	ImGui::InputFloat("Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
-	ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f, "%.3f");
-	ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
-	ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
-	ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
-	ImGui::InputFloat3("Material Direction", anisotropyVec, "%.4f");
-	ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+	
+	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
+	// create a table
+	if (ImGui::BeginTable("", 2, flags = flags)) {
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Thickness");
+		ImGui::TableNextColumn(); 
+		ImGui::InputFloat("##Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
+
+		ImGui::TableNextRow();
+		if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+			ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
+			ImGui::TableNextColumn();
+			ImGui::Text("%d", lockedGen->get_seeds().size());
+		}
+		else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
+			ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
+			ImGui::TableNextColumn();
+
+			ImGui::BeginTable("##", 2);
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
+			ImGui::Text("rMin %4.f", dummy->get_min_radius());
+			ImGui::TableNextColumn();
+			ImGui::Text("rMax %4.f", dummy->get_max_radius());
+			ImGui::EndTable();
+		}
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Openess");
+		ImGui::TableNextColumn();
+		ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Stretch X");
+		ImGui::TableNextColumn();
+		ImGui::InputFloat("##Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Stretch Y");
+		ImGui::TableNextColumn();
+		ImGui::InputFloat("##Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Stretch Z");
+		ImGui::TableNextColumn();
+		ImGui::InputFloat("##Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Material Direction");
+		ImGui::TableNextColumn();
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::InputFloat3("##Material Direction", anisotropyVec, "%.4f");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Angle");
+		ImGui::TableNextColumn();
+		ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Resolution");
+		ImGui::TableNextColumn();
+		ImGui::SetNextItemWidth(200.0f);
+		ImGui::InputInt3("##Resolution", blockDims);
+	
+		ImGui::EndTable();
+	}
+	
+	ImGui::SeparatorText("Metrics");
+
+	render_metrics();
+
+	// if the user pressed the update button from the gui
+	if (updateScaffold) {
+
+		if (lockedCon && lockedGen) {
+
+			auto startTime = std::chrono::steady_clock::now();
+
+			std::vector<Vec3> seeds = lockedGen->get_seeds();
+			Bounds bds = lockedCon->compute_bounds();
+
+			std::array<float, 6> bounds = {
+				bds.xMin,
+				bds.xMax,
+				bds.yMin,
+				bds.yMax,
+				bds.zMin,
+				bds.zMax
+			};
+
+			tortuosityPathModel.reset();
+			set_bounds(bounds);
+			set_seeds(seeds);
+			
+			compute_scalar_field(*lockedCon);
+			marching_cubes();
+			estimate_metrics(*lockedCon);
+
+			auto endTime = std::chrono::steady_clock::now();
+
+			// Calculate the duration in milliseconds
+			auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+			std::ostringstream oss;
+			oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+				<< duration_ms.count() / 1000.0   // Convert ms to seconds
+				<< " seconds!";
+
+			logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
+
+			// reset
+			updateScaffold = false;
+		}
+	}
 };
 
 void GeneratorLewiner::estimate_metrics(const IContainer& container) {
@@ -2510,6 +2646,20 @@ void GeneratorLewiner::estimate_metrics(const IContainer& container) {
 
 void GeneratorLewiner::render_metrics() {
 
+	// define a lambda function for checking version
+	auto draw_metric_row = [&](const char* label, uint32_t metricVersion, auto value_func) {
+		bool needsUpdate = metricVersion != meshVersion;
+		ImVec4 color = needsUpdate ? ImVec4(1.0f, 0.6f, 0.0f, 1.0f) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+		ImGui::TextColored(color, "%s", label);
+
+		ImGui::TableNextColumn();
+		ImGui::PushStyleColor(ImGuiCol_Text, color);
+		value_func();
+		ImGui::PopStyleColor();
+	};
+
 	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
 	// create a table
 	if (ImGui::BeginTable("", 2, flags = flags)) {
@@ -2529,29 +2679,48 @@ void GeneratorLewiner::render_metrics() {
 		ImGui::TableNextColumn(); ImGui::Text("Porosity (%%)");
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", porosity * 100.0f);
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Local Thickness (mm)");
-		ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
+		//ImGui::TableNextRow();
+		//ImGui::TableNextColumn(); ImGui::Text("Local Thickness (mm)");
+		//ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
+		draw_metric_row("Local Thickness (mm)", thicknessVersion, [&]() {
+			ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
+		});
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Local Separation (mm)");
-		ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localSeparation, localSeparationStd);
+		draw_metric_row("Local Separation (mm)", separationVersion, [&]() {
+			ImGui::Text("%.4f std: %.4f", localSeparation, localSeparationStd);
+		});
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Trabecular Number (1/mm)");
-		ImGui::TableNextColumn(); ImGui::Text("%.4f", trabecularNr);
+		//ImGui::TableNextRow();
+		//ImGui::TableNextColumn(); ImGui::Text("Local Separation (mm)");
+		//ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localSeparation, localSeparationStd);
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Connectivity Density (1/mm^3)");
-		ImGui::TableNextColumn(); ImGui::Text("%.4f", connectivityDensity);
+		//ImGui::TableNextRow();
+		//ImGui::TableNextColumn(); ImGui::Text("Trabecular Number (1/mm)");
+		//ImGui::TableNextColumn(); ImGui::Text("%.4f", trabecularNr);
+		draw_metric_row("Trabecular Number (1/mm)", trabecularNrVersion, [&]() {
+			ImGui::Text("%.4f", trabecularNr);
+		});
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Tortuosity");
-		ImGui::TableNextColumn(); ImGui::Text("%.4f", tortuosity);
+		//ImGui::TableNextRow();
+		//ImGui::TableNextColumn(); ImGui::Text("Connectivity Density (1/mm^3)");
+		//ImGui::TableNextColumn(); ImGui::Text("%.4f", connectivityDensity);
+		draw_metric_row("Connectivity Density (1/mm^3)", connectivityVersion, [&]() {
+			ImGui::Text("%.4f", connectivityDensity);
+		});
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Degree of Anisotropy");
-		ImGui::TableNextColumn(); ImGui::Text("%.4f", anisotropyDegree);
+		//ImGui::TableNextRow();
+		//ImGui::TableNextColumn(); ImGui::Text("Tortuosity");
+		//ImGui::TableNextColumn(); ImGui::Text("%.4f", tortuosity);
+		draw_metric_row("Tortuosity", tortuosityVersion, [&]() {
+			ImGui::Text("%.4f", tortuosity);
+		});
+
+		//ImGui::TableNextRow();
+		//ImGui::TableNextColumn(); ImGui::Text("Degree of Anisotropy");
+		//ImGui::TableNextColumn(); ImGui::Text("%.4f", anisotropyDegree);
+		draw_metric_row("Degree of Anisotropy", anisotropyVersion, [&]() {
+			ImGui::Text("%.4f", anisotropyDegree);
+		});
 
 		ImGui::EndTable();
 	};
@@ -2900,6 +3069,12 @@ void GeneratorLewiner::estimate_local_thickness(
 		localThicknessStd = stdDevVoxels * voxelSize; // Final conversion to mm
 	}
 
+	if (separation) {
+		separationVersion = meshVersion;
+	}
+	else {
+		thicknessVersion = meshVersion;
+	}
 };
 
 //@Function to get a subregion of the created mesh to compute the image metrics, we also should add
@@ -3204,6 +3379,9 @@ bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
 	if (tortuosity < 1.0f) {
 		tortuosity = 1.0f;
 	}
+
+	tortuosityVersion = meshVersion;
+
 	return true;
 };
 
@@ -3235,7 +3413,7 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 
 	std::vector<float> milValues(daDirectionNr, 0.0f);
 
-	// 1. Create Random Uniform Directions (Fibonacci Sphere)
+	// Create Random Uniform Directions (Fibonacci Sphere)
 	std::vector<Vec3> dirs(daDirectionNr);
 	const float PI = 3.14159265359f;
 	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
@@ -3264,22 +3442,23 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 	float rayStepSize = std::sqrt(3.0f);
 
 	// 3. Parallelize Ray Marching
-#pragma omp parallel 
+	#pragma omp parallel 
 	{
 		// Thread-local RNG for stratified jittering
 		std::mt19937 rng(1337 + omp_get_thread_num());
 		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-#pragma omp for
+	#pragma omp for
 		for (int i = 0; i < daDirectionNr; i++) {
 			Vec3 d = dirs[i];
 
+			// create a local basis
 			Vec3 w = (std::abs(d.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
 			Vec3 u = d.cross(w).normalized();
 			Vec3 v = d.cross(u).normalized();
 
 			long localTransitions = 0;
-			double localBoxLen = 0.0;
+			float localBoxLen = 0.0;
 
 			for (int uIdx = 0; uIdx < gridN; uIdx++) {
 				for (int vIdx = 0; vIdx < gridN; vIdx++) {
@@ -3350,16 +3529,22 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 		}
 	}
 
-	// --- 4. GENERAL QUADRIC FIT (BoneJ Scale) ---
-	Eigen::MatrixXd A_mat(daDirectionNr, 9);
-	Eigen::VectorXd b_vec(daDirectionNr);
+	// get the max mean interception value we found so far
+	float maxMIL = 1e-9f;
+	for (float m : milValues) {
+		if (m > maxMIL) maxMIL = m;
+	}
+
+	// quadratic fit
+	Eigen::MatrixXf A_mat(daDirectionNr, 9);
+	Eigen::VectorXf b_vec(daDirectionNr);
 
 	for (int v = 0; v < daDirectionNr; v++) {
-		double mil = milValues[v];
+		float mil = milValues[v] / maxMIL;
 
-		double px = dirs[v].x * mil;
-		double py = dirs[v].y * mil;
-		double pz = dirs[v].z * mil;
+		float px = dirs[v].x * mil;
+		float py = dirs[v].y * mil;
+		float pz = dirs[v].z * mil;
 
 		A_mat(v, 0) = px * px;
 		A_mat(v, 1) = py * py;
@@ -3374,50 +3559,50 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 		b_vec(v) = 1.0;
 	}
 
-	Eigen::VectorXd beta = A_mat.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b_vec);
+	Eigen::VectorXf beta = A_mat.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b_vec);
 
-	double a = beta(0), b = beta(1), c = beta(2);
-	double d_val = beta(3) / 2.0;
-	double e_val = beta(4) / 2.0;
-	double f_val = beta(5) / 2.0;
-	double g = beta(6) / 2.0;
-	double h = beta(7) / 2.0;
-	double i_val = beta(8) / 2.0;
+	float a = beta(0), b = beta(1), c = beta(2);
+	float d_val = beta(3) / 2.0;
+	float e_val = beta(4) / 2.0;
+	float f_val = beta(5) / 2.0;
+	float g = beta(6) / 2.0;
+	float h = beta(7) / 2.0;
+	float i_val = beta(8) / 2.0;
 
-	Eigen::Matrix4d quadric;
+	Eigen::Matrix4f quadric;
 	quadric << a, d_val, e_val, g,
 		d_val, b, f_val, h,
 		e_val, f_val, c, i_val,
 		g, h, i_val, -1.0;
 
 	// Find Center
-	Eigen::Matrix3d sub;
+	Eigen::Matrix3f sub;
 	sub << a, d_val, e_val,
 		d_val, b, f_val,
 		e_val, f_val, c;
 	sub = -1.0 * sub;
-	Eigen::Vector3d translationVec(g, h, i_val);
-	Eigen::Vector3d center = sub.inverse() * translationVec;
+	Eigen::Vector3f translationVec(g, h, i_val);
+	Eigen::Vector3f center = sub.inverse() * translationVec;
 
 	// Translate to origin
-	Eigen::Matrix4d tMat = Eigen::Matrix4d::Identity();
+	Eigen::Matrix4f tMat = Eigen::Matrix4f::Identity();
 	tMat(0, 3) = center.x();
 	tMat(1, 3) = center.y();
 	tMat(2, 3) = center.z();
 
-	Eigen::Matrix4d translated = tMat * quadric * tMat.transpose();
+	Eigen::Matrix4f translated = tMat * quadric * tMat.transpose();
 
 	// Eigendecomposition 
-	Eigen::Matrix3d input;
-	double scale = -1.0 / translated(3, 3);
+	Eigen::Matrix3f input;
+	float scale = -1.0 / translated(3, 3);
 	for (int row = 0; row < 3; ++row) {
 		for (int col = 0; col < 3; ++col) {
 			input(row, col) = translated(row, col) * scale;
 		}
 	}
 
-	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(input);
-	Eigen::Vector3d evals = solver.eigenvalues();
+	Eigen::SelfAdjointEigenSolver<Eigen::Matrix3f> solver(input);
+	Eigen::Vector3f evals = solver.eigenvalues();
 
 	if (evals(0) <= 0.0 || evals(1) <= 0.0 || evals(2) <= 0.0) {
 		anisotropyDegree = 0.0f;
@@ -3450,316 +3635,141 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 		}		
 	}
 
-	std::cout << "Final Eigenvalues: " << evals(0) << ", " << evals(1) << ", " << evals(2) << std::endl;
-	std::cout << "Final Degree of Anisotropy: " << anisotropyDegree << std::endl;
-}
+	// create also the ellipsoid pointcloud
+	float r1 = (evals(0) > 1e-9) ? maxMIL / std::sqrt(evals(0)) : 0.0f;
+	float r2 = (evals(1) > 1e-9) ? maxMIL / std::sqrt(evals(1)) : 0.0f;
+	float r3 = (evals(2) > 1e-9) ? maxMIL / std::sqrt(evals(2)) : 0.0f;
+	Eigen::Matrix3f v = solver.eigenvectors();
 
-//void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode) {
-//
-//	// Global tally for MIL
-//	std::vector<float> totalIntercepts(daDirectionNr, 0.0f); // Changed name for clarity
-//	std::vector<float> totalLengths(daDirectionNr, 0.0f);
-//
-//	// Create Random Directions (Fibonacci Sphere)
-//	std::vector<Vec3> dirs(daDirectionNr);
-//	const float PI = 3.14159265359f;
-//	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
-//
-//	for (int i = 0; i < daDirectionNr; i++) {
-//		float theta = 2.0f * PI * i / goldenRatio;
-//		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / daDirectionNr);
-//		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
-//	}
-//
-//	// create a generator to sample points inside the domain
-//	std::mt19937 rng(1337);
-//	std::uniform_real_distribution<float> distX(bounds[0], bounds[1]);
-//	std::uniform_real_distribution<float> distY(bounds[2], bounds[3]);
-//	std::uniform_real_distribution<float> distZ(bounds[4], bounds[5]);
-//
-//	// Ray step constraints
-//	float maxRayLength = std::min({ (bounds[1] - bounds[0]), (bounds[3] - bounds[2]) , (bounds[5] - bounds[4]) }) * 0.45f;
-//	float rayStepSize = std::min({ stepX, stepY, stepZ }) * 0.5f;
-//	int maxRaySteps = static_cast<int>(maxRayLength / rayStepSize);
-//
-//	float vf = 999.0f;
-//	int iteration = 0;
-//	std::vector<float> daHistory;
-//
-//	while ((iteration < daMinsteps || vf > vcLimit) && iteration < daMaxsteps) {
-//
-//		// 1. Pick a completely random point ANYWHERE in the volume
-//		Vec3 center(distX(rng), distY(rng), distZ(rng));
-//
-//		// DO NOT SKIP IF OUTSIDE! We want unbiased parallel lines passing through the volume.
-//		iteration++;
-//
-//		// parallelize the for loop to create the vectors
-//#pragma omp parallel for
-//		for (int i = 0; i < daDirectionNr; i++) {
-//			int intercepts = 0;
-//			float foregroundLength = 0.0f;
-//
-//			// Check the state of the very first point of our ray
-//			int startX = std::clamp((int)((center.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
-//			int startY = std::clamp((int)((center.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
-//			int startZ = std::clamp((int)((center.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
-//
-//			bool currentlyIn = (get_data(startX, startY, startZ) < isoLevel);
-//
-//			// If we start inside the solid phase, that counts as our first valid intercept
-//			if (currentlyIn) {
-//				intercepts = 1;
-//			}
-//
-//			for (int s = 1; s <= maxRaySteps; s++) {
-//				Vec3 pt = center + (dirs[i] * (rayStepSize * s));
-//
-//				// Bounds check - break immediately if outside the volume
-//				if (pt.x < bounds[0] || pt.x >= bounds[1] ||
-//					pt.y < bounds[2] || pt.y >= bounds[3] ||
-//					pt.z < bounds[4] || pt.z >= bounds[5]) {
-//					break;
-//				}
-//
-//				int gX = static_cast<int>((pt.x - bounds[0]) / stepX);
-//				int gY = static_cast<int>((pt.y - bounds[2]) / stepY);
-//				int gZ = static_cast<int>((pt.z - bounds[4]) / stepZ);
-//
-//				bool isInside = (get_data(gX, gY, gZ) < isoLevel);
-//
-//				// Accumulate physical length ONLY when inside the solid structure
-//				if (isInside) {
-//					foregroundLength += rayStepSize;
-//				}
-//
-//				// Count a new intercept ONLY when transitioning from AIR to SOLID
-//				if (isInside && !currentlyIn) {
-//					intercepts++;
-//				}
-//
-//				currentlyIn = isInside;
-//			}
-//
-//			// Update global tallies
-//			totalIntercepts[i] += intercepts;
-//			totalLengths[i] += foregroundLength;
-//		}
-//
-//		// estimate the point cloud and the fabric tensor M
-//		Eigen::MatrixXd A(daDirectionNr, 6);
-//		Eigen::VectorXd b(daDirectionNr);
-//
-//		for (int v = 0; v < daDirectionNr; v++) {
-//
-//			// We already calculated true intercepts! No more dividing by 2.0.
-//			double intercepts = totalIntercepts[v];
-//
-//			// Estimate true mean intercept length
-//			double mil = (intercepts > 0) ? (totalLengths[v] / intercepts) : (double)totalLengths[v];
-//
-//			// BoneJ fits 1 / MIL^2
-//			double invMilSq = 1.0 / (mil * mil);
-//
-//			Vec3 dir = dirs[v];
-//
-//			// Populate design matrix A
-//			A(v, 0) = dir.x * dir.x;
-//			A(v, 1) = dir.y * dir.y;
-//			A(v, 2) = dir.z * dir.z;
-//			A(v, 3) = 2.0 * dir.x * dir.y;
-//			A(v, 4) = 2.0 * dir.x * dir.z;
-//			A(v, 5) = 2.0 * dir.y * dir.z;
-//
-//			// Populate target vector b
-//			b(v) = invMilSq;
-//		}
-//
-//		// Solve for x using SVD (Robust for least squares)
-//		Eigen::VectorXd x = A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
-//
-//		// Reconstruct the 3x3 symmetric Fabric Tensor M
-//		Eigen::Matrix3d M;
-//		M << x(0), x(3), x(4),
-//			x(3), x(1), x(5),
-//			x(4), x(5), x(2);
-//
-//		// Get the eigenvalues
-//		Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(M);
-//		Eigen::Vector3d evals = solver.eigenvalues(); // Sorted ascending by default
-//
-//		// In BoneJ, the eigenvalues are 1/a^2, 1/b^2, 1/c^2.
-//		float lambdaMin = std::abs(evals(0));
-//		float lambdaMax = std::abs(evals(2));
-//
-//		// Radii of the fitted ellipsoid
-		//float lenMax = (lambdaMin > 1e-9f) ? (1.0f / std::sqrt(lambdaMin)) : 0.0f;
-		//float lenMin = (lambdaMax > 1e-9f) ? (1.0f / std::sqrt(lambdaMax)) : 0.0f;
-//
-//		// Estimate degree of anisotropy using the selected formula
-//		float currentDa = 0.f;
-//		if (mode == 0) {
-//			currentDa = (lenMin > 1e-6f) ? (lenMax / lenMin) : 0.0f;
-//		}
-//		else if (mode == 1) {
-//			currentDa = (lenMax > 1e-6f) ? (1.0f - (lenMin / lenMax)) : 0.0f;
-//		}
-//		else if (mode == 2) {
-//			currentDa = (lambdaMax > 1e-6f) ? (lambdaMin / lambdaMax) : 0.0f;
-//		}
-//		else if (mode == 3) {
-//			// Standard BoneJ formula: 1 - (min eigenvalue / max eigenvalue)
-//			currentDa = (lambdaMax > 1e-6f) ? (1.0f - (lambdaMin / lambdaMax)) : 0.0f;
-//		}
-//
-//		// push back to the da estimated so far
-//		daHistory.push_back(currentDa);
-//
-//		// Update Coefficient of Variation
-//		if (daHistory.size() >= 5) {
-//			float sum = 0, sq_sum = 0;
-//			for (float val : daHistory) { sum += val; sq_sum += val * val; }
-//			float mean = sum / daHistory.size();
-//			float variance = (sq_sum / daHistory.size()) - (mean * mean);
-//			vf = (mean > 0) ? (std::sqrt(std::abs(variance)) / mean) : 999.0f;
-//		}
-//
-//		std::cout << "Points Sampled: " << iteration << " | DA: " << currentDa << " | CV: " << vf << "\r" << std::flush;
-//	};
-//
-//	anisotropyDegree = daHistory.back();
-//}
+	Eigen::Vector3f origin(
+		(0.5f * bounds[1] - bounds[0]),
+		(0.5f * bounds[3] - bounds[2]),
+		(0.5f * bounds[5] - bounds[4]));
 
-void GeneratorLewiner::estimate_trabecular_number() {
+	//ellipsoidModel = std::make_unique<Ellipsoid>(origin, v, r1, r2, r3);
+	anisotropyVersion = meshVersion;
+};
 
-	// a vector holding the values of mil values
-	// to iteratively estimate anisotropy until the coefficient of variation falls down a limit
-	std::vector<float> milVector;
+void GeneratorLewiner::estimate_trabecular_number(int daDirectionNr, int linesPerDirection) {
 
-	// vector counts
-	int vecNr = 2000;
-
-	// we should keep vectors for directions, hits and vector lengths
-	std::vector<Vec3> dirs(vecNr);
-	std::vector<float> totalHits(vecNr, 0.0f);
-	std::vector<float> totalLengths(vecNr, 0.0f);
-
-	// populate directions
+	// 1. Create Random Uniform Directions (Fibonacci Sphere)
+	std::vector<Vec3> dirs(daDirectionNr);
 	const float PI = 3.14159265359f;
 	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
-	for (int i = 0; i < vecNr; i++) {
 
+	for (int i = 0; i < daDirectionNr; i++) {
 		float theta = 2.0f * PI * i / goldenRatio;
-		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / vecNr);
-
-		Vec3 dir(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
-		dirs[i] = dir;
+		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / daDirectionNr);
+		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
 	}
 
-	std::mt19937 rng(1337);
-	std::uniform_real_distribution<float> distX(bounds[0], bounds[1]);
-	std::uniform_real_distribution<float> distY(bounds[2], bounds[3]);
-	std::uniform_real_distribution<float> distZ(bounds[4], bounds[5]);
+	// 2. Setup Geometry in STRICT VOXEL SPACE
+	float dimX = static_cast<float>(blockDims[0]);
+	float dimY = static_cast<float>(blockDims[1]);
+	float dimZ = static_cast<float>(blockDims[2]);
 
-	// this is the maximum ray length (almost half the minimum along dimensions)
-	float maxRayLength = std::min({
-		(bounds[1] - bounds[0]), (bounds[3] - bounds[2]), (bounds[5] - bounds[4])
-		}) * 0.45f;
-	// this the step size along the minimum dimension
-	float rayStepSize = std::min({ stepX, stepY, stepZ }) * 0.5f;
-	int maxSteps = static_cast<int>(maxRayLength / rayStepSize);
-	
-	std::vector<float> milHistory;
-	float vf = 999.0f;
-	int iteration = 0;
-	int minIters = 10; // minimum iteration
-	int maxIters = 1000; // maximum iteration
+	Vec3 boxCenter(dimX * 0.5f, dimY * 0.5f, dimZ * 0.5f);
 
-	while ((iteration < minIters || vf > 1e-2) && iteration < maxIters) {
+	float d_plane = std::sqrt(dimX * dimX + dimY * dimY + dimZ * dimZ);
+	float R = d_plane * 0.5f;
 
-		// 1. Pick a random point in the bounding box
-		Vec3 center(distX(rng), distY(rng), distZ(rng));
+	int gridN = static_cast<int>(std::ceil(std::sqrt(linesPerDirection)));
+	float gridStep = d_plane / std::max(1, gridN);
+	float rayStepSize = std::sqrt(3.0f);
 
-		// Get the grid index of this random point
-		int startI = std::clamp((int)((center.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
-		int startJ = std::clamp((int)((center.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
-		int startK = std::clamp((int)((center.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+	// Global accumulators
+	long globalTransitions = 0;
+	double globalBoxLen = 0.0;
 
-		// If the random point is in AIR, skip it and try again. We only want to measure FOAM.
-		if (get_data(startI, startJ, startK) >= isoLevel) {
-			continue;
-		}
+	// 3. Parallelize Ray Marching
+#pragma omp parallel reduction(+:globalTransitions, globalBoxLen) 
+	{
+		std::mt19937 rng(1337 + omp_get_thread_num());
+		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-		iteration++; // We found a valid foam point!
+#pragma omp for
+		for (int i = 0; i < daDirectionNr; i++) {
+			Vec3 d = dirs[i];
 
-		// parallelize the vector casting
-		#pragma omp parallel for schedule(static)
-		for (int i = 0; i < vecNr; i++) {
+			Vec3 w = (std::abs(d.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
+			Vec3 u = d.cross(w).normalized();
+			Vec3 v = d.cross(u).normalized();
 
-			int hits = 0;
-			bool currentlyIn = true; // We already checked that the center is inside foam
-			float lengthMarched = maxRayLength;
+			// Local tally for THIS specific direction 'i'
+			long localTransitions = 0;
+			double localBoxLen = 0.0;
 
-			// Traverse the grid for this specific ray
-			for (int step = 1; step <= maxSteps; step++) {
-				Vec3 pt = center + (dirs[i] * (rayStepSize * step));
+			for (int uIdx = 0; uIdx < gridN; uIdx++) {
+				for (int vIdx = 0; vIdx < gridN; vIdx++) {
 
-				int gridX = std::clamp((int)((pt.x - bounds[0]) / stepX), 0, blockDims[0] - 1);
-				int gridY = std::clamp((int)((pt.y - bounds[2]) / stepY), 0, blockDims[1] - 1);
-				int gridZ = std::clamp((int)((pt.z - bounds[4]) / stepZ), 0, blockDims[2] - 1);
+					float uPos = -R + (uIdx + dist(rng)) * gridStep;
+					float vPos = -R + (vIdx + dist(rng)) * gridStep;
+					Vec3 rayOrigin = boxCenter + (u * uPos) + (v * vPos) - (d * R);
 
-				bool isInside = (get_data(gridX, gridY, gridZ) < isoLevel);
+					float tMin = 0.0f;
+					float tMax = 1e9f;
+					bool hit = true;
 
-				if (isInside != currentlyIn) {
-					hits++;
-					currentlyIn = isInside;
+					float boundsVoxel[6] = { 0.0f, dimX, 0.0f, dimY, 0.0f, dimZ };
+
+					for (int axis = 0; axis < 3; ++axis) {
+						float invD = 1.0f / (axis == 0 ? d.x : (axis == 1 ? d.y : d.z));
+						float t0 = (boundsVoxel[axis * 2] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
+						float t1 = (boundsVoxel[axis * 2 + 1] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
+						if (invD < 0.0f) std::swap(t0, t1);
+						tMin = std::max(tMin, t0);
+						tMax = std::min(tMax, t1);
+						if (tMax <= tMin) { hit = false; break; }
+					}
+
+					if (hit && tMax > 0.0f) {
+						tMin = std::max(0.0f, tMin);
+						localBoxLen += (tMax - tMin);
+
+						float startT = tMin + dist(rng) * rayStepSize;
+						long samples = static_cast<long>(std::ceil((tMax - startT) / rayStepSize));
+
+						bool previousPhase = false;
+
+						for (long s = 0; s < samples; s++) {
+							Vec3 pt = rayOrigin + d * (startT + s * rayStepSize);
+
+							long vx = std::clamp<long>(static_cast<long>(pt.x), 0, blockDims[0] - 1);
+							long vy = std::clamp<long>(static_cast<long>(pt.y), 0, blockDims[1] - 1);
+							long vz = std::clamp<long>(static_cast<long>(pt.z), 0, blockDims[2] - 1);
+
+							bool currentPhase = (get_data(vx, vy, vz) < isoLevel);
+
+							if (currentPhase != previousPhase) {
+								localTransitions++;
+							}
+							previousPhase = currentPhase;
+						}
+					}
 				}
 			}
 
-			totalHits[i] += hits;
-			totalLengths[i] += lengthMarched;
+			// ADD TO GLOBAL TALLY HERE! (At the end of the 'i' loop, outside the grid loops)
+			globalTransitions += localTransitions;
+			globalBoxLen += localBoxLen;
 		}
+	} 
 
-		// Build mean interception length
-		float currentIterationMeanMil = 0.0f;
-		for (int v = 0; v < vecNr; v++) {
-			// Global vector length divided by global vector hits
-			float mil = (totalHits[v] > 0) ? (totalLengths[v] / totalHits[v]) : totalLengths[v];
-			currentIterationMeanMil += mil;
-		}
-		currentIterationMeanMil /= vecNr;
-		milHistory.push_back(currentIterationMeanMil);
+	// Calculate final values 
+	if (globalBoxLen > 0.0) {
+		double PL_voxels = static_cast<double>(globalTransitions) / globalBoxLen;
+		double TbN_voxels = PL_voxels / 2.0;
 
-		if (milHistory.size() >= 3) {
-			float mean = 0.0f;
-			for (float val : milHistory) mean += val;
-			mean /= milHistory.size();
-
-			float variance = 0.0f;
-			for (float val : milHistory) variance += (val - mean) * (val - mean);
-			variance /= (milHistory.size() - 1); // Sample variance
-
-			vf = (mean > 0.0f) ? (std::sqrt(variance) / mean) : 999.0f;
-		}
-	}
-
-	float aggregateTotalLength = 0.0f;
-	float aggregateTotalHits = 0.0f;
-
-	for (int v = 0; v < vecNr; v++) {
-		aggregateTotalLength += totalLengths[v];
-		aggregateTotalHits += totalHits[v];
-	}
-
-	if (aggregateTotalHits > 0) {
-		// MIL = Total Path Length / Total Intercepts
-		float finalMIL = aggregateTotalLength / aggregateTotalHits;
-		trabecularNr = 1.0f / finalMIL;
+		// Convert to physical space
+		trabecularNr = static_cast<float>(TbN_voxels / stepX);
 	}
 	else {
-		trabecularNr = 0.0f; // Truly no boundaries found
+		trabecularNr = 0.0f;
 	}
-};
+
+	trabecularNrVersion = meshVersion;
+	//std::cout << "Trabecular Number (Tb.N): " << trabecularNr << " [1/units]" << std::endl;
+}
 
 void GeneratorLewiner::estimate_connectivity_density() {
 
@@ -3789,7 +3799,7 @@ void GeneratorLewiner::estimate_connectivity_density() {
 
 void GeneratorLewiner::estimate_connectivity_network() {
 
-
+	return;
 
 };
 
@@ -3826,8 +3836,8 @@ void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 			tempVerts[i] = currentVerts[i] + (avg - currentVerts[i]) * lambda;
 		}
 
-	// Pass 2: Inflate (using mu < 0)
-	#pragma omp parallel for
+		// Pass 2: Inflate (using mu < 0)
+#pragma omp parallel for
 		for (int i = 0; i < vertNr; ++i) {
 			const auto& nbrs = adjacency[i];
 			if (nbrs.empty()) {
@@ -3883,5 +3893,264 @@ void GeneratorLewiner::build_topology() {
 	for (auto& neighbors : adjacency) {
 		std::sort(neighbors.begin(), neighbors.end());
 		neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+	}
+};
+
+//@brief export the metrics in csv
+void GeneratorLewiner::export_metrics(std::string fileName) {
+
+	std::ofstream fout;
+	fout.open(fileName);
+
+	// add header
+	fout << "Porosity, Volume, TotalSurface, SurfaceToVolume, Connectivity Density, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy, Tortuosity\n";
+
+	// pass values
+	fout << porosity << "," << volume << "," << surfaceArea << "," << surfaceToVolume << "," << connectivityDensity << "," << localThickness << "," << localThicknessStd << "," << localSeparation << "," << localSeparationStd << "," << trabecularNr << "," << anisotropyDegree << "," << tortuosity << "\n";
+
+	fout.close();
+};
+
+//@brief export the applied parameters for scaffold in csv
+void GeneratorLewiner::export_parameters(std::string fileName) {
+
+	std::ofstream fout;
+	fout.open(fileName);
+
+	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
+
+	if (lockedGen && lockedGen->type == ObjectType::RandomGeneratorType) {
+		// add header
+		fout << "Thickness, SeedNr, Openess, xStretch, yStretch, zStretch, anisotropyAngle, anisotropyDirectionX, anisotropyDirectionY, anisotropyDirectionZ\n";
+
+		Random* rgn = static_cast<Random*>(lockedGen.get());
+		fout << isoLevel << "," << rgn->get_seeds().size() << "," << threshold << "," << stretchX << "," << stretchY << "," << stretchZ << "," << anisotropyAngle << "," << anisotropyVec.x << "," << anisotropyVec.y << "," << anisotropyVec.z << "\n" ;
+
+	}
+	else {
+		// add header
+		fout << "Thickness, Min Radius, Max radius, Openess, xStretch, yStretch, zStretch, anisotropyAngle, anisotropyDirectionX, anisotropyDirectionY, anisotropyDirectionZ\n";
+
+		Poisson3D* rgn = static_cast<Poisson3D*>(lockedGen.get());
+		fout << isoLevel << "," << rgn->get_min_radius() << "," << rgn->get_max_radius() << "," << threshold << "," << stretchX << "," << stretchY << "," << stretchZ << "," << anisotropyAngle << "," << anisotropyVec.x << "," << anisotropyVec.y << "," << anisotropyVec.z << "\n";
+	}
+
+	fout.close();
+};
+
+void ScaffoldFactory::launch() {
+
+	selectedCon.reset();
+	selectedGen.reset();
+	buffer[0] = '\0';
+	thickness = { 0.3f };
+	openess = { 0.5f };
+	stretchX = { 1.0f };
+	stretchY = { 1.0f };
+	stretchZ = { 1.0f };
+	anisotropyVec = { 1.0f, 0.0f, 0.0f };
+	anisotropyAngle = { 0.0f };
+	foam = 0;
+	resolution = { 100, 100, 100 };
+};
+
+void ScaffoldFactory::gui_draw(
+	Logger* logger,
+	const char* popupName, bool& showPopup,
+	SelectedObject* selectedPanelObj, void* selectedSceneObj,
+	std::vector<std::unique_ptr<GeneratorLewiner>>& scaffoldList,
+	std::vector<std::shared_ptr<IContainer>>& containers,
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators) {
+	
+	if (showPopup) {
+		ImGui::OpenPopup(popupName);
+	}
+
+	// always centered
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (ImGui::BeginPopupModal("Scaffold Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		auto lockedCon = selectedCon.lock();
+		auto lockedGen = selectedGen.lock();
+
+		ImGui::InputText("Name", buffer, sizeof(buffer));
+		ImGui::SeparatorText("Parameters");
+		ImGui::InputFloat("Thickness", &thickness, 0.001f, 1.0f);
+		ImGui::SliderFloat("Openess", &openess, 0.0f, 1.0f, "%.3f");
+		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
+		ImGui::InputInt3("Resolution", resolution);
+		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+
+		ImGui::RadioButton("Porous", &foam, 0);
+		ImGui::RadioButton("Foam", &foam, 1);
+
+		// here we should get the seeds from the corresponding creator
+		ImGui::SeparatorText("Select Container and generator");
+
+		// timer for flashing
+		static float warningFlashTimer1 = 0.0f;
+
+		if (warningFlashTimer1 > 0.0f) {
+			warningFlashTimer1 -= ImGui::GetIO().DeltaTime;
+		}
+
+		bool isFlashing1 = (warningFlashTimer1 > 0.0f);
+		if (isFlashing1) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
+
+		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 80), ImGuiChildFlags_Borders);
+
+		for (const auto& md : containers) {
+
+			bool isSelected = (lockedCon && lockedCon == md);
+			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+				selectedCon = md;
+				lockedCon = md;
+			};
+		}
+
+		if (isFlashing1) {
+			ImGui::PopStyleColor(); // Pop the red border color
+			ImGui::PopStyleVar();   // Pop the thick border size
+		}
+
+		ImGui::EndChild();
+
+		ImGui::SameLine();
+
+		static float warningFlashTimer2 = 0.0f;
+
+		if (warningFlashTimer2 > 0.0f) {
+			warningFlashTimer2 -= ImGui::GetIO().DeltaTime;
+		}
+		bool isFlashing2 = (warningFlashTimer2 > 0.0f);
+		if (isFlashing2) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
+
+		ImGui::BeginChild("Generators", ImVec2(0.0, 80), ImGuiChildFlags_Borders);
+
+		for (const auto& md : generators) {
+
+			bool isSelected = (lockedGen && lockedGen == md);
+
+			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+				selectedGen = md;
+				lockedGen = md;
+			};
+		}
+
+		if (isFlashing2) {
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar();  
+		}
+
+		ImGui::EndChild();
+
+		ImGui::Separator();
+
+		ImGui::NewLine();
+
+		if (ImGui::Button("Generate")) {
+
+			if (!lockedCon) {
+				warningFlashTimer1 = 1.5f;
+			}
+
+			if (!lockedGen) {
+				warningFlashTimer2 = 1.5f;
+			}
+
+			else if (lockedCon && lockedGen) {
+
+				auto start_time = std::chrono::steady_clock::now();
+
+				std::string name = std::string(buffer);
+				std::vector<Vec3> seeds = lockedGen->get_seeds();
+				Bounds bds = lockedCon->compute_bounds();
+
+				std::array<float, 6> bounds = {
+					bds.xMin,
+					bds.xMax,
+					bds.yMin,
+					bds.yMax,
+					bds.zMin,
+					bds.zMax
+				};
+
+				std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
+					seeds, bounds, resolution, openess, thickness, foam
+				);
+
+				// estimate the scalar field
+				scaffold->set_stretch(stretchX, stretchY, stretchZ);
+				scaffold->anisotropyAngle = anisotropyAngle;
+				scaffold->anisotropyVec = anisotropyVec;
+				scaffold->compute_scalar_field(*lockedCon);
+
+				scaffold->container = lockedCon;
+				scaffold->generator = lockedGen;
+
+				if (foam == 1) {
+					std::cout << " create foam " << std::endl;
+					scaffold->foam = true;
+				}
+
+				if (!name.empty()) {
+					scaffold->name = name;
+				}
+				else {
+					scaffold->name = "Scaffold" + std::to_string(scaffoldList.size() + 1);
+				}
+
+				scaffold->marching_cubes();
+
+				scaffold->estimate_metrics(*lockedCon);
+
+				// push to the scaffold list
+				scaffoldList.push_back(std::move(scaffold));
+
+				// set it as the selected object
+				selectedSceneObj = scaffoldList.back().get();
+				selectedPanelObj->ptr = scaffoldList.back().get();
+				selectedPanelObj->type = ObjectType::ScaffoldType;
+
+				auto end_time = std::chrono::steady_clock::now();
+
+				// Calculate the duration in milliseconds
+				auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
+				std::ostringstream oss;
+				oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+					<< duration_ms.count() / 1000.0   // Convert ms to seconds
+					<< " seconds!";
+
+				logger->log(
+					LogPriority::SUCCESS,
+					"Created scaffold succesffully using container " + lockedCon->name +
+					" and generator " + lockedGen->name + " in" + oss.str());
+
+				showPopup = false;
+			}
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Cancel")) {
+			showPopup = false;
+		};
+		ImGui::EndPopup();
 	}
 };
