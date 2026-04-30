@@ -844,9 +844,9 @@ void myGUI::_render_toolbar() {
 			"Create Uniform Seed Generator", showUniformSeedCreator, "Create seeds inside a container using uniform Poisson sampling", uniformSeedTexture);
 		ImGui::SameLine();
 
-		create_single_button_textured(
-			"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture);
-		ImGui::SameLine();
+		//create_single_button_textured(
+		//	"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture);
+		//ImGui::SameLine();
 
 		ImGui::TableNextColumn();
 
@@ -1085,6 +1085,7 @@ void myGUI::_render_object_list() {
 		if (open) {
 
 			static RenameState state;
+			static bool doDelete = false;
 
 			for (int i = 0; i < scaffolds.size(); ++i) {
 
@@ -1111,13 +1112,7 @@ void myGUI::_render_object_list() {
 						gen->hiddenEllipsoid = !gen->hiddenEllipsoid;
 					}
 					if (ImGui::MenuItem("Delete")) {
-						auto it = scaffolds.erase(scaffolds.begin() + i);
-						selectedSceneObj = nullptr;
-						selectedPanelObj.ptr = nullptr;
-						selectedPanelObj.type = ObjectType::NoneType;
-						ImGui::PopID();
-						ImGui::EndPopup();
-						break;
+						doDelete = true;
 					}
 					if (ImGui::MenuItem("Export as Mesh")) {
 						showGeometryExportWindow = true;
@@ -1143,6 +1138,14 @@ void myGUI::_render_object_list() {
 					}
 
 					ImGui::EndPopup();
+				}
+
+				if (doDelete) {
+					auto it = scaffolds.erase(scaffolds.begin() + i);
+					selectedSceneObj = nullptr;
+					selectedPanelObj.ptr = nullptr;
+					selectedPanelObj.type = ObjectType::NoneType;
+					doDelete = false;
 				}
 
 				if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsItemHovered()) {
@@ -1831,7 +1834,6 @@ void myGUI::_render_main_menu_bar() {
 					showCutPlane = true;
 					cutPlane = std::make_unique<CutPlane>();
 					GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
-
 					bounds = gen->get_bounds();
 				}
 			}

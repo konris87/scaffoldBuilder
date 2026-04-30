@@ -5,7 +5,7 @@
 
 class RadiusFunction {
 public:
-	virtual double estimate_radius(double distance, double rMin, double rMax) const = 0;
+	virtual double estimate_radius(double distance, double tStart, double tEnd) const = 0;
 	virtual ~RadiusFunction() = default;
 };
 
@@ -16,20 +16,18 @@ public:
 	~LinearFunction() {};
 	LinearFunction(double distMax) : distMax(distMax) {};
 
-	double estimate_radius(double distance, double rMin, double rMax) const override {
+	double estimate_radius(double distance, double tStart, double tEnd) const override {
 		if (distance < 0) {
-			return rMin;
+			return tStart;
 		}
 		else if (distance > distMax) {
-			return rMax;
+			return tEnd;
 		}
 		else {
-			return ((rMax - rMin) / distMax) * distance + rMin;
+			double t = distance / distMax;
+			return tStart + t * (tEnd - tStart);
 		}
 	}
-	//double estimate_radius(double distance, double rMin, double rMax) const override {
-	//	return	rMax - (rMax - rMin) * std::min(distance / 5.0, 1.0);
-	//};
 
 private:
 	double distMax{ 10.0 };
@@ -39,9 +37,9 @@ class QuadraticFunction : public RadiusFunction {
 public:
 	QuadraticFunction() {};
 	QuadraticFunction(double distMax) : distMax(distMax) {}
-	double estimate_radius(double distance, double rMin, double rMax) const override {
+	double estimate_radius(double distance, double tStart, double tEnd) const override {
 		const double t = std::clamp(distance / std::max(1e-9, distMax), 0.0, 1.0);
-		return rMin + (rMax - rMin) * (t * t);
+		return tStart + (tEnd - tStart) * (t * t);
 	}
 private:
 	double distMax{ 10.0 };
@@ -49,17 +47,21 @@ private:
 
 class ConstantRadiusFunction : public RadiusFunction {
 public:
-	double estimate_radius(double, double rMin, double) const override { return rMin; }
+	double estimate_radius(double, double t, double) const override { return t; }
 };
 
 class RandomRadiusFunction : public RadiusFunction {
 public:
-	double estimate_radius(double, double rMin, double rMax) const override {
 
+	// add a constructor and create a default 
+	RandomRadiusFunction() : rng(std::random_device{}()) {};
+
+	double estimate_radius(double, double rMin, double rMax) const override {
 		std::uniform_real_distribution<double> dist(rMin, rMax);
-		std::mt19937 rng;
 		return dist(rng);
 	}
+private:
+	mutable std::mt19937 rng;
 };
 
 

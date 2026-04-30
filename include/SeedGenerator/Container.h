@@ -280,6 +280,7 @@ public:
 	std::shared_ptr<const SDF> get_distance_estimator() const override {
 		return sdf;
 	};
+
 	bool updated = false;
 
 	uint32_t version = 1;

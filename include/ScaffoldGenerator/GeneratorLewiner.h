@@ -16,11 +16,12 @@
 #include <array>
 #include <string>
 #include <atomic>
-#include <string>
 #include <queue>
 
 #include "SeedGenerator/Container.h"
 #include <SeedGenerator/SeedGenerator.h>
+#include <SeedGenerator/DistanceCalculator.h>
+#include <SeedGenerator/RadiusCalculator.h>
 #include "Math/Vec.h"
 #include "Utils/Utils.h"
 #include "Logger/Logger.h"
@@ -79,6 +80,8 @@ public:
 
 	void set_stretch(float newStretchX, float newStretchY, float newStretchZ);
 
+	void set_thickness(float newThickness);
+
 	std::array<float, 6> get_bounds() const;
 
 	Aabb get_aabb() const;
@@ -106,6 +109,12 @@ public:
 	void export_metrics(std::string fileName);
 	
 	void export_parameters(std::string fileName);
+
+	void set_thickness_functions(
+		std::shared_ptr<const SDF> sdf,
+		std::shared_ptr<const RadiusFunction> radFunc,
+		float tMin, float tMax
+	);
 
 	//--------------------------------
 	// rendering
@@ -195,6 +204,8 @@ private:
 public:
 	std::weak_ptr<IContainer> container;
 	std::weak_ptr<InterfaceSeedGenerator> generator;
+	std::shared_ptr<const SDF> thicknessSDF = nullptr;
+	std::shared_ptr<const RadiusFunction> thicknessFunction = nullptr;
 	bool foam = false;
 	std::string name = "";
 	std::array<float, 4> color = { 0.5f, 0.5f, 0.5f, 1.0f };
@@ -236,7 +247,11 @@ private:
 	std::vector<float> scalarField;
 	std::array<int, 3> blockDims = { 100, 100, 100 };
 	std::array<float, 6> bounds = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+	
+	float minThickness = 0.3f;
+	float maxThickness = 1.0f;
 	float isoLevel{ 0.1f };
+
 	std::vector<int> x_verts;
 	std::vector<int> y_verts;
 	std::vector<int> z_verts;
@@ -290,7 +305,7 @@ public:
 	void gui_draw(
 		Logger* logger,
 		const char* popupName, bool& showPopup,
-		SelectedObject* selectedPanelObj, void* selectedSceneObj,
+		SelectedObject* selectedPanelObj, void*& selectedSceneObj,
 		std::vector<std::unique_ptr<GeneratorLewiner>>& scaffoldList,
 		std::vector<std::shared_ptr<IContainer>>& containers,
 		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators);
@@ -310,6 +325,20 @@ private:
 	std::array<int, 3> resolution = { 100, 100, 100 };
 	uint32_t lastUsedContainerVersion = 0;
 	uint32_t lastUsedGeneratorVersion = 0;
+
+	int uniformThicknessFlag = false;
+	Vec3 distancePlaneNormal;
+	Vec3 distancePlaneCenter;
+	Vec3 distancePoint;
+
+	int selectedDist = 0;
+	int selectedFunc = 0;
+	std::shared_ptr<const SDF> thicknessSDF;
+	std::shared_ptr<const RadiusFunction> thicknessRadFunc;
+
+	float startThickness = 0.3f;
+	float endThickness = 1.0f;
+	float transitionDistance = 20.0f;
 };
 
 #endif // ! "GENERATOR_LEWINER_H"

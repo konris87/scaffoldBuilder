@@ -172,6 +172,22 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 				float z = bounds[4] + k * stepZ;
 				Vec3 point(x, y, z);
 
+				// evaluate distance and radius function
+				float localIsoLevel = isoLevel;
+
+				if (thicknessFunction && thicknessSDF) {
+					
+					// this is the signed distance
+					double rawDist = thicknessSDF->compute_distance(point);
+
+					// convert to unsigned
+					rawDist = std::abs(rawDist);
+
+					localIsoLevel = static_cast<float>(
+						thicknessFunction->estimate_radius(rawDist, minThickness, maxThickness));
+				}
+
+
 				float containerDist = con.sdf->compute_distance(point);
 				if (containerDist > 2.0f) { // If it's more than 2mm outside, don't bother
 					scalarField[idx] = isoLevel + 1.0f;
@@ -257,12 +273,12 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 				// normalize the gradient
 				float gradMag = gradValue.norm();
 
-				if (gradMag > 1e-5f) {
-					scalarField[idx] = value / gradMag * 2.0f;
-				}
-				else {
-					scalarField[idx] = value;
-				}
+				// this is the local raw value
+				float localRaw = (gradMag > 1e-5f) ? (value / gradMag * 2.0f) : value;
+
+				// shift the scalar field based on the local iso level, if no distance functions
+				// it will keep the global iso level
+				scalarField[idx] = localRaw - localIsoLevel + isoLevel;
 			}
 		}
 	}
@@ -306,13 +322,19 @@ void GeneratorLewiner::smooth_scalar_field() {
 	std::vector<float> smoothed = scalarField; // Copy
 
 	// Simple 3x3x3 Box Blur
-#pragma omp parallel for collapse(3)
+	#pragma omp parallel for collapse(3)
 	for (int z = 1; z < blockDims[2] - 1; z++) {
 		for (int y = 1; y < blockDims[1] - 1; y++) {
 			for (int x = 1; x < blockDims[0] - 1; x++) {
 
 				float sum = 0.0;
 				int count = 0;
+
+				int centerIdx = find_vertex_index(x, y, z);
+				if (scalarField[centerIdx] > isoLevel + 0.5f) {
+					// It's safely outside the container and the boundary margin, skip smoothing
+					continue;
+				}
 
 				// Average neighbors
 				for (int kz = -1; kz <= 1; kz++) {
@@ -441,6 +463,7 @@ void GeneratorLewiner::marching_cubes() {
 	triangleCount = 0;
 
 	compute_intersection_points();
+
 	for (int i = 0; i < blockDims[0] - 1; i++) {
 		for (int j = 0; j < blockDims[1] - 1; j++) {
 			for (int k = 0; k < blockDims[0] - 1; k++) {
@@ -451,7 +474,7 @@ void GeneratorLewiner::marching_cubes() {
 
 				for (int p = 0; p < 8; ++p) {
 
-					// ^ XOR this line is the 
+					// ^ XOR this line
 
 					_cube[p] = get_data(i + ((p ^ (p >> 1)) & 1), j + ((p >> 1) & 1), k + ((p >> 2) & 1)) - isoLevel;
 					if (fabs(_cube[p]) < FLT_EPSILON) {
@@ -2726,6 +2749,17 @@ void GeneratorLewiner::render_metrics() {
 	};
 };
 
+void GeneratorLewiner::set_thickness_functions(
+	std::shared_ptr<const SDF> sdf,
+	std::shared_ptr<const RadiusFunction> radFunc,
+	float tMin, float tMax
+) {
+	thicknessFunction = radFunc;
+	thicknessSDF = sdf;
+	minThickness = tMin;
+	maxThickness = tMax;
+};
+
 void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
 	blockDims = newResolution;
 };
@@ -2742,6 +2776,10 @@ void GeneratorLewiner::set_stretch(float newStretchX, float newStretchY, float n
 	this->stretchX = newStretchX;
 	this->stretchY = newStretchY;
 	this->stretchZ = newStretchZ;
+};
+
+void GeneratorLewiner::set_thickness(float newThickness) {
+	isoLevel = newThickness;
 };
 
 std::array<float, 6> GeneratorLewiner::get_bounds() const {
@@ -3952,12 +3990,20 @@ void ScaffoldFactory::launch() {
 	anisotropyAngle = { 0.0f };
 	foam = 0;
 	resolution = { 100, 100, 100 };
+
+	// for thickness function
+	uniformThicknessFlag = false;
+	distancePlaneNormal = { 0.0f, 0.0f, 1.0f };
+	distancePlaneCenter = { 0.0f, 0.0f, 0.0f };
+
+	thicknessRadFunc.reset();
+	thicknessSDF.reset();
 };
 
 void ScaffoldFactory::gui_draw(
 	Logger* logger,
 	const char* popupName, bool& showPopup,
-	SelectedObject* selectedPanelObj, void* selectedSceneObj,
+	SelectedObject* selectedPanelObj, void*& selectedSceneObj,
 	std::vector<std::unique_ptr<GeneratorLewiner>>& scaffoldList,
 	std::vector<std::shared_ptr<IContainer>>& containers,
 	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators) {
@@ -3976,9 +4022,50 @@ void ScaffoldFactory::gui_draw(
 		auto lockedGen = selectedGen.lock();
 
 		ImGui::InputText("Name", buffer, sizeof(buffer));
-		ImGui::SeparatorText("Parameters");
-		ImGui::InputFloat("Thickness", &thickness, 0.001f, 1.0f);
+
+		// --------------------------------------------------------------------------------
+		ImGui::SeparatorText("Thickness");
+
+		ImGui::RadioButton("Uniform Thickness", &uniformThicknessFlag, 0);
+		ImGui::RadioButton("Varied Thickness", &uniformThicknessFlag, 1);
+
+		if (uniformThicknessFlag == 0) {
+			ImGui::InputFloat("Thickness", &thickness, 0.001f, 1.0f);
+		}
+		else {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Start Thickness", &startThickness);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("End Thickness", &endThickness);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Transition Distance", &transitionDistance);
+
+			ImGui::SeparatorText("Select Distance Function");
+			ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
+			if (selectedDist == 0) {
+				ImGui::SetNextItemWidth(200);
+				ImGui::InputFloat3("Normal", distancePlaneNormal);
+				ImGui::SetNextItemWidth(200);
+				ImGui::InputFloat3("Center", distancePlaneCenter);
+			};
+			ImGui::RadioButton("Distance From Point", &selectedDist, 1);
+			if (selectedDist == 1) {
+				ImGui::SetNextItemWidth(200);
+				ImGui::InputFloat3("Point", distancePoint);
+			}
+			ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+			
+			ImGui::SeparatorText("Select Radius Function");
+			ImGui::RadioButton("Linear", &selectedFunc, 0);
+			ImGui::RadioButton("Quadratic", &selectedFunc, 1);
+			ImGui::RadioButton("Constant", &selectedFunc, 2);
+			ImGui::RadioButton("Random", &selectedFunc, 3);
+		}
+
 		ImGui::SliderFloat("Openess", &openess, 0.0f, 1.0f, "%.3f");
+		
+		// --------------------------------------------------------------------------------
+		ImGui::SeparatorText("Anisotropy");
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
@@ -3986,6 +4073,8 @@ void ScaffoldFactory::gui_draw(
 		ImGui::InputInt3("Resolution", resolution);
 		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
 
+		// --------------------------------------------------------------------------------
+		ImGui::SeparatorText("Mode");
 		ImGui::RadioButton("Porous", &foam, 0);
 		ImGui::RadioButton("Foam", &foam, 1);
 
@@ -4094,10 +4183,60 @@ void ScaffoldFactory::gui_draw(
 					seeds, bounds, resolution, openess, thickness, foam
 				);
 
-				// estimate the scalar field
+				if (uniformThicknessFlag == 1) {
+					std::cout << "setting functions" << std::endl;
+					
+					switch (selectedFunc) {
+						// linear radius function
+					case 0: {
+						thicknessRadFunc = std::make_shared<LinearFunction>(transitionDistance);
+						break;
+					}
+					case 1: {
+						thicknessRadFunc = std::make_shared<QuadraticFunction>(transitionDistance);
+						break;
+					}
+					case 2: {
+						thicknessRadFunc = std::make_shared<ConstantRadiusFunction>();
+						break;
+					}
+					case 3: {
+						thicknessRadFunc = std::make_shared<RandomRadiusFunction>();
+					}
+					}
+
+					switch (selectedDist) {
+						// distance from plane
+					case 0: {
+						//std::array<double, 3> center = { planeCenter.x, planeCenter.y, planeCenter.z };
+						//std::array<double, 3> norm = { normal.x, normal.y, normal.z};
+						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
+						break;
+					}
+						  // distance from point
+					case 1: {
+						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
+						break;
+					}
+						  // distance from container surface
+					case 2: {
+						thicknessSDF = lockedCon->get_distance_estimator();
+						break;
+					}
+					}
+
+					scaffold->set_thickness_functions(
+						thicknessSDF, thicknessRadFunc, startThickness, endThickness);
+
+					//scaffold->set_thickness(0.0f);
+				}
+
+				// scalar field settings
 				scaffold->set_stretch(stretchX, stretchY, stretchZ);
 				scaffold->anisotropyAngle = anisotropyAngle;
 				scaffold->anisotropyVec = anisotropyVec;
+
+				// estimate the scalar field
 				scaffold->compute_scalar_field(*lockedCon);
 
 				scaffold->container = lockedCon;
