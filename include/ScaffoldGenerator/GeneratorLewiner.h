@@ -248,9 +248,16 @@ private:
 	std::array<int, 3> blockDims = { 100, 100, 100 };
 	std::array<float, 6> bounds = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 	
+	int uniformThicknessFlag = 0;
+	int selectedDist = 0;
+	int selectedFunc = 0;
 	float minThickness = 0.3f;
 	float maxThickness = 1.0f;
+	float transitionDistance = 10.0f;
 	float isoLevel{ 0.1f };
+	Vec3 distancePlaneNormal;
+	Vec3 distancePlaneCenter;
+	Vec3 distancePoint;
 
 	std::vector<int> x_verts;
 	std::vector<int> y_verts;

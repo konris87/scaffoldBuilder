@@ -2514,15 +2514,64 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 		ImGui::Text("Generator: %s", lockedGen->name.c_str());
 	}
 
+	// --------------------------------------------------------------------------------
+	ImGui::SeparatorText("Thickness");
+
+	ImGui::RadioButton("Uniform Thickness", &uniformThicknessFlag, 0);
+	ImGui::RadioButton("Varied Thickness", &uniformThicknessFlag, 1);
+
+	if (uniformThicknessFlag == 1) {
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("Start Thickness", &minThickness);
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("End Thickness", &maxThickness);
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("Transition Distance", &transitionDistance);
+
+		ImGui::SeparatorText("Select Distance Function");
+		ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
+		if (selectedDist == 0) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat3("Normal", distancePlaneNormal);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat3("Center", distancePlaneCenter);
+		};
+		ImGui::RadioButton("Distance From Point", &selectedDist, 1);
+		if (selectedDist == 1) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat3("Point", distancePoint);
+		}
+		ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+
+		ImGui::SeparatorText("Select Radius Function");
+		ImGui::RadioButton("Linear", &selectedFunc, 0);
+		ImGui::RadioButton("Quadratic", &selectedFunc, 1);
+		ImGui::RadioButton("Constant", &selectedFunc, 2);
+		ImGui::RadioButton("Random", &selectedFunc, 3);
+	}
+
 	ImGui::SeparatorText("Parameters");
 	
 	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
 	// create a table
 	if (ImGui::BeginTable("", 2, flags = flags)) {
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Thickness");
-		ImGui::TableNextColumn(); 
-		ImGui::InputFloat("##Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
+		
+		if (uniformThicknessFlag == 0) {
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn(); ImGui::Text("Thickness");
+			ImGui::TableNextColumn();
+			ImGui::InputFloat("##Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
+		}
+		else {
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn(); ImGui::Text("Start Thickness");
+			ImGui::TableNextColumn();
+			ImGui::InputFloat("##SThickness", &minThickness, 0.01f, 1.0f, "%.3f");
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn(); ImGui::Text("End Thickness");
+			ImGui::TableNextColumn();
+			ImGui::InputFloat("##EThickness", &maxThickness, 0.01f, 1.0f, "%.3f");
+		}
 
 		ImGui::TableNextRow();
 		if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
@@ -2606,6 +2655,49 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 				bds.zMin,
 				bds.zMax
 			};
+
+			if (uniformThicknessFlag == 1) {
+				std::cout << "setting functions" << std::endl;
+
+				switch (selectedFunc) {
+					// linear radius function
+					case 0: {
+						thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);
+						break;
+					}
+					case 1: {
+						thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance);
+						break;
+					}
+					case 2: {
+						thicknessFunction = std::make_shared<ConstantRadiusFunction>();
+						break;
+					}
+					case 3: {
+						thicknessFunction = std::make_shared<RandomRadiusFunction>();
+					}
+				}
+
+				switch (selectedDist) {
+					// distance from plane
+					case 0: {
+						//std::array<double, 3> center = { planeCenter.x, planeCenter.y, planeCenter.z };
+						//std::array<double, 3> norm = { normal.x, normal.y, normal.z};
+						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
+						break;
+					}
+						  // distance from point
+					case 1: {
+						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
+						break;
+					}
+						  // distance from container surface
+					case 2: {
+						thicknessSDF = lockedCon->get_distance_estimator();
+						break;
+					}
+				}
+			}
 
 			tortuosityPathModel.reset();
 			set_bounds(bounds);
@@ -2758,6 +2850,7 @@ void GeneratorLewiner::set_thickness_functions(
 	thicknessSDF = sdf;
 	minThickness = tMin;
 	maxThickness = tMax;
+	uniformThicknessFlag = 1;
 };
 
 void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
@@ -4227,8 +4320,6 @@ void ScaffoldFactory::gui_draw(
 
 					scaffold->set_thickness_functions(
 						thicknessSDF, thicknessRadFunc, startThickness, endThickness);
-
-					//scaffold->set_thickness(0.0f);
 				}
 
 				// scalar field settings
