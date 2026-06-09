@@ -6,6 +6,9 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <chrono>
+#include <iomanip>
+#include <array>
 
 enum LogPriority {
 	
@@ -60,13 +63,24 @@ public:
 		}
 		else if (priority == LogPriority::ERROR) {
 			color = { 1.0f, 0.0f, 0.0f, 1.0f };
-			}
+		}
+		else if (priority == LogPriority::WARNING) {
+			color = { 1.0f, 0.6f, 0.0f, 1.0 };
+		}
 		else {
 			color = { 1.0f, 1.0f, 1.0f, 1.0f }; // Default white
 		}
 
 		std::ostringstream logEntry;
-		logEntry << "[" << priority_to_string(priority) << "]: " << message << std::endl;
+		const auto now = std::chrono::system_clock::now();
+		const std::time_t t_c = std::chrono::system_clock::to_time_t(now);
+
+		// convert to local 
+		std::tm* localTime = std::localtime(&t_c);
+
+		logEntry << "[" << priority_to_string(priority) << "]: " << message
+			<< " [" << std::put_time(localTime, "%H:%M:%S") << "]\n";
+
 		logs.push_back(logEntry.str());
 		colors.push_back(color);
 		hasNewMessages = true;

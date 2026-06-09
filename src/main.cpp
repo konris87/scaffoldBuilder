@@ -30,129 +30,152 @@ const unsigned int SCR_HEIGHT = 800;
 
 int main(){
     
-    myGUI myGui(SCR_WIDTH, SCR_HEIGHT);
-    myGui.run();
+    bool simMode = false;
 
-     //run first the uniform
-    //run_monte_carlo_simulations(2000, 3, SamplingType::random);
-    
-    //std::unique_ptr<BoxContainer> container = std::make_unique<BoxContainer>(
-    //    0.0f, 5.0f, 0.0f, 5.0f, 0.0f, 5.0f
-    //);
-    //
-    //// load data
-    ////std::vector<std::vector<float>> csvData = read_csv("../data/uniform_random_scaffolds.csv");
-    ////std::vector<std::vector<float>> csvData = read_csv("../data/bonej_comparison.csv");
-    //std::vector<std::vector<float>> csvData = read_csv("../data/varied.csv");
+    if (!simMode) {
+        std::unique_ptr<myGUI> myGui = std::make_unique<myGUI>(SCR_WIDTH, SCR_HEIGHT);
+        myGui->run();
+    }
+    else {
+        //run first the uniform
+        //run_monte_carlo_simulations(2000, 3, SamplingType::random);
+        Logger& logger = Logger::get_instance();
 
-    //std::array<int, 3> resolution = { 120, 120, 120 };
-    //
-    //float voxelSize = 0.025;
-    //float openess = 0.5f;
+        Vec3 size = { 5.0f, 5.0f, 5.0f };
+        Vec3 origin = { 0.0f, 0.0f, 0.0f };
 
-    //std::vector<SimOutput> results(csvData.size());
+        std::unique_ptr<BoxContainer> container = std::make_unique<BoxContainer>(
+             size, origin, false
+        );
 
-    //// run as many simulations as the rows
-    //for (int row = 0; row < csvData.size(); row++) {
+        // load data
+        //std::vector<std::vector<float>> csvData = read_csv("../data/uniform_random_scaffolds.csv");
+        //std::vector<std::vector<float>> csvData = read_csv("../data/bonej_comparison.csv");
+        std::vector<std::vector<float>> csvData = read_csv("../data/varied_thickness.csv");
 
-    //    float thickness = csvData[row][0];
-    //    float radiusMin = csvData[row][1];
-    //    float radiusMax = csvData[row][2];
-    //    float stretchY = csvData[row][3];
+        std::array<int, 3> resolution = { 120, 120, 120 };
 
-    //    Poisson3D rng = Poisson3D(radiusMin, radiusMax, 30);
+        float voxelSize = 0.025;
+        float openess = 0.5f;
 
-    //    RunConfig cfg;
-    //    cfg.dist = container->get_distance_estimator();
-    //    cfg.rad = std::make_shared<QuadraticFunction>(radiusMin);
+        std::vector<SimOutput> results(csvData.size());
 
-    //    // create the seeds
-    //    rng.run(*container, cfg);
+        // run as many simulations as the rows
+        for (int row = 0; row < csvData.size(); row++) {
 
-    //    std::vector<Vec3> seeds = rng.get_seeds();
-    //    Bounds bds = container->compute_bounds();
+            float radiusMin = csvData[row][0];
+            float radiusMax = radiusMin;
+            float thicknessMin = csvData[row][1];
+            float thicknessMax = csvData[row][2];
+            float stretchY = csvData[row][3];
 
-    //    std::array<float, 6> bounds = {
-    //        bds.xMin,
-    //        bds.xMax,
-    //        bds.yMin,
-    //        bds.yMax,
-    //        bds.zMin,
-    //        bds.zMax
-    //    };
-    //    // create the model using the thickness
-    //    std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
-    //        seeds, bounds, resolution, openess, thickness
-    //    );
+            Poisson3D rng = Poisson3D(radiusMin, radiusMax, 30, false);
 
-    //    scaffold->stretchY = stretchY;
+            RunConfig cfg;
+            cfg.dist = container->get_distance_estimator();
+            cfg.rad = std::make_shared<QuadraticFunction>(radiusMin);
 
-    //    // create the scaffold
-    //    scaffold->compute_scalar_field(*container);
+            // create the seeds
+            //rng.run(*container, cfg);
+            rng.run(*container); // use uniform radius
 
-    //    scaffold->marching_cubes();
+            std::vector<Vec3> seeds = rng.get_seeds();
+            Bounds bds = container->compute_bounds();
 
-    //    scaffold->estimate_metrics(*container);
+            std::array<float, 6> bounds = {
+                bds.xMin,
+                bds.xMax,
+                bds.yMin,
+                bds.yMax,
+                bds.zMin,
+                bds.zMax
+            };
+            // create the model using the thickness
+            std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
+                seeds, bounds, resolution, &logger, openess, 0.3, 0, false
+            );
 
-    //    scaffold->estimate_anisotropy(2000, 10000, 3);
+            // varied thickness
+            Vec3 distancePt = { 0.0f, 0.0f, 0.0f };
+            float transitionDistance = 2.50f;
+            std::shared_ptr<const SDF> thicknessSDF;
+            std::shared_ptr<const RadiusFunction> thicknessRadFunc;
+            thicknessRadFunc = std::make_shared<LinearFunction>(transitionDistance);
+            thicknessSDF = std::make_shared<PointSDF>(distancePt);
 
-    //    scaffold->estimate_local_thickness(voxelSize, bounds);
+            scaffold->set_thickness_functions(
+                thicknessSDF, thicknessRadFunc, thicknessMin, thicknessMax, transitionDistance);
 
-    //    // estimate separation
-    //    scaffold->estimate_local_thickness(voxelSize, bounds, 1);
 
-    ////    scaffold->estimate_trabecular_number();
+            scaffold->stretchY = stretchY;
 
-    //    scaffold->estimate_connectivity_density();
+            // create the scaffold
+            scaffold->compute_scalar_field(*container);
 
-    //    // write output to csv
-    //    // create the output
-    //    SimOutput res = {
-    //        row + 1,
-    //        thickness,
-    //        radiusMin,
-    //        radiusMax,
-    //        openess,
-    //        scaffold->porosity,
-    //        scaffold->volume,
-    //        scaffold->surfaceArea,
-    //        scaffold->surfaceToVolume,
-    //        scaffold->connectivityDensity,
-    //        scaffold->localThickness,
-    //        scaffold->localThicknessStd,
-    //        scaffold->localSeparation,
-    //        scaffold->localSeparationStd,
-    //        scaffold->trabecularNr,
-    //        scaffold->anisotropyDegree
-    //    };
+            scaffold->marching_cubes();
 
-    //    results[row] = res;
+            scaffold->estimate_metrics(*container);
 
-    //    std::string stlFileName = "scaffold" + std::to_string(row) + ".stl";
-    //    std::string nrrdFileName = "scaffold" + std::to_string(row) + ".nrrd";
+            scaffold->estimate_anisotropy(2000, 10000, 3);
 
-    //    //std::string fName = std::format("");
+            scaffold->estimate_local_thickness(voxelSize, bounds);
 
-    //    std::stringstream stlStream;
-    //    stlStream << "../data/varied/scaffold" << row << ".stl";
-    //    scaffold->export_stl(stlStream.str());
+            // estimate separation
+            scaffold->estimate_local_thickness(voxelSize, bounds, 1);
 
-    //    stlStream.str(std::string());
-    //    stlStream << "../data/varied/scaffold" << row << ".nrrd";
-    //    scaffold->export_nrrd(stlStream.str(), voxelSize, bounds);
+            scaffold->estimate_trabecular_number();
 
-    //    std::cout << "scaffold " << row << " done!" << std::endl;
-    //    std::cout << " ----------------------------------------- " << std::endl;
-    //}
+            scaffold->estimate_connectivity_density();
 
-    //// write the results to a csv
-    //std::stringstream folderName;
-    //folderName << "../data/varied/op" << openess << "_vs" << voxelSize << "_varied_quadratic_results.csv";
+            // write output to csv
+            // create the output
+            SimOutput res = {
+                row + 1,
+                thicknessMin,
+                thicknessMax,
+                radiusMin,
+                radiusMax,
+                openess,
+                scaffold->porosity,
+                scaffold->volume,
+                scaffold->surfaceArea,
+                scaffold->surfaceToVolume,
+                scaffold->connectivityDensity,
+                scaffold->localThickness,
+                scaffold->localThicknessStd,
+                scaffold->localSeparation,
+                scaffold->localSeparationStd,
+                scaffold->trabecularNr,
+                scaffold->anisotropyDegree
+            };
 
-    //std::cout << folderName.str() << std::endl;
+            results[row] = res;
 
-    //save_csv(folderName.str(), results, SamplingType::uniform);
-    
+            std::string stlFileName = "scaffold" + std::to_string(row) + ".stl";
+            std::string nrrdFileName = "scaffold" + std::to_string(row) + ".nrrd";
+
+            //std::string fName = std::format("");
+
+            std::stringstream stlStream;
+            stlStream << "../data/varied_thickness/scaffold" << row << ".stl";
+            scaffold->export_stl(stlStream.str());
+
+            stlStream.str(std::string());
+            stlStream << "../data/varied_thickness/scaffold" << row << ".nrrd";
+            scaffold->export_nrrd(stlStream.str(), voxelSize, bounds);
+
+            std::cout << "scaffold " << row << " done!" << std::endl;
+            std::cout << " ----------------------------------------- " << std::endl;
+        }
+
+        // write the results to a csv
+        std::stringstream folderName;
+        folderName << "../data/varied_thickness/op" << openess << "_vs" << voxelSize << "_varied_linear_results.csv";
+
+        std::cout << folderName.str() << std::endl;
+
+        save_csv(folderName.str(), results, SamplingType::varied);
+    }  
 
     return 0;
 }

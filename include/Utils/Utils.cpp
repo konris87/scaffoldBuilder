@@ -35,6 +35,52 @@ bool is_inside_cylinder(
 
 };
 
+bool ray_aabb_intersection(const Vec3& orig, const Vec3& invDir, const std::array<float, 6> bounds) {
+	float t1 = (bounds[0] - orig.x) * invDir.x;
+	float t2 = (bounds[1] - orig.x) * invDir.x;
+	float tmin = std::min(t1, t2);
+	float tmax = std::max(t1, t2);
+
+	t1 = (bounds[2] - orig.y) * invDir.y;
+	t2 = (bounds[3] - orig.y) * invDir.y;
+	tmin = std::max(tmin, std::min(t1, t2));
+	tmax = std::min(tmax, std::max(t1, t2));
+
+	t1 = (bounds[4] - orig.z) * invDir.z;
+	t2 = (bounds[5] - orig.z) * invDir.z;
+	tmin = std::max(tmin, std::min(t1, t2));
+	tmax = std::min(tmax, std::max(t1, t2));
+
+	return tmax >= std::max(0.0f, tmin);
+}
+
+bool ray_triangle_intersection(
+	const Vec3& orig, const Vec3& dir, const Vec3& v0, const Vec3& v1, const Vec3& v2
+) {
+
+	const float EPSILON = 1e-7f;
+	Vec3 edge1 = v1 - v0;
+	Vec3 edge2 = v2 - v0;
+	Vec3 h = dir.cross(edge2);
+	float a = edge1.dot(h);
+
+	// If a is near 0, ray is parallel to triangle
+	if (a > -EPSILON && a < EPSILON) return false;
+
+	float f = 1.0f / a;
+	Vec3 s = orig - v0;
+	float u = f * s.dot(h);
+	if (u < 0.0f || u > 1.0f) return false;
+
+	Vec3 q = s.cross(edge1);
+	float v = f * dir.dot(q);
+	if (v < 0.0f || u + v > 1.0f) return false;
+
+	float t = f * edge2.dot(q);
+	return t > EPSILON; // valid intersection ahead of the ray
+
+};
+
 bool ray_intersection(
 	const Eigen::Vector3d& p,
 	const Eigen::Vector3d& v1,

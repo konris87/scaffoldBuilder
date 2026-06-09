@@ -7,35 +7,36 @@
 #include <vector>
 #include <array>
 #include "Math/Vec.h"
+#include <algorithm>
 
 class VisualizeSeeds {
 
 public:
 	VisualizeSeeds() {};
 	~VisualizeSeeds() {};
-	VisualizeSeeds(const std::vector<Vec3>& coords) {
+	VisualizeSeeds(const std::vector<Vec3>& coords, const std::array<float, 6>& bounds) : bounds(bounds), seedCoords(coords) {
+
+		// 1. Calculate automatic size
+		float dx = bounds[1] - bounds[0];
+		float dy = bounds[3] - bounds[2];
+		float dz = bounds[5] - bounds[4];
+		float maxDim = std::max({ dx, std::max(dy, dz) });
+
+		initialCalculatedSize = maxDim * 0.01f;
+		if (initialCalculatedSize <= 0.0f) initialCalculatedSize = 0.1f;
 
 		_generate_points();
 
-		for (unsigned int i{ 0 }; i < coords.size(); i++) {
+		// 2. Generate model matrices (TRANSLATION ONLY)
+		for (unsigned int i{ 0 }; i < seedCoords.size(); i++) {
 			glm::mat4 model = glm::mat4(1.0f);
-			model = glm::translate(model, glm::vec3(coords[i].x, coords[i].y, coords[i].z));
+			model = glm::translate(model, glm::vec3(seedCoords[i].x, seedCoords[i].y, seedCoords[i].z));
+			// NO SCALING HERE! Leave it to the shader.
 			modelMatrices.push_back(model);
 		}
 
 		_create();
 	};
-
-	void updateSize(float newSize) {
-		sphereSize = newSize;
-
-		for (unsigned int i = 0; i < modelMatrices.size(); i++) {
-			modelMatrices[i] = glm::scale(glm::mat4(1.0f), glm::vec3(sphereSize));
-		}
-
-		glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
-		glBufferData(GL_ARRAY_BUFFER, modelMatrices.size() * sizeof(glm::mat4), modelMatrices.data(), GL_DYNAMIC_DRAW);
-	}
 
 	void draw() {
 		// Update instance positions if they change
@@ -54,8 +55,12 @@ public:
 		glDeleteBuffers(1, &VBO);
 	};
 
+	float initialCalculatedSize = 0.1f;
+
 private:
+	std::array<float, 6> bounds = {0.f, 0.f, 0.f, 0.f, 0.f, 0.f};
 	std::vector<float> sphereVertices;
+	std::vector<Vec3> seedCoords;
 	std::vector<unsigned int> sphereIndices;
 	unsigned int VAO{ 0 }, VBO{ 0 }, instanceVBO{ 0 }, EBO{ 0 };
 	std::vector<glm::mat4> modelMatrices;
@@ -119,11 +124,25 @@ private:
 		}
 	}
 
-	void _create() {
+	void update_size(float newSize) {
+		sphereSize = newSize;
 
-		// this is for the sphere object vertices
+		for (unsigned int i = 0; i < seedCoords.size(); i++) {
+			glm::mat4 model = glm::mat4(1.0f);
+			// Apply translation first, THEN scale
+			model = glm::translate(model, glm::vec3(seedCoords[i].x, seedCoords[i].y, seedCoords[i].z));
+			model = glm::scale(model, glm::vec3(sphereSize));
+			modelMatrices[i] = model;
+		}
+
+		// Send the updated matrices to the GPU
+		glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
+		glBufferData(GL_ARRAY_BUFFER, modelMatrices.size() * sizeof(glm::mat4), modelMatrices.data(), GL_DYNAMIC_DRAW);
+		glBindBuffer(GL_ARRAY_BUFFER, 0);
+	}
+
+	void _create() {
 		glGenVertexArrays(1, &VAO);
-		// bind vertex array
 		glBindVertexArray(VAO);
 
 		// vertex data
@@ -150,17 +169,15 @@ private:
 		// instancing buffer
 		glGenBuffers(1, &instanceVBO);
 		glBindBuffer(GL_ARRAY_BUFFER, instanceVBO);
-		glBufferData(GL_ARRAY_BUFFER, modelMatrices.size() * sizeof(glm::mat4), modelMatrices.data(), GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, modelMatrices.size() * sizeof(glm::mat4), modelMatrices.data(), GL_DYNAMIC_DRAW);
 
 		std::size_t vec4Size = sizeof(glm::vec4);
 		for (unsigned int i{ 0 }; i < 4; i++) {
-			
 			glEnableVertexAttribArray(i + 1);
 			glVertexAttribPointer(i + 1, 4, GL_FLOAT, GL_FALSE, 4 * (GLsizei)vec4Size, (void*)(i * vec4Size));
 			glVertexAttribDivisor(i + 1, 1);
 		}
 		glBindVertexArray(0);
 	};
-};	
-
+};
 #endif

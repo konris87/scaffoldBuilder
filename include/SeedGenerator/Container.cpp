@@ -1,9 +1,10 @@
 #include "Container.h"
 #include <limits>
 #include <Openstl/core/stl.h>
+#include "Misc/Imgui_Stdlib.h"
 
 //@brief constructor, we use this to 
-AbstractContainer::AbstractContainer(const std::string& fileName) {
+AbstractContainer::AbstractContainer(const std::string& fileName, const bool renderMode) : fileName(fileName) {
 
 	std::ifstream file(fileName, std::ios::in | std::ios::binary);
 	std::vector<openstl::Triangle> meshTriangles = openstl::deserializeStl(file);
@@ -22,7 +23,9 @@ AbstractContainer::AbstractContainer(const std::string& fileName) {
 	generate();
 
 	// create the visualization model
-	create();
+	if (renderMode) {
+		create();
+	}
 
 	// get the pseudonormals
 	estimate_pseudonormals();
@@ -50,6 +53,8 @@ void AbstractContainer::generate() {
 		indices.push_back(f[2]);
 
 	}
+
+	triangles.clear();
 
 	// Compute vertex normals (simple averaging of face normals)
 	vertexNormals.assign(meshVerts.size() * 3, 0.0f);
@@ -243,11 +248,16 @@ void AbstractContainer::estimate_pseudonormals() {
 };
 
 void AbstractContainer::apply_scale() {
+	
+	Vec3 center = {
+	(bounds[1] + bounds[0]) * 0.5f,
+	(bounds[3] + bounds[2]) * 0.5f,
+	(bounds[5] + bounds[4]) * 0.5f };
 
 	for (auto& v : meshVerts) {
-		v.x *= scaleFactor;
-		v.y *= scaleFactor;
-		v.z *= scaleFactor;
+		v.x = center.x + (v.x - center.x) * scaleFactor;
+		v.y = center.y + (v.y - center.y) * scaleFactor;
+		v.z = center.z + (v.z - center.z) * scaleFactor;
 	}
 
 	// generate
@@ -263,4 +273,73 @@ void AbstractContainer::apply_scale() {
 	sdf = std::make_shared<MeshSDF>(this->triangles, this->pseudonormals);
 
 	updated = true;
+};
+
+// ===================================================================
+// Roi Class definition
+// ===================================================================
+
+ROI::ROI(Vec3 size, Vec3 origin, bool render) : size(size), origin(origin), renderMode(render) {
+	if (renderMode) {
+		create();
+	}
+}
+
+void ROI::render_model() {
+	if (!model) {
+		create();
+	}
+	if (model) {
+		model->draw();
+	}
+}
+
+void ROI::create() {
+
+	model = std::make_unique<BBox>(size, origin);
+}
+
+std::array<float, 6> ROI::get_bounds() {
+	float halfX = size.x / 2.0f;
+	float halfY = size.y / 2.0f;
+	float halfZ = size.z / 2.0f;
+
+	return {
+		origin.x - halfX, origin.x + halfX, // xMin, xMax
+		origin.y - halfY, origin.y + halfY, // yMin, yMax
+		origin.z - halfZ, origin.z + halfZ  // zMin, zMax
+	};
+}
+
+Vec3 ROI::get_center() {
+	return origin;
+}
+
+void ROI::render_properties() {
+	bool dimensionsChanged = false;
+
+	ImGui::InputText("Name", &name);
+	ImGui::Text("Related Scaffold: %s", relatedMeshName.c_str());
+
+	ImGui::SeparatorText("Dimensions");
+
+	ImGui::SetNextItemWidth(200);
+	dimensionsChanged |= ImGui::InputFloat("Width (X)", &size.x, 0.1f, 100.0f, "%.3f");
+
+	ImGui::SetNextItemWidth(200);
+	dimensionsChanged |= ImGui::InputFloat("Height (Y)", &size.y, 0.1f, 100.0f, "%.3f");
+
+	ImGui::SetNextItemWidth(200);
+	dimensionsChanged |= ImGui::InputFloat("Depth (Z)", &size.z, 0.1f, 100.0f, "%.3f");
+
+	ImGui::SeparatorText("Position");
+
+	// Modifying the origin now safely translates the entire bounding box
+	// because get_bounds() builds the box around this origin.
+	dimensionsChanged |= ImGui::InputFloat3("Center", origin);
+	ImGui::SetItemTooltip("Center of ROI");
+
+	if (dimensionsChanged || ImGui::Button("Update")) {
+		create();
+	}
 };

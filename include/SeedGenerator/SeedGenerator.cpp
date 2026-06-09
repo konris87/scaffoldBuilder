@@ -1,12 +1,15 @@
 #include "SeedGenerator.h"
 #include <random>
 
+// ==========================================================================================
+// Random Generator Class Implementation
+// ==========================================================================================
 void Random::run(const IContainer& adapter) {
 
 	seeds.clear();
 	seeds.reserve(seedNr);
 
-	auto bounds = adapter.compute_bounds();
+	bounds = adapter.compute_bounds();
 
 	std::random_device rd;
 	std::mt19937 gen(rd());
@@ -21,9 +24,7 @@ void Random::run(const IContainer& adapter) {
 		}
 	}
 
-	if (!seeds.empty()) {
-		model = std::make_unique<VisualizeSeeds>(seeds);
-	}
+	update_model();
 
 	version++;
 };
@@ -38,19 +39,36 @@ void Random::render_gui() {
 	ImGui::InputInt("Seed Number", &seedNr);
 };
 
+void Random::update_model() {
+
+	if (!seeds.empty() && renderMode) {
+		std::array<float, 6> tempBounds = {
+			bounds.xMin, bounds.xMax, bounds.yMin, bounds.yMax, bounds.zMin, bounds.zMax };
+		model = std::make_unique<VisualizeSeeds>(seeds, tempBounds);
+		modelSeedSize = model->initialCalculatedSize;
+	}
+};
+
+
+// ==========================================================================================
+// Poisson 3D Generator Class Implementation
+// ==========================================================================================
 void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 
 	config = cfg;
+	isUniform = false;
 
 	seeds.clear();
 	radii.clear();
 	grid.clear();
 
 	// define root
-
 	Bounds bounds = adapter.compute_bounds();
-
 	root = bounds.center;
+
+	// in the case it is the center of a sphere it will destroy the min distance from sdf
+	// we can a add a small noise
+	root += Vec3(1e-5f, 1e-5f, 1e-5f);
 
 	// if the root is not inside randomly create it 
 	if (!adapter.is_inside(root)) {
@@ -104,14 +122,24 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 		active.push_back(N);
 
 		// the centroid is in the central cell
-		std::array<int, 3> centralIdx{ 0, 0, 0 };
+		std::array<int, 3> centralIdx = getGridIndex(root, cellSize);
 		grid[centralIdx].seedIdx = N;
 
 		// finally push in the neighbors the index of the seed! 
 		// The number of neighbors is determined
 		// based on the corresponding radius
-		double rxi = rMin;
-		int n = ceil(rxi / rMin) + 1;
+		double rxi;
+
+		// if there is a distance function use this
+		if (cfg.dist) {
+			const float d = std::abs(cfg.dist->compute_distance(root));
+			rxi = cfg.rad->estimate_radius(d, rMin, rMax);
+		}
+		else {
+			rxi = cfg.rad->estimate_radius(0.0, rMin, rMax);
+		}
+
+		int n = ceil(rxi / cellSize) + 1;
 
 		pushIdxs(n, centralIdx, N);
 
@@ -149,7 +177,8 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 
 			for (int i{ 0 }; i < neighNr; i++) {
 
-				float r = cbrt((disx(gen) * pow(2 * rxi, 3))) + ((1 - disx(gen) * pow(rxi, 3)));
+				float u = disx(gen); // store it to avoid calling the generator twice!
+				float r = std::cbrt(u * std::pow(2 * rxi, 3) + (1.0f - u) * std::pow(rxi, 3));
 
 				float phi = disphi(gen);
 				float theta = acos(distheta(gen));
@@ -253,9 +282,8 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 		std::cout << e.what() << std::endl;
 	}
 
-	if (!seeds.empty()) {
-		model = std::make_unique<VisualizeSeeds>(seeds);
-	}
+	update_model();
+
 	version++;
 };
 
@@ -265,11 +293,17 @@ void Poisson3D::run(const IContainer& adapter) {
 	radii.clear();
 	grid.clear();
 
-	// define root
+	// set max
+	rMax = rMin;
+	isUniform = true;
 
+	// define root
 	Bounds bounds = adapter.compute_bounds();
 
 	root = bounds.center;
+	// in the case it is the center of a sphere it will destroy the min distance from sdf
+	// we can a add a small noise
+	//root += Vec3(100.f, 100.f, 100.f);
 
 	// if the root is not inside randomly create it 
 	if (!adapter.is_inside(root)) {
@@ -285,6 +319,8 @@ void Poisson3D::run(const IContainer& adapter) {
 			root.z = (float)disZ(gen);
 		}
 	}
+
+	std::cout << "final root: " << root << std::endl;
 
 	double scale = std::sqrt(
 		std::pow(bounds.xMax - bounds.xMin, 2) +
@@ -320,7 +356,7 @@ void Poisson3D::run(const IContainer& adapter) {
 		active.push_back(N);
 
 		// the centroid is in the central cell
-		std::array<int, 3> centralIdx{ 0, 0, 0 };
+		std::array<int, 3> centralIdx = getGridIndex(root, cellSize);
 		grid[centralIdx].seedIdx = N;
 
 		// finally push in the neighbors the index of the seed! 
@@ -353,7 +389,8 @@ void Poisson3D::run(const IContainer& adapter) {
 
 			for (int i{ 0 }; i < neighNr; i++) {
 
-				float r = cbrt((disx(gen) * pow(2 * rxi, 3))) + ((1 - disx(gen) * pow(rxi, 3)));
+				float u = disx(gen); // store it to avoid calling the generator twice
+				float r = std::cbrt(u * std::pow(2 * rxi, 3) + (1.0f - u) * std::pow(rxi, 3));
 
 				float phi = disphi(gen);
 				float theta = acos(distheta(gen));
@@ -445,9 +482,8 @@ void Poisson3D::run(const IContainer& adapter) {
 		std::cout << e.what() << std::endl;
 	}
 
-	if (!seeds.empty()) {
-		model = std::make_unique<VisualizeSeeds>(seeds);
-	}
+	update_model();
+
 	version++;
 };
 
@@ -486,3 +522,12 @@ void Poisson3D::set_min_radius(const double newRadius) { rMin = newRadius; };
 void Poisson3D::set_max_radius(const double newRadius) { rMax = newRadius; };
 
 void Poisson3D::set_center(const Vec3& newCenter) { root = newCenter; };
+
+void Poisson3D::update_model() {
+	if (!seeds.empty() && renderMode) {
+		std::array<float, 6> tempBounds = {
+			bounds.xMin, bounds.xMax, bounds.yMin, bounds.yMax, bounds.zMin, bounds.zMax };
+		model = std::make_unique<VisualizeSeeds>(seeds, tempBounds);
+		modelSeedSize = model->initialCalculatedSize;
+	}
+};

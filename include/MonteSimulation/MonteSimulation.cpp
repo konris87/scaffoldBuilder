@@ -546,10 +546,10 @@ void save_csv(
 		fout << "SeedDensity,Thickness,PullbackRatio,Porosity,Connectivity\n";
 		break;
 	case uniform:
-		fout << "Id,Thickness,MinRadius,MaxRadius,Openess,Porosity,Volume,TotalSurface,SurfaceToVolume,Connectivity Density, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy\n";
+		fout << "Id,Thickness,Radius,MaxRadius,Openess,Porosity,Volume,TotalSurface,SurfaceToVolume,Connectivity Density, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy\n";
 		break;
 	case varied:
-		fout << "MinRadius,MaxRadius,Thickness,PullbackRatio,Porosity,Connectivity\n";
+		fout << "Id,MinThickness,MaxThickness,MinRadius,MaxRadius,Openess,Porosity,Volume,TotalSurface,SurfaceToVolume,Connectivity Density, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy\n";
 		break;
 	}
 
@@ -561,12 +561,10 @@ void save_csv(
 			//	<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
 			break;
 		case uniform:
-			fout << outputs[i].id << "," << outputs[i].thickness << "," << outputs[i].minRadius << ","
-				<< outputs[i].maxRadius << "," << outputs[i].openess << "," << outputs[i].porosity << "," << outputs[i].volume << "," << outputs[i].totalSurface << "," << outputs[i].surfaceToVolume << "," << outputs[i].connectivityDenisty << "," << outputs[i].localThickness << "," << outputs[i].localThicknessStd << "," << outputs[i].localSeparation << "," << outputs[i].localSeparationStd << "," << outputs[i].trabecularNr << "," << outputs[i].anisotropy << "\n";
+			fout << outputs[i].id << "," << outputs[i].minThickness << "," << outputs[i].minRadius << "," << outputs[i].openess << "," << outputs[i].porosity << "," << outputs[i].volume << "," << outputs[i].totalSurface << "," << outputs[i].surfaceToVolume << "," << outputs[i].connectivityDenisty << "," << outputs[i].localThickness << "," << outputs[i].localThicknessStd << "," << outputs[i].localSeparation << "," << outputs[i].localSeparationStd << "," << outputs[i].trabecularNr << "," << outputs[i].anisotropy << "\n";
 			break;
 		case varied:
-			//fout << inputs[i].p1 << "," << inputs[i].p2 << "," << inputs[i].thickness << "," << inputs[i].pullbackRatio << ","
-			//	<< outputs[i].porosity << "," << outputs[i].connectivity << "\n";
+			fout << outputs[i].id << "," << outputs[i].minThickness << "," << outputs[i].maxThickness << "," << outputs[i].minRadius << "," << outputs[i].maxRadius << "," << outputs[i].openess << "," << outputs[i].porosity << "," << outputs[i].volume << "," << outputs[i].totalSurface << "," << outputs[i].surfaceToVolume << "," << outputs[i].connectivityDenisty << "," << outputs[i].localThickness << "," << outputs[i].localThicknessStd << "," << outputs[i].localSeparation << "," << outputs[i].localSeparationStd << "," << outputs[i].trabecularNr << "," << outputs[i].anisotropy << "\n";
 			break;
 		}
 	}

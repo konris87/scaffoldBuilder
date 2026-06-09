@@ -141,13 +141,14 @@ public:
 	BBox() { _setup(); };
 	~BBox() { clean(); };
 
-	BBox(float xMin, float xMax, float yMin, float yMax, float zMin, float zMax);
+	BBox(const Vec3 size, const Vec3 center = {0.0f, 0.0f, 0.0f});
 
 	void draw();
 
 	void clean();
 
 private:
+	Vec3 center { 0.0f, 0.0f, 0.0f };
 	std::vector<float> vertices;
 	unsigned int indices[24] = {
 		0, 1, 1, 2, 2, 3, 3, 0,

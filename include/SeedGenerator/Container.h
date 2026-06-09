@@ -37,22 +37,26 @@ protected:
 	ObjectType type = ObjectType::NoneType;
 };
 
+// ===================================================================================================
+// Box Container Class
+// ===================================================================================================
 class BoxContainer final : public IContainer {
-	
+
 public:
 
 	BoxContainer() {};
 	~BoxContainer() {};
 
-	// add a constructor
-	BoxContainer(float xMin, float xMax, float yMin, float yMax, float zMin, float zMax) : 
-		xMin(xMin), xMax(xMax), yMin(yMin), yMax(yMax), zMin(zMin), zMax(zMax) {
-		
-		Bounds bds = compute_bounds();
+	// Updated constructor using size and origin
+	BoxContainer(Vec3 size, Vec3 origin, const bool renderModeTrue = true) :
+		size(size), origin(origin), renderModeTrue(renderModeTrue) {
 
+		Bounds bds = compute_bounds();
 		sdf = std::make_shared<BoxSDF>(bds);
-		
-		create();
+
+		if (renderModeTrue) {
+			create();
+		}
 	};
 
 	std::unique_ptr<BBox> model;
@@ -62,26 +66,25 @@ public:
 	}
 
 	void gui_setup() override {
-		
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("x Min (mm)", &xMin, 0.1f, 100.0f, "%.3f");
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("x Max (mm)", &xMax, 0.1f, 100.0f, "%.3f");
-		ImGui::SetItemTooltip("Dimension of Scaffold Along X (mm)");
+		bool dimensionsChanged = false;
+
+		ImGui::SeparatorText("Dimensions");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("y Min (mm)", &yMin, 0.1f, 100.0f, "%.3f");
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("y Max (mm)", &yMax, 0.1f, 100.0f, "%.3f");
-		ImGui::SetItemTooltip("Dimension of Scaffold Along Y (mm)");
+		dimensionsChanged |= ImGui::InputFloat("Width (X) mm", &size.x, 0.1f, 100.0f, "%.3f");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("z Min (mm)", &zMin, 0.1f, 100.0f, "%.3f");
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("z Max (mm)", &zMax, 0.1f, 100.0f, "%.3f");
-		ImGui::SetItemTooltip("Dimension of Scaffold Along Z (mm)");
+		dimensionsChanged |= ImGui::InputFloat("Height (Y) mm", &size.y, 0.1f, 100.0f, "%.3f");
 
-		if (ImGui::Button("Update")) {
+		ImGui::SetNextItemWidth(200);
+		dimensionsChanged |= ImGui::InputFloat("Depth (Z) mm", &size.z, 0.1f, 100.0f, "%.3f");
+
+		ImGui::SeparatorText("Position");
+
+		dimensionsChanged |= ImGui::InputFloat3("Center", (float*)&origin);
+		ImGui::SetItemTooltip("Center of the Box Container");
+
+		if (dimensionsChanged || ImGui::Button("Update")) {
 			Bounds bds = compute_bounds();
 			sdf = std::make_shared<BoxSDF>(bds);
 			create();
@@ -89,11 +92,12 @@ public:
 	};
 
 	void create() override {
-		model = std::make_unique<BBox>(xMin, xMax, yMin, yMax, zMin, zMax);
+
+		model = std::make_unique<BBox>(size, origin);
 	};
 
 	void render() override {
-		if (!model){
+		if (!model) {
 			create();
 		}
 		if (model) {
@@ -102,10 +106,15 @@ public:
 	};
 
 	Bounds compute_bounds() const override {
+		float halfX = size.x * 0.5f;
+		float halfY = size.y * 0.5f;
+		float halfZ = size.z * 0.5f;
 
-		return{
-			xMin, xMax, yMin, yMax, zMin, zMax,
-			{(xMax + xMin) * 0.5f, (yMax + yMin) * 0.5f, (zMax + zMin) * 0.5f }
+		return {
+			origin.x - halfX, origin.x + halfX, // xMin, xMax
+			origin.y - halfY, origin.y + halfY, // yMin, yMax
+			origin.z - halfZ, origin.z + halfZ, // zMin, zMax
+			origin                              // center
 		};
 	};
 
@@ -123,28 +132,35 @@ public:
 	};
 
 	float get_volume() const override {
-	
-		return (xMax - xMin) * (yMax - yMin) * (zMax - zMin);
+		return size.x * size.y * size.z;
 	};
 
+	Vec3 size{ 10.0f, 10.0f, 10.0f };
+
+	Vec3 origin{ 5.0f, 5.0f, 5.0f };
 
 private:
-	float xMin{ 0.0f }, xMax{ 10.0f }, yMin{ 0.0f }, yMax{ 10.0f }, zMin{ 0.0f }, zMax{ 10.0f };
+
+	bool renderModeTrue = true;
 };
 
+// ===================================================================================================
 //@brief class to create a vertical cylindrical container along y. The bottom is 
 // fixed at point (0, 0)
+// ===================================================================================================
 class CylinderContainer final : public IContainer {
 public:
 	CylinderContainer() {};
 	~CylinderContainer() {};
 
-	CylinderContainer(const float r, const float h) : cylinderRadius(r), cylinderHeight(h){
+	CylinderContainer(const float r, const float h, const bool renderMode = true) : cylinderRadius(r), cylinderHeight(h), renderMode(renderMode){
 	
 		// create the sdf
 		sdf = std::make_shared<CylinderSDF>(cylinderRadius, cylinderHeight, Vec3(0.0f, cylinderHeight * 0.5f, 0.0f));
 
-		create();
+		if (renderMode) {
+			create();
+		}
 	};
 
 	void gui_setup() override {
@@ -189,11 +205,14 @@ public:
 			return true;
 		}
 	};
+
+	float cylinderRadius{ 2.0f };
+	float cylinderHeight{ 10.0f };
+
 private:
 	std::unique_ptr<Cylinder> model;
 	
-	float cylinderRadius{ 2.0f };
-	float cylinderHeight{ 10.0f };	
+	bool renderMode = true;
 
 	void create() override {
 
@@ -226,7 +245,7 @@ public:
 	~AbstractContainer() {};
 
 	//@brief constructor to load an stl mesh using opensstl
-	AbstractContainer(const std::string& fileName);
+	AbstractContainer(const std::string& fileName, bool renderMode = true);
 
 	void gui_setup() override;
 
@@ -268,13 +287,12 @@ public:
 	};
 
 	bool is_inside(const Vec3& pt) const override {
+		auto meshSdf = std::dynamic_pointer_cast<MeshSDF>(sdf);
 
-		if (sdf->compute_distance(pt) >= 1e-4) {
-			return false;
+		if (meshSdf) {
+			return meshSdf->is_inside_raycast(pt);
 		}
-		else {
-			return true;
-		}
+		return false; 
 	};
 
 	std::shared_ptr<const SDF> get_distance_estimator() const override {
@@ -284,6 +302,8 @@ public:
 	bool updated = false;
 
 	uint32_t version = 1;
+
+	std::string fileName = "";
 
 private:
 	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -302,6 +322,7 @@ private:
 	std::vector<openstl::Vec3> meshVerts;
 	std::vector<openstl::Face> meshFaces;
 	float scaleFactor = 1.0f;
+	bool renderMode = true;
 
 	// functions
 	void generate();
@@ -327,5 +348,41 @@ private:
 	void apply_scale();
 };
 
+
+// ===================================================================
+// Roi Class definition
+// ===================================================================
+class ROI {
+public:
+	ROI() {};
+	~ROI() {};
+
+	// Pass size instead of 6 loose bounds
+	ROI(Vec3 size, Vec3 origin, bool render = false);
+
+	void render_model();
+	std::array<float, 6> get_bounds();
+	Vec3 get_center();
+	void render_properties();
+
+	ObjectType get_type() const {
+		return ObjectType::Roi;
+	}
+
+	std::string name = "";
+	std::string relatedMeshName = "";
+	bool hidden = false;
+	ObjectType type = ObjectType::Roi;
+	std::array<float, 4> color = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+private:
+	Vec3 origin{ 0.0f, 0.0f, 0.0f };
+	Vec3 size{ 10.0f, 10.0f, 10.0f }; 
+
+	std::unique_ptr<BBox> model;
+	bool renderMode = false;
+
+	void create();
+};
 
 #endif

@@ -191,6 +191,7 @@ void myGUI::_init_opengl() {
 	uniManager.add_uniform(cutShader, "model");
 	uniManager.add_uniform(cutShader, "minBounds");
 	uniManager.add_uniform(cutShader, "maxBounds");
+	uniManager.add_uniform(cutShader, "planeColor");
 
 	// bounding box shader
 	boxShader = Shader(
@@ -640,6 +641,22 @@ void myGUI::run() {
 			}
 		}
 
+		// ROIs
+		for (const auto& roi : rois) {
+			if (roi && !roi->hidden) {
+				boxShader.use();
+				uniManager.setUniform(boxShader, "projection", projection);
+				uniManager.setUniform(boxShader, "view", view);
+				uniManager.setUniform(boxShader, "model", model);
+				uniManager.setUniform(boxShader, "boxColor",
+					roi->color[0],
+					roi->color[1],
+					roi->color[2],
+					roi->color[3]);
+				roi->render_model();
+			}
+		}
+
 		if (!io.WantCaptureKeyboard) {
 			if (ImGui::IsKeyPressed(ImGuiKey_M)) {
 				showEdges = !showEdges;
@@ -667,6 +684,8 @@ void myGUI::run() {
 
 			if (showSeeds && !seedGen->hidden && (seedGen.get() == selectedPanelObj.ptr)) {
 
+				seedSize = seedGen->modelSeedSize;
+
 				seedShader.use();
 				uniManager.setUniform(seedShader, "projection", projection);
 				uniManager.setUniform(seedShader, "view", view);
@@ -674,6 +693,24 @@ void myGUI::run() {
 				uniManager.setUniform(seedShader, "seedColor", seedColor[0], seedColor[1], seedColor[2]);
 				seedGen->draw();				
 			}
+		}
+
+		if (showCutPlane && renderSettings.cutPlaneColor[3] == 1.0f) {
+			cutShader.use();
+			uniManager.setUniform(cutShader, "projection", projection);
+			uniManager.setUniform(cutShader, "view", view);
+			uniManager.setUniform(cutShader, "model", cutPlane->modelMatrix);
+			uniManager.setUniform(cutShader, "minBounds", bounds[0], bounds[2], bounds[4]);
+			uniManager.setUniform(cutShader, "maxBounds", bounds[1], bounds[3], bounds[5]);
+			uniManager.setUniform(cutShader, "planeColor",
+				renderSettings.cutPlaneColor[0],
+				renderSettings.cutPlaneColor[1],
+				renderSettings.cutPlaneColor[2],
+				renderSettings.cutPlaneColor[3]
+			);
+			glDisable(GL_CULL_FACE);
+			cutPlane->draw();
+			glEnable(GL_CULL_FACE);
 		}
 
 		if (showAxesLines) {
@@ -712,13 +749,19 @@ void myGUI::run() {
 			}
 		}
 
-		if (showCutPlane) {
+		if (showCutPlane && renderSettings.cutPlaneColor[3] < 1.0f) {
 			cutShader.use();
 			uniManager.setUniform(cutShader, "projection", projection);
 			uniManager.setUniform(cutShader, "view", view);
 			uniManager.setUniform(cutShader, "model", cutPlane->modelMatrix);
 			uniManager.setUniform(cutShader, "minBounds", bounds[0], bounds[2], bounds[4]);
 			uniManager.setUniform(cutShader, "maxBounds", bounds[1], bounds[3], bounds[5]);
+			uniManager.setUniform(cutShader, "planeColor",
+				renderSettings.cutPlaneColor[0],
+				renderSettings.cutPlaneColor[1],
+				renderSettings.cutPlaneColor[2],
+				renderSettings.cutPlaneColor[3]
+			);
 			glDisable(GL_CULL_FACE);
 			cutPlane->draw();
 			glEnable(GL_CULL_FACE);
@@ -844,11 +887,12 @@ void myGUI::_render_toolbar() {
 			"Create Uniform Seed Generator", showUniformSeedCreator, "Create seeds inside a container using uniform Poisson sampling", uniformSeedTexture);
 		ImGui::SameLine();
 
-		//create_single_button_textured(
-		//	"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture);
-		//ImGui::SameLine();
+		create_single_button_textured(
+			"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture);
+		ImGui::SameLine();
 
 		ImGui::TableNextColumn();
+
 
 		create_single_button_textured(
 			"Measure Local Thickness", measureThickness,
@@ -945,13 +989,32 @@ void myGUI::_render_settings_panel() {
 	ImVec2 maxSize = ImVec2(width, height);
 	ImVec2 minSize = ImVec2(500.0f, 500.0f);
 	if (ImGuiFileDialog::Instance()->Display("Export Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { 
+			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+
+			// get the active scaffold
+			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+			std::filesystem::path filePath = scaffoldFilePath;
+
+			if (filePath.extension() == ".scaf") {
+
+				gen->export_scaf(scaffoldFilePath);
+
+				logger.log(LogPriority::SUCCESS, "Exported scaffold as " + scaffoldFilePath);
+
+			}
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
+	if (ImGuiFileDialog::Instance()->Display("Export Mesh Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
-			//_export_mesh();
 
 			// get the active scaffold
-			//Generator* gen = static_cast<Generator*>(selectedPanelObj.ptr);
 			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 			std::filesystem::path filePath = scaffoldFilePath;
@@ -968,37 +1031,6 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 		showGeometryExportWindow = false;
 	}
-
-	maxSize = ImVec2(width, height);
-	minSize = ImVec2(500.0f, 500.0f);
-	if (ImGuiFileDialog::Instance()->Display("Load Container", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
-		if (ImGuiFileDialog::Instance()->IsOk()) { 
-
-			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
-			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
-			
-			// create a container object
-			std::unique_ptr<AbstractContainer> con = std::make_unique<AbstractContainer>(filePath);
-
-			con->name = fileName;
-			con->hidden = false;
-			con->color[3] = 0.1f;
-			_update_cameras(*con);
-
-			// push it
-			containers.push_back(std::move(con));
-
-			selectedPanelObj.ptr = containers.back().get();
-			selectedPanelObj.type = ObjectType::AbstractContainerType;
-
-			showAbstractContainerCreator = false;
-		}
-		ImGuiFileDialog::Instance()->Close();
-		showAbstractContainerCreator = false;
-	}
-
-	maxSize = ImVec2(width, height);
-	minSize = ImVec2(500.0f, 500.0f);
 	if (ImGuiFileDialog::Instance()->Display("Export Binary Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
@@ -1029,6 +1061,35 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
+	maxSize = ImVec2(width, height);
+	minSize = ImVec2(500.0f, 500.0f);
+	if (ImGuiFileDialog::Instance()->Display("Load Container", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { 
+
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+			
+			// create a container object
+			std::unique_ptr<AbstractContainer> con = std::make_unique<AbstractContainer>(filePath);
+
+			con->name = fileName;
+			con->hidden = false;
+			con->color[3] = 0.1f;
+			_update_cameras(*con);
+
+			// push it
+			containers.push_back(std::move(con));
+
+			selectedPanelObj.ptr = containers.back().get();
+			selectedPanelObj.type = ObjectType::AbstractContainerType;
+
+			showAbstractContainerCreator = false;
+		}
+		ImGuiFileDialog::Instance()->Close();
+		showAbstractContainerCreator = false;
+	}
+
+
 	if (ImGuiFileDialog::Instance()->Display("Export Metrics", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
@@ -1050,12 +1111,15 @@ void myGUI::_render_settings_panel() {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
-	
-			// now create a scaffold using these
-			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(filePath);
+			std::filesystem::path p = filePath;
 
+			// now create a scaffold using these
+			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>();
+			scaffold->set_logger(&logger);
 			scaffold->name = fileName;
 
+			scaffold->load_scaf(filePath, containers, seedGenerators);
+				
 			_update_cameras(*scaffold);
 
 			// push to the scaffold list
@@ -1066,7 +1130,37 @@ void myGUI::_render_settings_panel() {
 			selectedPanelObj.ptr = scaffolds.back().get();
 			selectedPanelObj.type = ObjectType::ScaffoldType;
 
-			// create a box container just to update the cameras etc
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
+	if (ImGuiFileDialog::Instance()->Display("Load Mesh", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+			
+			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(filePath, &logger);
+			scaffold->name = fileName;
+
+			std::filesystem::path p = filePath;
+			std::string paramFileName = p.stem().string() + "_parameters.csv";
+			std::string parametersFile = (p.parent_path() / paramFileName).string();
+
+			scaffold->read_parameters(parametersFile);
+
+			std::string metricsFileName = p.stem().string() + "_metrics.csv";
+			std::string metricsFile = (p.parent_path() / metricsFileName).string();
+			scaffold->read_metrics(metricsFile);
+
+			_update_cameras(*scaffold);
+
+			// push to the scaffold list
+			scaffolds.push_back(std::move(scaffold));
+
+			// set it as the selected object
+			selectedSceneObj = scaffolds.back().get();
+			selectedPanelObj.ptr = scaffolds.back().get();
+			selectedPanelObj.type = ObjectType::ScaffoldType;
 
 		}
 		ImGuiFileDialog::Instance()->Close();
@@ -1118,7 +1212,8 @@ void myGUI::_render_object_list() {
 						showGeometryExportWindow = true;
 						IGFD::FileDialogConfig config;
 						config.path = "../data";
-						ImGuiFileDialog::Instance()->OpenDialog("Export Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
+						ImGuiFileDialog::Instance()->OpenDialog(
+							"Export Mesh Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
 					}
 					if (ImGui::MenuItem("Export as Image")) {
 						showBinaryImageWindow = true;
@@ -1129,6 +1224,7 @@ void myGUI::_render_object_list() {
 						config.path = "../data";
 						ImGuiFileDialog::Instance()->OpenDialog("Export Metrics", "Export Scaffold Metrics", ".csv", config);
 					}
+
 					if (ImGui::MenuItem("Edit Name")) {
 						// index to change the name
 						state.targetIdx = i;
@@ -1173,6 +1269,8 @@ void myGUI::_render_object_list() {
 		_render_container_list();
 
 		_render_seed_generator_list();
+
+		_render_roi_list();
 	}
 
 	ImGui::End();
@@ -1216,7 +1314,12 @@ void myGUI::_render_properties_panel() {
 			}
 			case ObjectType::ScaffoldType: {
 				GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
-				scaffold->render_properties(&logger, updateScaffold);
+				scaffold->render_properties(updateScaffold);
+				break;
+			}
+			case ObjectType::Roi: {
+				ROI* roi = static_cast<ROI*>(selectedPanelObj.ptr);
+				roi->render_properties();
 				break;
 			}
 			case ObjectType::NoneType: {
@@ -1278,6 +1381,48 @@ void myGUI::_render_seed_generator_list() {
 	}
 };
 
+void myGUI::_render_roi_list() {
+	bool open = ImGui::TreeNodeEx("ROIs", ImGuiDockNodeFlags_None | ImGuiTreeNodeFlags_DefaultOpen);
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_NoSharedDelay)) {
+		ImGui::SetTooltip("Created ROIs");
+	}
+	if (open) {
+
+		static RenameState state;
+
+		for (int i = 0; i < rois.size(); ++i) {
+
+			auto& roi = rois[i];
+
+			bool isSelected = (selectedPanelObj.ptr == roi.get());
+
+			ImGui::Selectable(roi->name.c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick);
+
+			if (ImGui::BeginPopupContextItem()) {
+
+				if (ImGui::MenuItem(!roi->hidden ? "Hide" : "Show")) {
+					roi->hidden = !roi->hidden;
+				}
+				if (ImGui::MenuItem("Delete")) {
+					auto it = rois.erase(rois.begin() + i);
+					ImGui::EndPopup();
+					selectedPanelObj.ptr = nullptr;
+					selectedPanelObj.type = ObjectType::NoneType;
+					break;
+				}
+
+				ImGui::EndPopup();
+			}
+			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsItemHovered()) {
+				selectedPanelObj.ptr = roi.get();
+				selectedPanelObj.type = roi->type;
+			}
+		}
+
+		ImGui::TreePop();
+	}
+};
+
 void myGUI::_render_container_list() {
 
 	bool open = ImGui::TreeNodeEx("Containers", ImGuiDockNodeFlags_None | ImGuiTreeNodeFlags_DefaultOpen);
@@ -1291,6 +1436,8 @@ void myGUI::_render_container_list() {
 		for (int i = 0; i < containers.size(); ++i) {
 
 			auto& con = containers[i];
+
+			ImGui::PushID(i);
 
 			bool isSelected = (selectedPanelObj.ptr == con.get() && selectedPanelObj.type == con.get()->get_type());
 
@@ -1324,6 +1471,8 @@ void myGUI::_render_container_list() {
 				selectedPanelObj.ptr = con.get();
 				selectedPanelObj.type = con->get_type();
 			}
+
+			ImGui::PopID();
 		}
 		render_change_name_popup(containers, state);
 
@@ -1578,6 +1727,7 @@ void myGUI::_render_algorithm_settings() {
 			ImGui::BeginChild("LeftPanel", ImVec2(ImGui::GetContentRegionAvail().x * 0.3f, 300), ImGuiChildFlags_Borders);
 			if (ImGui::Selectable("Anisotropy Settings", picked == 0)) picked = 0;
 			if (ImGui::Selectable("Tortuosity Settings", picked == 1)) picked = 1;
+			if (ImGui::Selectable("Trabecular Number Settings", picked == 2)) picked = 2;
 			ImGui::EndChild();
 		}
 		ImGui::SameLine();
@@ -1605,6 +1755,15 @@ void myGUI::_render_algorithm_settings() {
 				if (picked == 1) {
 					ImGui::Text("Tortuosity Algorithm Settings");
 					ImGui::InputFloat("Tolerance", &tortuosityVoxelSize);
+				}
+
+				if (picked == 1) {
+					ImGui::Text("Trabecular Number Algorithm Settings");
+
+					// Index 0 matches formula == 0 (MIL/DDA), Index 1 matches formula == 1 (Derived Proxy)
+					const char* formulaOptions[] = { "Mean Intercept Length (DDA)", "Derived Proxy (BV/TV / Tb.Th)" };
+
+					ImGui::Combo("Algorithm", &trabecularNrFormula, formulaOptions, IM_ARRAYSIZE(formulaOptions));
 				}
 
 				ImGui::EndChild();
@@ -1683,22 +1842,32 @@ void myGUI::_render_main_menu_bar() {
 				write_settings();
 				logger.log(LogPriority::INFO, "Settings saved.");
 			}
-			if (ImGui::MenuItem("Load Scaffold", "load mesh file by specifying the path")) {
+
+			if (ImGui::MenuItem("Load Scaffold", "Load Scaffold from .scaf file")) {
 				// Call your function to load a model mesh here
 				IGFD::FileDialogConfig config;
 				config.path = "..//data";
-				ImGuiFileDialog::Instance()->OpenDialog("Load Scaffold", "Load Scaffold", ".stl, .vtk", config);
-				//loadedMesh = scaffold;
-				//logger.log("Model mesh loaded.");
+				ImGuiFileDialog::Instance()->OpenDialog("Load Scaffold", "Load Scaffold", ".scaf", config);
 			}
 
-			ImGui::SameLine(); help_marker("So far only .stl files are supported");
+			if (ImGui::MenuItem("Load Mesh Scaffold", "Load Scaffold from .stl file")) {
+				// Call your function to load a model mesh here
+				IGFD::FileDialogConfig config;
+				config.path = "..//data";
+				ImGuiFileDialog::Instance()->OpenDialog("Load Mesh Scaffold", "Load Scaffold Geometry", ".vtk, .stl", config);
+			}
+
+			if (ImGui::MenuItem("Export Scaffold", "Save Scaffold as .scaf")) {
+				IGFD::FileDialogConfig config;
+				config.path = "../data";
+				ImGuiFileDialog::Instance()->OpenDialog("Export Scaffold", "Save Scaffold as .scaf", ".scaf", config);
+			}
 
 			if (ImGui::MenuItem("Save Scaffold as geometry", "Export scaffold geometry.")) {
 				showGeometryExportWindow = true;
 				IGFD::FileDialogConfig config;
 				config.path = "../data";
-				ImGuiFileDialog::Instance()->OpenDialog("Export Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
+				ImGuiFileDialog::Instance()->OpenDialog("Export Geometry Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
 			}
 
 			if (ImGui::MenuItem("Save Scaffold as binary image", "Export scaffold as binary image.")) {
@@ -1838,6 +2007,24 @@ void myGUI::_render_main_menu_bar() {
 				}
 			}
 
+			if (ImGui::MenuItem("Create ROI")) {
+				if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+					logger.log(LogPriority::ERROR, "Selected a scaffold from the panel!");
+				}
+				else {
+					showROICreator = true;
+				}
+			}
+
+			if (ImGui::MenuItem("Cut With ROI")) { 
+				if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+					logger.log(LogPriority::ERROR, "Selected a scaffold from the panel!");
+				}
+				else {
+					showROICutter = true;
+				}
+			}
+
 			ImGui::EndMenu();
 		}
 
@@ -1885,11 +2072,11 @@ void myGUI::_render_main_menu_bar() {
 	}
 
 	if (measureThickness) {
-		_local_thickness_measure("Local Thickness Measure", measureThickness, false);
+		_action_estimate_local_thickness("Local Thickness Measure", measureThickness, false);
 	}
 
 	if (measureSeparation) {
-		_local_thickness_measure("Local Separation Measure", measureSeparation, true);
+		_action_estimate_local_thickness("Local Separation Measure", measureSeparation, true);
 	}
 
 	if (estimateTortuosity) {
@@ -1927,6 +2114,14 @@ void myGUI::_render_main_menu_bar() {
 	if (taubinSmooth) {
 		_render_taubin_smooth_panel("Taubin Smoothing", taubinSmooth);
 	}
+
+	if (showROICreator) {
+		_render_roi_creator("Create a ROI", showROICreator);
+	}
+
+	if (showROICutter) {
+		_render_roi_cutter("Get a scaffold region inside a ROI", showROICutter);
+	}
 };
 
 void myGUI::_render_display_settings() {
@@ -1948,7 +2143,8 @@ void myGUI::_render_display_settings() {
 			if (ImGui::Selectable("Container", pickedItem == 5)) pickedItem = 5;
 			if (ImGui::Selectable("Pore Network", pickedItem == 6)) pickedItem = 6;
 			if (ImGui::Selectable("Tortuosity Rendering", pickedItem == 7)) pickedItem = 7;
-			if (ImGui::Selectable("Gui Settings", pickedItem == 8)) pickedItem = 8;
+			if (ImGui::Selectable("Cutting Tool Settings", pickedItem == 8)) pickedItem = 8;
+			if (ImGui::Selectable("Gui Settings", pickedItem == 9)) pickedItem = 9;
 			ImGui::EndChild();
 		}
 		ImGui::SameLine();
@@ -1972,7 +2168,6 @@ void myGUI::_render_display_settings() {
 					ImGui::Text("Grid Settings");
 					ImGui::ColorEdit3("Grid Color", (float*)&gridColor);
 					ImGui::Checkbox("Use Grid", &showGrid);
-					//ImGui::SliderFloat("Point Size", &seedSize, 0.001f, 1.0f);
 				}
 				else if (pickedItem == 3) {
 					ImGui::Text("Lighting Settings");
@@ -1986,7 +2181,6 @@ void myGUI::_render_display_settings() {
 					ImGui::Text("Container Settings");
 					ImGui::ColorEdit4("Container Color", (float*)&containerColor);
 				}
-
 				if (pickedItem == 6) {
 					ImGui::Text("Pore Network Display Settings");
 					ImGui::ColorEdit4("Line Color", renderSettings.poreNetworkColor.data());
@@ -1998,8 +2192,12 @@ void myGUI::_render_display_settings() {
 					ImGui::ColorEdit4("Line Color", renderSettings.tortuosityPathColor.data());
 					ImGui::InputFloat("Line Size", &renderSettings.tortuosityPathSize, 0.1f, 1.0f, "%.3f");
 				}
-
 				if (pickedItem == 8) {
+					ImGui::Text("Cutting Tool Settings");
+					ImGui::ColorEdit4("Line Color", renderSettings.cutPlaneColor.data());
+				}
+
+				if (pickedItem == 9) {
 					ImGui::Text("Gui Panel Settings");
 					if (ImGui::InputFloat("Font Size", &newFontSize, 0.1f, 1.0f, "%.3f")) {
 						if (newFontSize > 4.0f && newFontSize != fontSize) { // Prevent crashes from 0 or negative sizes
@@ -2029,6 +2227,7 @@ void myGUI::_render_cutting_plane_settings(const char* popupName, bool& showPopu
 
 	if (ImGui::Begin("Plane Cut Tool", NULL)) {
 		
+		ImGui::ColorEdit4("Color", renderSettings.cutPlaneColor.data());
 		ImGui::Text("Origin");
 		ImGui::SetNextItemWidth(100);
 		ImGui::InputFloat("##x", &cutPlane->center.x, 0.01f, 1000.0f);
@@ -2079,40 +2278,37 @@ void myGUI::_render_box_container_creator(const char* popupName, bool& showPopup
 		static char buffer[256] = "";
 		ImGui::InputText("Name", buffer, sizeof(buffer));
 
-		// display here the settings for a box set
-		static float tempMinX{ 0.0f };
-		static float tempMaxX{ 10.0f };
-		static float tempMinY{ 0.0f };
-		static float tempMaxY{ 10.0f };
-		static float tempMinZ{ 0.0f };
-		static float tempMaxZ{ 10.0f };
+		// Display here the settings for a box using Size and Center
+		// Default size of 10 and center at 5 matches your old [0, 10] bounds
+		static float tempSize[3] = { 10.0f, 10.0f, 10.0f };
+		static float tempOrigin[3] = { 5.0f, 5.0f, 5.0f };
+
+		ImGui::SeparatorText("Dimensions");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("x Min (mm)", &tempMinX, 0.1f, 100.0f);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("x Max (mm)", &tempMaxX, 0.1f, 100.0f);
-		ImGui::SetItemTooltip("Dimension of Scaffold Along X (mm)");
+		ImGui::InputFloat("Width (X) mm", &tempSize[0], 0.1f, 100.0f, "%.3f");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("y Min (mm)", &tempMinY, 0.1f, 100.0f);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("y Max (mm)", &tempMaxY, 0.1f, 100.0f);
-		ImGui::SetItemTooltip("Dimension of Scaffold Along Y (mm)");
+		ImGui::InputFloat("Height (Y) mm", &tempSize[1], 0.1f, 100.0f, "%.3f");
 
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("z Min (mm)", &tempMinZ, 0.1f, 100.0f);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("z Max (mm)", &tempMaxZ, 0.1f, 100.0f);
-		ImGui::SetItemTooltip("Dimension of Scaffold Along Z (mm)");
+		ImGui::InputFloat("Depth (Z) mm", &tempSize[2], 0.1f, 100.0f, "%.3f");
+
+		ImGui::SeparatorText("Position");
+
+		ImGui::InputFloat3("Center", tempOrigin);
+		ImGui::SetItemTooltip("Center of the Box Container");
 
 		ImGui::Separator();
-		ImGui::SameLine();
+		ImGui::Spacing();
 
-		if (ImGui::Button("Create")) {
+		if (ImGui::Button("Create", ImVec2(120, 0))) {
 
-			std::unique_ptr<BoxContainer> container = std::make_unique<BoxContainer>(
-				tempMinX, tempMaxX, tempMinY, tempMaxY, tempMinZ, tempMaxZ
-			);
+			Vec3 sizeVec{ tempSize[0], tempSize[1], tempSize[2] };
+			Vec3 originVec{ tempOrigin[0], tempOrigin[1], tempOrigin[2] };
+
+			std::unique_ptr<BoxContainer> container = std::make_unique<BoxContainer>(sizeVec, originVec);
+
 			std::string name = std::string(buffer);
 
 			if (!name.empty()) {
@@ -2138,11 +2334,11 @@ void myGUI::_render_box_container_creator(const char* popupName, bool& showPopup
 
 		ImGui::SameLine();
 
-		if (ImGui::Button("Cancel")) {
+		if (ImGui::Button("Cancel", ImVec2(120, 0))) {
 			buffer[0] = '\0';
 			showPopup = false;
 		};
-	
+
 		ImGui::EndPopup();
 	}
 };
@@ -2740,9 +2936,11 @@ void myGUI::_render_varied_seed_generator_properties() {
 	static Vec3 planeCenter{ 0.0f, 0.0f, 1.0f };
 	static Vec3 point{ 0.0f, 0.0f, 0.0f };
 
+	static bool firstLoad = true;
+
 	RunConfig cfg = poisson->get_config();
 
-	if (cfg.dist) {
+	if (cfg.dist && firstLoad) {
 		if (distanceFunc == 0){
 			const PlaneSDF* pd = dynamic_cast<const PlaneSDF*>(cfg.dist.get());
 			if (pd) {
@@ -2756,6 +2954,7 @@ void myGUI::_render_varied_seed_generator_properties() {
 				point = pd->get_point();
 			}
 		}
+		firstLoad = false;
 	}
 
 	for (const auto& md : containers) {
@@ -2859,321 +3058,6 @@ void myGUI::_render_varied_seed_generator_properties() {
 	}
 };
 
-void myGUI::_render_scaffold_creator(const char* popupName, bool& showPopup) {
-
-	//if (showPopup) {
-	//	ImGui::OpenPopup(popupName);
-	//}
-
-	//// always centered
-	//ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-	//ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-	//if (ImGui::BeginPopupModal("Scaffold Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize))
-	//{
-	//	static IContainer* selectedCon = nullptr;
-	//	static InterfaceSeedGenerator* selectedGen = nullptr;
-	//	static char buffer[256] = "";
-	//	static float tempThickness = { 0.3f };
-	//	static float tempOpeness = { 0.5f };
-	//	static float tempStretchX = { 1.0f };
-	//	static float tempStretchY = { 1.0f };
-	//	static float tempStretchZ = { 1.0f };
-	//	static Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
-	//	static float anisotropyAngle = { 0.0f };
-	//	static int foam = 0;
-
-	//	ImGui::InputText("Name", buffer, sizeof(buffer));
-
-	//	ImGui::SeparatorText("Parameters");
-	//	ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
-	//	ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
-	//	ImGui::InputFloat("Stretch X", &tempStretchX, 0.01f, 5.0f, "%.3f");
-	//	ImGui::InputFloat("Stretch Y", &tempStretchY, 0.01f, 5.0f, "%.3f");
-	//	ImGui::InputFloat("Stretch Z", &tempStretchZ, 0.01f, 5.0f, "%.3f");
-	//	ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
-	//	//ImGui::InputFloat3("Material Direction", anisotropyVec, "%.4f");
-	//	ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
-	//	
-	//	ImGui::RadioButton("Porous", &foam, 0);
-	//	ImGui::RadioButton("Foam", &foam, 1);
-
-	//	// here we should get the seeds from the corresponding creator
-	//	ImGui::SeparatorText("Select Container and generator");
-
-	//	// timer for flashing
-	//	static float warningFlashTimer1 = 0.0f;
-
-	//	if (warningFlashTimer1 > 0.0f) {
-	//		warningFlashTimer1 -= ImGui::GetIO().DeltaTime;
-	//	}
-
-	//	bool isFlashing1 = (warningFlashTimer1 > 0.0f);
-	//	if (isFlashing1) {
-	//		float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-	//		ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-	//		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-	//		ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-	//	}
-
-	//	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 80), ImGuiChildFlags_Borders);
-
-	//	for (const auto& md : containers) {
-
-	//		IContainer* con = dynamic_cast<IContainer*>(md.get());
-
-	//		if (con) {
-	//			bool isSelected = (selectedCon && selectedCon == con);
-
-	//			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-	//				selectedCon = md.get();
-	//			};
-	//		}
-	//	}
-
-	//	if (isFlashing1) {
-	//		ImGui::PopStyleColor(); // Pop the red border color
-	//		ImGui::PopStyleVar();   // Pop the thick border size
-	//	}
-
-	//	ImGui::EndChild();
-
-	//	ImGui::SameLine();
-
-	//	static float warningFlashTimer2 = 0.0f;
-
-	//	if (warningFlashTimer2 > 0.0f) {
-	//		warningFlashTimer2 -= ImGui::GetIO().DeltaTime;
-	//	}
-	//	bool isFlashing2 = (warningFlashTimer2 > 0.0f);
-	//	if (isFlashing2) {
-	//		float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-	//		ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-	//		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-	//		ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-	//	}
-
-	//	ImGui::BeginChild("Generators", ImVec2(0.0, 80), ImGuiChildFlags_Borders);
-
-	//	for (const auto& md : seedGenerators) {
-
-	//		InterfaceSeedGenerator* gen = dynamic_cast<InterfaceSeedGenerator*>(md.get());
-
-	//		if (gen) {
-	//			bool isSelected = (selectedGen && selectedGen == gen);
-
-	//			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-	//				selectedGen = md.get();
-	//			};
-	//		}
-	//	}
-	//	
-	//	if (isFlashing2) {
-	//		ImGui::PopStyleColor(); // Pop the red border color
-	//		ImGui::PopStyleVar();   // Pop the thick border size
-	//	}
-
-	//	ImGui::EndChild();
-	//	ImGui::Separator();
-	//	ImGui::NewLine();
-
-	//	if (ImGui::Button("Generate")) {
-
-	//		if (!selectedCon) {
-	//			warningFlashTimer1 = 1.5f;
-	//		}
-
-	//		if (!selectedGen) {
-	//			warningFlashTimer2 = 1.5f;
-	//		}
-
-	//		else if (selectedCon && selectedGen) {
-
-	//			auto start_time = std::chrono::steady_clock::now();
-	//			
-	//			std::string name = std::string(buffer);
-	//			std::vector<Vec3> seeds = selectedGen->get_seeds();
-	//			Bounds bds = selectedCon->compute_bounds();
-
-	//			std::array<float, 6> bounds = {
-	//				bds.xMin,
-	//				bds.xMax,
-	//				bds.yMin,
-	//				bds.yMax,
-	//				bds.zMin,
-	//				bds.zMax
-	//			};
-
-	//			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
-	//				seeds, bounds, resolution, tempOpeness, tempThickness, foam
-	//			);
-
-	//			// estimate the scalar field
-	//			scaffold->set_stretch(tempStretchX, tempStretchY, tempStretchZ);
-	//			scaffold->anisotropyAngle = anisotropyAngle;
-	//			scaffold->anisotropyVec = anisotropyVec;
-	//			scaffold->compute_scalar_field(*selectedCon);
-
-	//			scaffold->container = selectedCon;
-	//			scaffold->generator = selectedGen;
-
-	//			if (foam == 1) {
-	//				std::cout << " create foam " << std::endl;
-	//				scaffold->foam = true;
-	//			}
-
-	//			if (!name.empty()) {
-	//				scaffold->name = name;
-	//			}
-	//			else {
-	//				scaffold->name = "Scaffold" + std::to_string(scaffolds.size() + 1);
-	//			}
-
-	//			scaffold->marching_cubes();
-
-	//			scaffold->estimate_metrics(*selectedCon);
-
-	//			// push to the scaffold list
-	//			scaffolds.push_back(std::move(scaffold));
-
-	//			// set it as the selected object
-	//			selectedSceneObj = scaffolds.back().get();
-	//			selectedPanelObj.ptr = scaffolds.back().get();
-	//			selectedPanelObj.type = ObjectType::ScaffoldType;
-
-	//			auto end_time = std::chrono::steady_clock::now();
-
-	//			// Calculate the duration in milliseconds
-	//			auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-	//			
-	//			std::ostringstream oss;
-	//			oss	<< std::fixed << std::setprecision(3) // Set precision to 3 decimal places
-	//				<< duration_ms.count() / 1000.0   // Convert ms to seconds
-	//				<< " seconds!";
-
-	//			logger.log(
-	//				LogPriority::SUCCESS,
-	//				"Created scaffold succesffully using container " + selectedCon->name +
-	//				" and generator " + selectedGen->name + " in" + oss.str());
-
-	//			// restore ptrs
-	//			selectedCon = nullptr;
-	//			selectedGen = nullptr;
-	//			buffer[0] = '\0';
-	//			showPopup = false;
-	//		}
-	//	}
-
-	//	ImGui::SameLine();
-
-	//	if (ImGui::Button("Cancel")) {
-	//		buffer[0] = '\0';
-	//		selectedCon = nullptr;
-	//		selectedGen = nullptr;
-	//		showPopup = false;
-	//	};
-	//	ImGui::EndPopup();
-	//}
-};
-
-void myGUI::_render_scaffold_properties() {
-
-	//GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
-
-	//ImGui::ColorEdit4("Color", (float*)&gen->color);
-
-	//static IContainer* selectedContainer = static_cast<IContainer*>(gen->container);
-
-	//ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x * 0.5f, 100), ImGuiChildFlags_Borders);
-
-	//for (const auto& md : containers) {
-
-	//	auto obj = md.get();
-
-	//	if (obj) {
-
-	//		bool isSelected = (selectedContainer && selectedContainer == obj);
-
-	//		if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-	//			selectedContainer = md.get();
-	//		};
-
-	//		if (isSelected) ImGui::SetItemDefaultFocus();
-	//	}
-	//}
-
-	//ImGui::EndChild();
-
-	//static InterfaceSeedGenerator* selectedGenerator = static_cast<InterfaceSeedGenerator*>(gen->generator);
-	//ImGui::SameLine();
-
-	//ImGui::BeginChild("Generator List", ImVec2(0, 100), ImGuiChildFlags_Borders);
-	//
-	//for (const auto& md : seedGenerators) {
-
-	//	auto obj = md.get();
-
-	//	if (obj) {
-
-	//		bool isSelected = (selectedGenerator && selectedGenerator == obj);
-
-	//		if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-	//			selectedGenerator = md.get();
-	//		};
-
-	//		if (isSelected) ImGui::SetItemDefaultFocus();
-	//	}
-	//}
-
-	//ImGui::EndChild();
-
-	////ImGui::SeparatorText("Parameters");
-	//
-	//gen->render_properties();
-
-	////ImGui::InputFloat("Thickness", &tempThickness, 0.001f, 1.0f);
-	////ImGui::SliderFloat("Openess", &tempOpeness, 0.0f, 1.0f, "%.3f");
-	//
-	//ImGui::SeparatorText("Metrics");
-
-	////static Metrics metrics = gen->get_metrics();
-
-	//gen->render_metrics();
-
-	//if (updateScaffold) {
-
-	//	if (selectedContainer && selectedGenerator) {
-	//		std::vector<Vec3> seeds = selectedGenerator->get_seeds();
-	//		Bounds bds = selectedContainer->compute_bounds();
-
-	//		std::array<float, 6> bounds = {
-	//			bds.xMin,
-	//			bds.xMax,
-	//			bds.yMin,
-	//			bds.yMax,
-	//			bds.zMin,
-	//			bds.zMax
-	//		};
-
-	//		gen->tortuosityPathModel.reset();
-	//		gen->set_bounds(bounds);
-	//		gen->set_seeds(seeds);
-	//		gen->container = selectedContainer;
-	//		gen->generator = selectedGenerator;
-
-	//		gen->set_resolution(resolution);
-	//		gen->compute_scalar_field(*selectedContainer);
-	//		gen->marching_cubes();
-	//		gen->estimate_metrics(*selectedContainer);
-
-	//		logger.log(LogPriority::SUCCESS, "Updated Scaffold Successfully");
-
-	//		// reset
-	//		updateScaffold = false;
-	//	}
-	//}
-};
-
 void myGUI::_create_dockspace() {
 
 	ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
@@ -3259,7 +3143,7 @@ void myGUI::_on_close_request() {
 	showExitConfirmation = true;
 };
 
-void myGUI::_local_thickness_measure(const char* popupName, bool& showPopup, bool flag) {
+void myGUI::_action_estimate_local_thickness(const char* popupName, bool& showPopup, bool flag) {
 	
 	// grab the active generatior
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
@@ -3275,13 +3159,19 @@ void myGUI::_local_thickness_measure(const char* popupName, bool& showPopup, boo
 		return;
 	}
 
-	static float tempVoxelSize = 0.05f;
+	if (gen->isLoadedFromFile) {
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		showPopup = false;
+		return;
+	}
 
+	static int analysisScope = 0;
+	static float tempVoxelSize = 0.05f;
 	static std::array<float, 2> xDims = { 0.0f, 5.0f };
 	static std::array<float, 2> yDims = { 0.0f, 5.0f };
 	static std::array<float, 2> zDims = { 0.0f, 5.0f };
+	static ROI* selectedROI = nullptr;
 
-	// fire up a modal
 	if (showPopup) {
 		if (!ImGui::IsPopupOpen(popupName)) {
 			ImGui::OpenPopup(popupName);
@@ -3295,34 +3185,61 @@ void myGUI::_local_thickness_measure(const char* popupName, bool& showPopup, boo
 		}
 	}
 
-	// get the active
-
 	if (ImGui::BeginPopupModal(popupName, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 		
 		ImGui::SeparatorText("Parameters");
-
+		
 		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
-		ImGui::InputFloat2("X Dimensions (mm)", xDims);
-		ImGui::InputFloat2("Y Dimensions (mm)", yDims);
-		ImGui::InputFloat2("Z Dimensions (mm)", zDims);
+		ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
+		ImGui::RadioButton("Analyze Inside ROI", &analysisScope, 1);
+		
+		if (analysisScope == 1){
+		
+			std::string previewValue = selectedROI ? selectedROI->name : "Choose...";
 
+			if (ImGui::BeginCombo("##ROIChooser", previewValue.c_str()))
+			{
+				for (size_t i = 0; i < rois.size(); i++)
+				{
+					const bool isSelected = (selectedROI == rois[i].get());
+
+					if (ImGui::Selectable(rois[i]->name.c_str(), isSelected))
+					{
+						selectedROI = rois[i].get();
+					}
+
+					if (isSelected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+				ImGui::EndCombo();
+			}
+		
+		}
+	
 		ImGui::NewLine();
 		if (ImGui::Button("Estimate")) {
 
-			voxelBounds = {
-				xDims[0], xDims[1],
-				yDims[0], yDims[1],
-				zDims[0], zDims[1]
-			};
-
-			gen->estimate_local_thickness(voxelSize, voxelBounds, flag);
-
+			if (analysisScope == 0) {
+				std::array<float, 6> bds = gen->get_bounds();
+				gen->estimate_local_thickness(voxelSize, bds, flag);
+			}
+			else {
+				ROI* roi = static_cast<ROI*>(selectedROI);
+				std::array<float, 6> roiBounds = roi->get_bounds();
+				gen->estimate_local_thickness(voxelSize, roiBounds, flag);
+			}
 			showPopup = false;
+			selectedROI = nullptr;
+			voxelSize = 0.05f;
 		}
 		
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) {
 			showPopup = false;
+			voxelSize = 0.05f;
+			selectedROI = nullptr;
 			ImGui::CloseCurrentPopup();
 		}
 
@@ -3335,6 +3252,7 @@ void myGUI::_action_estimate_tortuosity() {
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
 		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		estimateTortuosity = false;
 		return;
 	}
 
@@ -3342,6 +3260,12 @@ void myGUI::_action_estimate_tortuosity() {
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	bool flag = false;
+
+	if (scaffold->isLoadedFromFile) {
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		estimateTortuosity = false;
+		return;
+	}
 
 	if (scaffold) {
 		auto start = std::chrono::high_resolution_clock::now();
@@ -3375,6 +3299,7 @@ void myGUI::_action_estimate_anisotropy() {
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
 		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		estimateAnisotropy = false;
 		return;
 	}
 
@@ -3382,13 +3307,74 @@ void myGUI::_action_estimate_anisotropy() {
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	// pass settings
-
-
-	if (scaffold) {
-		scaffold->estimate_anisotropy(daMinDirections, daMinLines, daFormulaIdx);
+	if(scaffold->isLoadedFromFile){
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		estimateAnisotropy = false;
+		return;
 	}
 
-	estimateAnisotropy = false;
+	if (estimateAnisotropy) {
+		if (!ImGui::IsPopupOpen("Anisotropy Settings")) {
+			ImGui::OpenPopup("Anisotropy Settings");
+		}
+	}
+	
+	if (ImGui::BeginPopupModal("Anisotropy Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static float tempVoxelSize = 0.05f;
+		static int analysisScope = 0;
+		static ROI* selectedROI = nullptr;
+
+		ImGui::SeparatorText("Parameters");
+
+		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
+		ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
+		ImGui::RadioButton("Analyze Inside ROI", &analysisScope, 1);
+
+		if (analysisScope == 1) {
+
+			std::string previewValue = selectedROI ? selectedROI->name : "Choose...";
+
+			if (ImGui::BeginCombo("##ROIChooser", previewValue.c_str()))
+			{
+				for (size_t i = 0; i < rois.size(); i++)
+				{
+					const bool isSelected = (selectedROI == rois[i].get());
+
+					if (ImGui::Selectable(rois[i]->name.c_str(), isSelected))
+					{
+						selectedROI = rois[i].get();
+					}
+
+					if (isSelected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+				ImGui::EndCombo();
+			}
+		}
+
+		ImGui::NewLine();
+		if (ImGui::Button("Estimate")) {
+
+			scaffold->estimate_anisotropy(daMinDirections, daMinLines, daFormulaIdx, selectedROI);
+			estimateAnisotropy = false;
+			selectedROI = nullptr;
+			voxelSize = 0.05f;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			estimateAnisotropy = false;
+			voxelSize = 0.05f;
+			selectedROI = nullptr;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+
 };
 
 void myGUI::_action_estimate_connectivity_density() {
@@ -3396,6 +3382,7 @@ void myGUI::_action_estimate_connectivity_density() {
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
 		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		estimateConnectivityDensity = false;
 		return;
 	}
 
@@ -3403,7 +3390,11 @@ void myGUI::_action_estimate_connectivity_density() {
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	// pass settings
-
+	if (scaffold->isLoadedFromFile) {
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		estimateConnectivityDensity = false;
+		return;
+	}
 
 	if (scaffold) {
 		scaffold->estimate_connectivity_density();
@@ -3417,6 +3408,7 @@ void myGUI::_action_estimate_trabecular_number() {
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
 		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		estimateTrabecularNr = false;
 		return;
 	}
 
@@ -3424,13 +3416,75 @@ void myGUI::_action_estimate_trabecular_number() {
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	// pass settings
-
-
-	if (scaffold) {
-		scaffold->estimate_trabecular_number();
+	if (scaffold->isLoadedFromFile) {
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		estimateTrabecularNr = false;
+		return;
 	}
 
-	estimateTrabecularNr = false;
+	if (estimateTrabecularNr) {
+		if (!ImGui::IsPopupOpen("Trabecular Number Settings")) {
+			ImGui::OpenPopup("Trabecular Number Settings");
+		}
+	}
+
+	if (ImGui::BeginPopupModal("Trabecular Number Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static float tempVoxelSize = 0.05f;
+		static int analysisScope = 0;
+		static ROI* selectedROI = nullptr;
+
+		ImGui::SeparatorText("Parameters");
+
+		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
+		ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
+		ImGui::RadioButton("Analyze Inside ROI", &analysisScope, 1);
+
+		if (analysisScope == 1) {
+
+			std::string previewValue = selectedROI ? selectedROI->name : "Choose...";
+
+			if (ImGui::BeginCombo("##ROIChooser", previewValue.c_str()))
+			{
+				for (size_t i = 0; i < rois.size(); i++)
+				{
+					const bool isSelected = (selectedROI == rois[i].get());
+
+					if (ImGui::Selectable(rois[i]->name.c_str(), isSelected))
+					{
+						selectedROI = rois[i].get();
+					}
+
+					if (isSelected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+				ImGui::EndCombo();
+			}
+		}
+
+		const char* formulaOptions[] = { "Mean Intercept Length (DDA)", "Derived Proxy (BV/TV / Tb.Th)" };
+		ImGui::Combo("Algorithm", &trabecularNrFormula, formulaOptions, IM_ARRAYSIZE(formulaOptions));
+
+		ImGui::NewLine();
+		if (ImGui::Button("Estimate")) {
+			scaffold->estimate_trabecular_number(trabecularNrFormula, daMinDirections, daMinLines, selectedROI);
+			estimateTrabecularNr = false;
+			selectedROI = nullptr;
+			voxelSize = 0.05f;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			estimateTrabecularNr = false;
+			voxelSize = 0.05f;
+			selectedROI = nullptr;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
 };
 
 
@@ -3440,11 +3494,17 @@ void myGUI::_action_estimate_pore_network() {
 	// get the selected scaffold
 	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
 		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		estimatePoreNetwork = false;
 		return;
 	}
 
 	// get the scaffold
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+	if (scaffold->isLoadedFromFile) {
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		estimatePoreNetwork = false;
+		return;
+	}
 
 	if (scaffold) {
 		scaffold->estimate_connectivity_network();
@@ -3521,6 +3581,146 @@ void myGUI::_render_scale_panel(const char* popupName, bool& showPopup) {
 	};
 };
 
+void myGUI::_render_roi_creator(const char* popupName, bool& showPopup) {
+	
+	if (showPopup) {
+		ImGui::OpenPopup(popupName);
+	}
+
+	// always centered
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (ImGui::BeginPopupModal(popupName, NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		static std::string buffer = "";
+		ImGui::InputText("Name", &buffer);
+
+		// display here the settings for a box set
+		static Vec3 size{ 10.0f, 10.0f, 10.0f };;
+		static Vec3 origin;
+
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("Width (X)", &size.x, 0.1f, 100.0f, "%.3f");
+
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("Height (Y)", &size.y, 0.1f, 100.0f, "%.3f");
+
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("Depth (Z)", &size.z, 0.1f, 100.0f, "%.3f");
+		
+		ImGui::InputFloat3("Center", origin);
+		ImGui::SetItemTooltip("Center of ROI");
+
+		ImGui::Separator();
+		ImGui::SameLine();
+
+		if (ImGui::Button("Create")) {
+			std::shared_ptr<ROI> roi = std::make_shared<ROI>(size, origin);
+			if (buffer.empty()) {
+				roi->name = "roi" + std::to_string(rois.size());
+			}
+			else {
+				roi->name = buffer;
+			};
+			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedSceneObj);
+			roi->relatedMeshName = gen->name;
+			rois.push_back(roi);
+
+			size = { 10.0f, 10.0f, 10.0f };
+			buffer[0] = '\0';
+			origin = Vec3{ 0.0f, 0.0f, 0.0f };
+			showPopup = false;
+		}
+	
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			buffer[0] = '\0';
+			size = { 10.0f, 10.0f, 10.0f };
+			origin = Vec3{ 0.0f, 0.0f, 0.0f };
+			showPopup = false;
+		};
+		ImGui::EndPopup();
+	}
+};
+
+void myGUI::_render_roi_cutter(const char* popupName, bool& showPopup) {
+
+	if (showPopup) {
+		ImGui::OpenPopup(popupName);
+	}
+
+	// always centered
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (ImGui::BeginPopupModal(popupName, NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::Text("Select the Region of Interest to extract:");
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		static ROI* selectedROI = nullptr;
+		std::string previewValue = selectedROI ? selectedROI->name : "Select ROI...";
+
+		if (ImGui::BeginCombo("##ROIChooser", previewValue.c_str()))
+		{
+			for (size_t i = 0; i < rois.size(); i++)
+			{
+				const bool isSelected = (selectedROI == rois[i].get());
+
+				if (ImGui::Selectable(rois[i]->name.c_str(), isSelected))
+				{
+					selectedROI = rois[i].get();
+				}
+
+				if (isSelected)
+				{
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+			ImGui::EndCombo();
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		bool hasSelection = (selectedROI != nullptr);
+		if (!hasSelection) ImGui::BeginDisabled();
+
+		if (ImGui::Button("Cut")) {
+
+			auto* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+			
+			if (gen->isLoadedFromFile) {
+				logger.log(LogPriority::ERROR, "The Scaffold is loaded from a scalar field that is no more available!");
+			}
+			std::unique_ptr<GeneratorLewiner> newMesh;
+			newMesh = gen->extract_from_ROI(selectedROI);
+			if (selectedROI) {
+				newMesh->name = gen->name + "_" + selectedROI->name;
+			}
+			else {
+				newMesh->name = "Scaffold" + scaffolds.size() + 1;
+			}
+			scaffolds.push_back(std::move(newMesh));
+			selectedPanelObj.ptr = scaffolds.back().get();
+			selectedPanelObj.type = ObjectType::ScaffoldType;
+			selectedSceneObj = scaffolds.back().get();
+			selectedROI = nullptr;
+			showPopup = false;
+		}
+		if(!hasSelection) ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			selectedROI = nullptr;
+			showPopup = false;
+		};
+		ImGui::EndPopup();
+	}
+};
+
 void myGUI::_render_taubin_smooth_panel(const char* popupName, bool& showPopup) {
 
 	if (!selectedSceneObj) {
@@ -3564,11 +3764,12 @@ void myGUI::_draw_selected_box() {
 
 	if (!selectedSceneObj) return;
 
+	auto md = static_cast<GeneratorLewiner*>(selectedSceneObj);
+	if (md->hidden) return;
+
 	boxShader.use();
 	glDepthFunc(GL_LEQUAL);
 	glLineWidth(1.0f);
-
-	auto md = static_cast<GeneratorLewiner*>(selectedSceneObj);
 
 	Aabb aabb = md->get_aabb();
 

@@ -20,6 +20,12 @@ public:
 	
 	float get_closest_distance(const Vec3& pt) const;
 
+	int get_root_idx() const { return rootIdx; };
+
+	const AabbNode& get_node(int idx) const { return tree[idx]; };
+
+	const Triangle& get_triangle(int idx) const { return triangles[idx]; };
+
 private:
 	const std::vector<Triangle>& triangles;
 	const std::vector<Vec3>& normals;

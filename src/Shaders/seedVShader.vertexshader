@@ -9,5 +9,5 @@ uniform float seedSize;
 void main()
 {
 	// glPosition is the output of the vertex shader
-	gl_Position = projection * view * aInstanceMatrix * vec4(seedPos * seedSize, 1.0);
+	gl_Position = projection * view * aInstanceMatrix * vec4(seedPos, 1.0);
 }

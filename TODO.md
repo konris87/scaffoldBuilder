@@ -45,4 +45,12 @@
 
 12. add missing textures -> Done!
 
+13. insert time (proper hour) in each message -> Done!
+
+14. connectivity density does not turn to white -> Done!
+
+15. solve an issue with bounding box when the mesh is hidden or deleted -> Done
+
+16. auto scale Visualization Points -> Done
+
 

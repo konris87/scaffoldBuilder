@@ -128,6 +128,7 @@ float AabbTree::distance_to_node(const Vec3& pt, const std::array<float, 6>& bou
 
 //@brief find the closest distance from the querry point to the entire tree
 float AabbTree::get_closest_distance(const Vec3& pt) const {
+	
 	if (rootIdx == -1) return 9999.9f; // Empty tree
 
 	float minDistSq = std::numeric_limits<float>::max();
@@ -195,25 +196,36 @@ float AabbTree::get_closest_distance(const Vec3& pt) const {
 
 	// if no candidate return outside
 	if (bestTriangleIdx == -1) return 9999.9f;
+	return std::sqrt(minDistSq);
 
-	// grab the best triangle
-	const Triangle& bestTri = triangles[bestTriangleIdx];
+	//// grab the best triangle
+	//const Triangle& bestTri = triangles[bestTriangleIdx];
 
-	Vec3 bc = get_barycentric_point(pt, bestTri);
+	//Vec3 bc = get_barycentric_point(bestClosestPoint, bestTri);
+	//bc.x = std::clamp(bc.x, 0.0f, 1.0f);
+	//bc.y = std::clamp(bc.y, 0.0f, 1.0f);
+	//bc.z = std::clamp(bc.z, 0.0f, 1.0f);
+	//float bcSum = bc.x + bc.y + bc.z;
+	//bc = bc / bcSum;
 
-	// get the pseudonormal coordinates
-	Vec3 n0 = normals[bestTri.i1];
-	Vec3 n1 = normals[bestTri.i2];
-	Vec3 n2 = normals[bestTri.i3];
+	//// get the pseudonormal coordinates
+	//Vec3 n0 = normals[bestTri.i1];
+	//Vec3 n1 = normals[bestTri.i2];
+	//Vec3 n2 = normals[bestTri.i3];
 
-	Vec3 interpolatedNormal = (n0 * bc.x) + (n1 * bc.y) + (n2 * bc.z);
-	interpolatedNormal.normalize();
+	//Vec3 interpolatedNormal = (n0 * bc.x) + (n1 * bc.y) + (n2 * bc.z);	
+	//if (interpolatedNormal.norm() > 1e-6f) {
+	//	interpolatedNormal.normalize();
+	//}
+	//else {
+	//	interpolatedNormal = n0; // Fallback
+	//}
 
-	Vec3 dir = pt - bestClosestPoint;
+	//Vec3 dir = pt - bestClosestPoint;
 
-	// use the weighted angle criterion
-	float sign = (dir.dot(interpolatedNormal) >= 0.0f) ? 1.0f : -1.0f;
+	//// use the weighted angle criterion
+	//float sign = (dir.dot(interpolatedNormal) >= 0.0f) ? 1.0f : -1.0f;
 
-	// return the signed distance
-	return sign * std::sqrt(minDistSq);
+	//// return the signed distance
+	//return sign * std::sqrt(minDistSq);
 };

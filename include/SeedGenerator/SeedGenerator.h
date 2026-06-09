@@ -30,12 +30,20 @@ public:
 
 	virtual ObjectType get_type() = 0;
 
+	virtual void update_model() = 0;
+
 	void draw() { 
 		if (model) model->draw();
 		else { std::cout << "no model found" << std::endl; }
 	};
 
+	void set_renderMode(bool render) { renderMode = render; };
+
 	std::vector<Vec3> get_seeds() { return seeds; };
+
+	virtual void set_seeds(const std::vector<Vec3>& newSeeds) { 
+		seeds = newSeeds;
+	};
 
 	std::string name = "";
 	bool hidden = false;
@@ -45,8 +53,12 @@ public:
 	IContainer* container = nullptr;
 
 	uint32_t version = 1;
+	float modelSeedSize = 1.0f;
+
+	bool renderMode = true;
 
 protected:
+	Bounds bounds;
 	std::unique_ptr<VisualizeSeeds> model;
 	std::vector<Vec3> seeds;
 };
@@ -54,7 +66,9 @@ protected:
 class Random final : public InterfaceSeedGenerator {
 public:
 
-	explicit Random(int n) : seedNr(n) {};
+	Random() {};
+
+	explicit Random(int n, const bool render = true) : seedNr(n) { renderMode = render; };
 	
 	void run(const IContainer& adapter, const RunConfig& cfg) override {};
 
@@ -62,10 +76,17 @@ public:
 
 	void render_gui() override;
 
-	ObjectType get_type() override { return ObjectType::RandomGeneratorType; };
+	void update_model() override;
 
-private:
+	void set_seeds(const std::vector<Vec3>& newSeeds) override {
+		seeds = newSeeds;
+		seedNr = seeds.size();
+	};
+
+	ObjectType get_type() override { return ObjectType::RandomGeneratorType; };
+	
 	int seedNr{ 0 };
+
 };
 
 // -----------------------------------------------------------------------------------------
@@ -89,8 +110,14 @@ struct GridHashFunc {
 
 class Poisson3D final : public InterfaceSeedGenerator {
 public:
-	Poisson3D(const double& rMinVal, const double& rMaxVal, int neighs)
-		: rMin(rMinVal), rMax(rMaxVal), neighNr(neighs) {};
+
+	Poisson3D() {};
+
+	Poisson3D(const double& rMinVal, const double& rMaxVal, int neighs, const bool render=true)
+		: rMin(rMinVal), rMax(rMaxVal), neighNr(neighs) {
+		
+		renderMode = render;
+	};
 
 	void run(const IContainer& adapter, const RunConfig& cfg) override;
 
@@ -98,19 +125,23 @@ public:
 
 	void render_gui() override;
 
+	void update_model() override;
+
 	void set_min_radius(const double newRadius);
 
 	void set_max_radius(const double newRadius);
 
 	void set_center(const Vec3& newCenter);
 
-	float get_min_radius() { return rMin; };
+	float get_min_radius() const { return (float)rMin; };
 
-	float get_max_radius() { return rMax; };
+	float get_max_radius() const { return  (float)rMax; };
 
 	RunConfig get_config() const { return config; };
 
 	ObjectType get_type() override { return ObjectType::PoissonGeneratorType; };
+
+	bool is_uniform() const { return isUniform; };
 
 	// keep here the indices for distance and radius function
 	int radiusIdx = 0;
@@ -123,8 +154,8 @@ private:
 	std::unordered_map < std::array<int, 3>, Cell, GridHashFunc> grid;
 	int neighNr{ 30 };
 	float PI = 3.14159265358979323846f;
-
 	RunConfig config;
+	bool isUniform = true;
 
 	// protected functions
 	void pushIdxs(const int& n, const std::array<int, 3> cellIdx, const int& N) {

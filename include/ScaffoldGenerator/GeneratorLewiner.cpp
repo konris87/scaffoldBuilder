@@ -9,6 +9,7 @@
 #include <iostream>
 #include <map>
 #include <algorithm>
+#include <limits>
 #include <omp.h>
 #include <Eigen/Dense>
 
@@ -18,20 +19,29 @@ GeneratorLewiner::GeneratorLewiner(
 	const std::vector<Vec3>& seeds,
 	const std::array<float, 6>& bounds,
 	const std::array<int, 3>& dims,
+	Logger* uiLogger,
 	const float threshold,
 	const float isoLevel,
-	const int foam) : seeds(seeds), bounds(bounds), blockDims(dims), threshold(threshold), isoLevel(isoLevel), foam(foam) {
+	const int foam,
+	const bool renderMode
+	) : seeds(seeds), bounds(bounds), blockDims(dims), logger(uiLogger), threshold(threshold), isoLevel(isoLevel), foam(foam), renderMode(renderMode) {
 
 	// setup opengl
-	_setup_mesh();
+	if (renderMode) {
+		_setup_mesh();
 
-	_setup_edges();
+		_setup_edges();
+	}
 
+	isLoadedFromFile = false;
 };
 
 GeneratorLewiner::GeneratorLewiner(
-	const std::string fileName
-) {
+	const std::string fileName,
+	Logger* uiLogger,
+	const bool renderMode
+) : logger(uiLogger) {
+
 	std::ifstream file(fileName, std::ios::in | std::ios::binary);
 	std::vector<openstl::Triangle> meshTris = openstl::deserializeStl(file);
 	file.close();
@@ -106,15 +116,19 @@ GeneratorLewiner::GeneratorLewiner(
 		}
 	}
 
-	_setup_mesh();
+	if (renderMode) {
+		_setup_mesh();
 
-	_setup_edges();
+		_setup_edges();
 
+		// update opengl objects
+		_update_render();
+	}
 	// update axis aligned bounding box
 	_update_bounding_box();
 
-	// update opengl objects
-	_update_render();
+	isLoadedFromFile = true;
+
 };
 
 void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
@@ -124,41 +138,37 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	update_steps();
 
-	// normalize the anisotropy vector
-	//anisotropyVec.normalize();
-
 	//Eigen::Matrix3f rot = rotation_from_direction(anisotropyVec, anisotropyAngle, stretchX, stretchY, stretchZ);
 	Eigen::Matrix3f rot = rotation_axis_angle(anisotropyVec, anisotropyAngle);
 
 	Vec3 center = con.compute_bounds().center;
 
-	// update seeds to use the stretch factors
-	//if (stretchX != 1.0f && stretchY != 1.0f && stretchZ != 1.0f) {
-	for (auto& seed : seeds) {
+	std::vector<Vec3> warpedSeeds = this->seeds;
 
+	for (auto& seed : warpedSeeds) {
 		Vec3 local = seed - center;
-		// apply the rotation
 		Vec3 rotated = Vec3(rot * Eigen::Vector3f{ local.x, local.y, local.z });
 
 		seed.x = rotated.x / stretchX;
 		seed.y = rotated.y / stretchY;
 		seed.z = rotated.z / stretchZ;
-	//}
 	}
 
 	// first populate the kdtree with the seeds
-	std::unique_ptr<Kdtree>kdtree = std::make_unique<Kdtree>(seeds);
+	std::unique_ptr<Kdtree>kdtree = std::make_unique<Kdtree>(warpedSeeds);
 
 	// update scalar field
 	scalarField.clear();
 
 	// it will be more efficient to reserve the size of the scalar field vector before filling it, 
 	// since we know the size of the grid in advance
+	size_t totalVoxels = static_cast<size_t>(blockDims[0]) *
+		static_cast<size_t>(blockDims[1]) *
+		static_cast<size_t>(blockDims[2]);
 
-	int totalVoxels = blockDims[0] * blockDims[1] * blockDims[2];
+	std::cout << "Voxel Nr: " << totalVoxels << std::endl;
 
-	//scalarField.reserve(totalVoxels);
-	scalarField.resize(totalVoxels, 9999.9);
+	scalarField.resize(totalVoxels, 9999.9f);
 
 	#pragma omp parallel for collapse(3)
 	// create the grid points based on the bounds and block dimensions
@@ -166,7 +176,7 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 		for (int j{ 0 }; j < blockDims[1]; j++) {
 			for (int k{ 0 }; k < blockDims[2]; k++) {
 
-				int idx = find_vertex_index(i, j, k);
+				size_t idx = find_vertex_index(i, j, k);
 				float x = bounds[0] + i * stepX;
 				float y = bounds[2] + j * stepY;
 				float z = bounds[4] + k * stepZ;
@@ -184,7 +194,7 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 					rawDist = std::abs(rawDist);
 
 					localIsoLevel = static_cast<float>(
-						thicknessFunction->estimate_radius(rawDist, minThickness, maxThickness));
+						thicknessFunction->estimate_radius(rawDist, startThickness, endThickness));
 				}
 
 
@@ -229,13 +239,16 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 				//}
 
 				//scalarField[idx] = value;
-				// 4. Retrieve the actual warped seed coordinates using the indices
-				// (Assuming your knn returns std::pair<size_t index, double distSq>)
-				Vec3 p1 = seeds[neighbors[0].first];
-				Vec3 p2 = seeds[neighbors[1].first];
-				Vec3 p3 = seeds[neighbors[2].first];
+				
+				// Retrieve the actual warped seed coordinates using the indices
+				//Vec3 p1 = seeds[neighbors[0].first];
+				//Vec3 p2 = seeds[neighbors[1].first];
+				//Vec3 p3 = seeds[neighbors[2].first];
+				Vec3 p1 = warpedSeeds[neighbors[0].first];
+				Vec3 p2 = warpedSeeds[neighbors[1].first];
+				Vec3 p3 = warpedSeeds[neighbors[2].first];
 
-				// 5. Lambda to calculate the exact analytical gradient of a single distance
+				// Lambda to calculate the exact analytical gradient of a single distance
 				auto calc_grad = [&](const Vec3& p, float d) -> Vec3 {
 					if (d < 1e-6f) return Vec3(0.0f, 0.0f, 0.0f); // Prevent division by zero at the exact seed center
 					
@@ -258,7 +271,7 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 				float value = 0.0f;
 				Vec3 gradValue;
 
-				// 6. Combine the values and gradients analytically
+				// Combine the values and gradients analytically
 				if (foam) {
 					value = d2 - d1;
 					gradValue = grad2 - grad1;
@@ -306,11 +319,13 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 		}
 	}
 
-	remove_isolated_islands();
+	if (!isROI) {
+		remove_isolated_islands();
+	}
 
 	seal_grid_boundaries();
 
-	int solidVoxels = 0;
+	size_t solidVoxels = 0;
 	for (float val : scalarField) {
 		if (val < isoLevel) {
 			solidVoxels++;
@@ -330,7 +345,7 @@ void GeneratorLewiner::smooth_scalar_field() {
 				float sum = 0.0;
 				int count = 0;
 
-				int centerIdx = find_vertex_index(x, y, z);
+				size_t centerIdx = find_vertex_index(x, y, z);
 				if (scalarField[centerIdx] > isoLevel + 0.5f) {
 					// It's safely outside the container and the boundary margin, skip smoothing
 					continue;
@@ -340,7 +355,7 @@ void GeneratorLewiner::smooth_scalar_field() {
 				for (int kz = -1; kz <= 1; kz++) {
 					for (int ky = -1; ky <= 1; ky++) {
 						for (int kx = -1; kx <= 1; kx++) {
-							int idx = find_vertex_index(x + kx, y + ky, z + kz);
+							size_t idx = find_vertex_index(x + kx, y + ky, z + kz);
 							sum += scalarField[idx];
 							count++;
 						}
@@ -357,25 +372,25 @@ void GeneratorLewiner::smooth_scalar_field() {
 }
 
 void GeneratorLewiner::remove_isolated_islands() {
-	int nx = blockDims[0];
-	int ny = blockDims[1];
-	int nz = blockDims[2];
-	int totalVoxels = nx * ny * nz;
+	size_t nx = static_cast<size_t>(blockDims[0]);
+	size_t ny = static_cast<size_t>(blockDims[1]);
+	size_t nz = static_cast<size_t>(blockDims[2]);
+	size_t totalVoxels = nx * ny * nz;
 
 	std::vector<bool> visited(totalVoxels, false);
-	std::vector<std::vector<int>> islands;
+	std::vector<std::vector<size_t>> islands;
 
 	// 1. Find all connected components
 	for (int i = 0; i < nx; i++) {
 		for (int j = 0; j < ny; j++) {
 			for (int k = 0; k < nz; k++) {
 
-				int idx = find_vertex_index(i, j, k);
+				size_t idx = find_vertex_index(i, j, k);
 
 				// If voxel is solid and hasn't been grouped into an island yet
 				if (scalarField[idx] < isoLevel && !visited[idx]) {
 
-					std::vector<int> currentIsland;
+					std::vector<size_t> currentIsland;
 					std::queue<Vec3i> q;
 
 					q.push({ i, j, k });
@@ -398,7 +413,7 @@ void GeneratorLewiner::remove_isolated_islands() {
 						for (const auto& n : neighbors) {
 							// Ensure neighbor is within grid bounds
 							if (n.x >= 0 && n.x < nx && n.y >= 0 && n.y < ny && n.z >= 0 && n.z < nz) {
-								int nIdx = find_vertex_index(n.x, n.y, n.z);
+								size_t nIdx = find_vertex_index(n.x, n.y, n.z);
 								if (scalarField[nIdx] < isoLevel && !visited[nIdx]) {
 									visited[nIdx] = true;
 									q.push(n);
@@ -428,7 +443,7 @@ void GeneratorLewiner::remove_isolated_islands() {
 	int removedCount = 0;
 	for (size_t i = 0; i < islands.size(); i++) {
 		if (i != maxIslandIdx) {
-			for (int idx : islands[i]) {
+			for (size_t idx : islands[i]) {
 				scalarField[idx] = 9999.9f;
 				removedCount++;
 			}
@@ -438,7 +453,6 @@ void GeneratorLewiner::remove_isolated_islands() {
 	std::cout << "Cleaned up: Removed " << islands.size() - 1
 		<< " floating pieces (" << removedCount << " voxels)." << std::endl;
 }
-
 
 //-----------------------------------------------------------------------------
 
@@ -453,10 +467,12 @@ void GeneratorLewiner::marching_cubes() {
 	// get current time
 	const auto start{ std::chrono::steady_clock::now() };
 
-	int totalVoxels = blockDims[0] * blockDims[1] * blockDims[2];
-	x_verts.assign(totalVoxels, -1);
-	y_verts.assign(totalVoxels, -1);
-	z_verts.assign(totalVoxels, -1);
+	size_t totalVoxels = static_cast<size_t>(blockDims[0]) *
+		static_cast<size_t>(blockDims[1]) *
+		static_cast<size_t>(blockDims[2]);
+	x_verts.assign(totalVoxels, SIZE_MAX);
+	y_verts.assign(totalVoxels, SIZE_MAX);
+	z_verts.assign(totalVoxels, SIZE_MAX);
 	meshVertices.resize(totalVoxels * 3);
 	meshTriangles.resize(totalVoxels * 5); 
 	vertexCount = 0;
@@ -466,7 +482,7 @@ void GeneratorLewiner::marching_cubes() {
 
 	for (int i = 0; i < blockDims[0] - 1; i++) {
 		for (int j = 0; j < blockDims[1] - 1; j++) {
-			for (int k = 0; k < blockDims[0] - 1; k++) {
+			for (int k = 0; k < blockDims[2] - 1; k++) {
 				
 				int lut_entry = 0;
 
@@ -501,12 +517,14 @@ void GeneratorLewiner::marching_cubes() {
 	// build adjacency
 	build_topology();
 
+	if (renderMode) {
+		// update opengl objects
+		_update_render();
+	}
+
 	// update axis aligned bounding box
 	_update_bounding_box();
-
-	// update opengl objects
-	_update_render();
-
+	
 	// update mesh version
 	meshVersion++;
 };
@@ -548,7 +566,7 @@ void GeneratorLewiner::compute_intersection_points() {
 			for (int k = 0; k < blockDims[2]; k++) {
 
 				// get current voxel index
-				int currentIdx = find_vertex_index(i, j, k);
+				size_t currentIdx = find_vertex_index(i, j, k);
 
 				float val0 = get_data(i, j, k) - isoLevel;
 
@@ -592,7 +610,7 @@ void GeneratorLewiner::compute_intersection_points() {
 
 				// check if the surface crosses the edge, they have different signs
 				if ((val0 < 0 && val1 >= 0) || (val0 >= 0 && val1 < 0)) {
-					int vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
+					size_t vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
 					
 					// add to vector of Vertices
 					meshVertices[vIdx] = add_x_vertex(i, j, k, val0, val1);
@@ -602,13 +620,13 @@ void GeneratorLewiner::compute_intersection_points() {
 				}
 
 				if ((val0 < 0 && val2 >= 0) || (val0>=0 && val2 < 0)) {
-					int vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
+					size_t vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
 					meshVertices[vIdx] = add_y_vertex(i, j, k, val0, val2);
 					y_verts[currentIdx] = vIdx;
 				}
 
 				if ((val0 < 0 && val3 >= 0) || (val0 >= 0 && val3 < 0)) {
-					int vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
+					size_t vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
 					meshVertices[vIdx] = add_z_vertex(i, j, k, val0, val3);
 					z_verts[currentIdx] = vIdx;
 				};
@@ -620,14 +638,19 @@ void GeneratorLewiner::compute_intersection_points() {
 // get data from scalar field
 float GeneratorLewiner::get_data(const int i, const int j, const int k) const {
 
-	return scalarField[i + j * blockDims[0] + k * blockDims[0] * blockDims[1]];
+	size_t idx = static_cast<size_t>(i) +
+		static_cast<size_t>(j) * static_cast<size_t>(blockDims[0]) +
+		static_cast<size_t>(k) * static_cast<size_t>(blockDims[0]) * static_cast<size_t>(blockDims[1]);
+
+	return scalarField[idx];
 };
 
 //@brief function to find the index of the vertex in the scalar field vector based on its position in the grid
-int GeneratorLewiner::find_vertex_index(int x, int y, int z) {
-
-	return x + y * blockDims[0] + z * blockDims[0] * blockDims[1];
-};
+size_t GeneratorLewiner::find_vertex_index(int x, int y, int z) {
+	return static_cast<size_t>(x) +
+		static_cast<size_t>(y) * static_cast<size_t>(blockDims[0]) +
+		static_cast<size_t>(z) * static_cast<size_t>(blockDims[0]) * static_cast<size_t>(blockDims[1]);
+}
 
 Vec3 GeneratorLewiner::get_position(int x, int y, int z) {
 
@@ -639,7 +662,7 @@ Vec3 GeneratorLewiner::get_position(int x, int y, int z) {
 
 void GeneratorLewiner::process_cube(int i, int j, int k, const float cube[8], int lut_entry) {
 
-	int v12 = -1;
+	size_t v12 = SIZE_MAX;
 
 	// get te case from the LUT table
 	int baseCase = cases[lut_entry][0];
@@ -1099,9 +1122,9 @@ void GeneratorLewiner::process_cube(int i, int j, int k, const float cube[8], in
 // const uint8_t* points to the first element of the array
 void GeneratorLewiner::add_triangle(const uint8_t* trig, int i, int j, int k, int n, int v12) {
 
-	int tv[3] = {};
+	size_t tv[3] = {};
 
-	int startTriIdx = triangleCount.fetch_add(n, std::memory_order_relaxed);
+	size_t startTriIdx = triangleCount.fetch_add(n, std::memory_order_relaxed);
 
 	for (int t = 0; t < 3 * n; t++) {
 
@@ -1281,19 +1304,19 @@ float GeneratorLewiner::get_z_grad(const int i, const int j, const int k) {
 		return get_data(i, j, k + 1) - get_data(i, j, k);
 };
 
-int GeneratorLewiner::get_x_vert(int i, int j, int k) {
+size_t GeneratorLewiner::get_x_vert(int i, int j, int k) {
 	return x_verts[find_vertex_index(i, j, k)];
 };
 
-int GeneratorLewiner::get_y_vert(int i, int j, int k) {
+size_t GeneratorLewiner::get_y_vert(int i, int j, int k) {
 	return y_verts[find_vertex_index(i, j, k)];
 };
 
-int GeneratorLewiner::get_z_vert(int i, int j, int k) {
+size_t GeneratorLewiner::get_z_vert(int i, int j, int k) {
 	return z_verts[find_vertex_index(i, j, k)];
 };
 
-int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
+size_t GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 
 	// add test_vertex_addition();
 
@@ -1306,8 +1329,8 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 	vertex.x = vertex.y = vertex.z = vertex.nx = vertex.ny = vertex.nz = 0;
 
 	// estimate the average of the intersection points of the cube
-	int vid = get_x_vert(i, j, k);
-	if (vid != -1) {
+	size_t vid = get_x_vert(i, j, k);
+	if (vid != SIZE_MAX) {
 		u++;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1318,7 +1341,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_y_vert(i + 1, j, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		u++;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1329,7 +1352,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_x_vert(i, j + 1, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		u++;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1340,7 +1363,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_y_vert(i, j, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1351,7 +1374,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_x_vert(i, j, k + 1);
-	if (vid != -1) {
+	if (vid != -SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1362,7 +1385,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_y_vert(i + 1, j, k + 1);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1373,7 +1396,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_x_vert(i, j + 1, k + 1);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1384,7 +1407,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_y_vert(i, j, k + 1);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1395,7 +1418,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_z_vert(i, j, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1406,7 +1429,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_z_vert(i + 1, j, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1417,7 +1440,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_z_vert(i + 1, j + 1, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1428,7 +1451,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_z_vert(i, j + 1, k);
-	if (vid != -1) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -1453,7 +1476,7 @@ int GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 	}
 
 	// use atom to add the vertex into the correct slot
-	int vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
+	size_t vIdx = vertexCount.fetch_add(1, std::memory_order_relaxed);
 	meshVertices[vIdx] = vertex;
 
 	return vIdx;
@@ -2238,7 +2261,7 @@ void GeneratorLewiner::_update_render() {
 		add_edge(tri.v1, tri.v2, tri.v3);
 	}
 
-	glBindVertexArray(VAO); // Optional but good practice to ensure we target correct state
+	glBindVertexArray(VAO); 
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
@@ -2289,10 +2312,10 @@ void GeneratorLewiner::export_nrrd(const std::string fileName, float voxelSize, 
 	int ny = static_cast<int>(std::ceil((blockSize[3] - blockSize[2]) / voxelSize));
 	int nz = static_cast<int>(std::ceil((blockSize[5] - blockSize[4]) / voxelSize));
 
-	std::cout << "Starting High-Res Export..." << std::endl;
-	std::cout << "Physical Box: " << (blockSize[1] - blockSize[0]) << " mm" << std::endl;
-	std::cout << "Target Voxel: " << voxelSize << " mm" << std::endl;
-	std::cout << "Grid Size: " << nx << " x " << ny << " x " << nz << std::endl;
+	//std::cout << "Starting High-Res Export..." << std::endl;
+	//std::cout << "Physical Box: " << (blockSize[1] - blockSize[0]) << " mm" << std::endl;
+	//std::cout << "Target Voxel: " << voxelSize << " mm" << std::endl;
+	//std::cout << "Grid Size: " << nx << " x " << ny << " x " << nz << std::endl;
 
 	// 4. Write NRRD
 	std::ofstream file(fileName, std::ios::binary);
@@ -2315,7 +2338,7 @@ void GeneratorLewiner::export_nrrd(const std::string fileName, float voxelSize, 
 	file.write(reinterpret_cast<char*>(field.data()), field.size());
 	file.close();
 
-	std::cout << "Export Complete: " << fileName << std::endl;
+	logger->log(LogPriority::SUCCESS, "Export to Nrrd Completed: " + fileName);
 };
 
 void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, std::array<float, 6> blockBounds) {
@@ -2338,7 +2361,7 @@ void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, 
 
 	std::ofstream rawFile(rawFileName, std::ios::binary);
 	if (!rawFile) {
-		std::cerr << "Error: Could not open " << rawFileName << std::endl;
+		logger->log(LogPriority::ERROR, "Error: Could not open " + rawFileName);
 		return;
 	}
 	rawFile.write(reinterpret_cast<char*>(field.data()), field.size());
@@ -2346,7 +2369,7 @@ void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, 
 
 	std::ofstream mhdFile(mhdFileName);
 	if (!mhdFile) {
-		std::cerr << "Error: Could not open " << mhdFileName << std::endl;
+		logger->log(LogPriority::ERROR, "Error: Could not open " + mhdFileName);
 		return;
 	}
 	mhdFile.imbue(std::locale::classic());
@@ -2366,7 +2389,8 @@ void GeneratorLewiner::export_mhd(std::filesystem::path& path, float voxelSize, 
 	mhdFile << "ElementDataFile = " << rawBaseName << "\n";
 	mhdFile.close();
 
-	std::cout << "MHD Export Complete: " << mhdFileName << std::endl;
+	logger->log(LogPriority::SUCCESS, "Export to Mhd Completed: " + mhdFileName);
+
 };
 
 void GeneratorLewiner::export_stl(std::string fileName) {
@@ -2433,19 +2457,17 @@ void GeneratorLewiner::export_stl(std::string fileName) {
 	}
 
 	out.close();
-	std::cout << "Successfully exported STL to: " << fileName << std::endl;
+	logger->log(LogPriority::SUCCESS, "Exported stl as " + fileName);
 	
 	std::filesystem::path parent = std::filesystem::path(fileName).parent_path();
 	std::string stlName = std::filesystem::path(fileName).stem().string();
 	std::string parameterFileName = stlName + "_parameters.csv";
 	std::filesystem::path parameterPath = parent / parameterFileName;
 
-	std::cout << parameterPath.string() << std::endl;
 	export_parameters(parameterPath.string());
 };
 
 void GeneratorLewiner::validate_topology() {
-	std::cout << "\n--- Running Topology Validation ---" << std::endl;
 
 	// Map to count how many faces share each edge
 	std::map<std::pair<int, int>, int> edgeCounts;
@@ -2480,51 +2502,52 @@ void GeneratorLewiner::validate_topology() {
 		}
 	}
 
-	std::cout << "Vertices: " << meshVertices.size() << std::endl;
-	std::cout << "Faces: " << meshTriangles.size() << std::endl;
-	std::cout << "Total Unique Edges: " << edgeCounts.size() << std::endl;
-	std::cout << "Boundary Edges (Holes): " << boundaryEdges << std::endl;
-	std::cout << "Non-Manifold Edges: " << nonManifoldEdges << std::endl;
+	//std::cout << "Vertices: " << meshVertices.size() << std::endl;
+	//std::cout << "Faces: " << meshTriangles.size() << std::endl;
+	//std::cout << "Total Unique Edges: " << edgeCounts.size() << std::endl;
+	//std::cout << "Boundary Edges (Holes): " << boundaryEdges << std::endl;
+	//std::cout << "Non-Manifold Edges: " << nonManifoldEdges << std::endl;
 
 	if (boundaryEdges == 0 && nonManifoldEdges == 0) {
-		std::cout << "Status: SUCCESS - Mesh is 100% Watertight and 2-Manifold!" << std::endl;
+		logger->log(LogPriority::SUCCESS, "Mesh is 100% Watertight and 2-Manifold!");
 	}
 	else {
-		std::cout << "Status: FAILED - Mesh has topological errors." << std::endl;
+		logger->log(LogPriority::ERROR, "Mesh has topological errors.");
 	}
-	std::cout << "-----------------------------------\n" << std::endl;
 }
 
-void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold) 
+void GeneratorLewiner::render_properties(bool& updateScaffold) 
 {
 	std::shared_ptr<IContainer> lockedCon = container.lock();
 	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
 
+	ImGui::ColorEdit4("Appearance", (float*)&color);
+
 	// first render the applied generator and container
-	if (!lockedCon) {
-		ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "ERROR: Container was deleted!");
-	}
-	else {
+	if (lockedCon) {
 		ImGui::Text("Container: %s", lockedCon->name.c_str());
 	}
-	if (!lockedGen) {
-		ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "ERROR: Generator was deleted!");
-	}
-	else {
+	if (lockedGen) {
 		ImGui::Text("Generator: %s", lockedGen->name.c_str());
 	}
 
 	// --------------------------------------------------------------------------------
 	ImGui::SeparatorText("Thickness");
 
-	ImGui::RadioButton("Uniform Thickness", &uniformThicknessFlag, 0);
-	ImGui::RadioButton("Varied Thickness", &uniformThicknessFlag, 1);
+	ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
+	ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
-	if (uniformThicknessFlag == 1) {
+	// this is the uniform case
+	if (selectedThicknessOption == 0) {
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Start Thickness", &minThickness);
+		ImGui::InputFloat("Thickness", &isoLevel);
+	}
+	// this is the varied case
+	else {
 		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("End Thickness", &maxThickness);
+		ImGui::InputFloat("Start Thickness", &startThickness);
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputFloat("End Thickness", &endThickness);
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat("Transition Distance", &transitionDistance);
 
@@ -2549,50 +2572,47 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 		ImGui::RadioButton("Constant", &selectedFunc, 2);
 		ImGui::RadioButton("Random", &selectedFunc, 3);
 	}
-
+	ImGui::InputFloat("Voxel Size", &voxelSize);
+	// other parameters -----------------------------------------------------------
 	ImGui::SeparatorText("Parameters");
 	
 	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
 	// create a table
 	if (ImGui::BeginTable("", 2, flags = flags)) {
 		
-		if (uniformThicknessFlag == 0) {
+		if (lockedGen) {
 			ImGui::TableNextRow();
-			ImGui::TableNextColumn(); ImGui::Text("Thickness");
-			ImGui::TableNextColumn();
-			ImGui::InputFloat("##Thickness", &isoLevel, 0.01f, 1.0f, "%.3f");
+
+			if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+				ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
+				ImGui::TableNextColumn();
+				ImGui::Text("%d", lockedGen->get_seeds().size());
+			}
+			else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
+				ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
+				ImGui::TableNextColumn();
+
+				Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
+				if (dummy->is_uniform()) {
+					ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
+				}
+				else {
+					ImGui::BeginTable("##", 2);
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::Text("Rmin %4.f", dummy->get_min_radius());
+					ImGui::TableNextColumn();
+					ImGui::Text("Rmax %4.f", dummy->get_max_radius());
+					ImGui::EndTable();
+				}
+			}
 		}
 		else {
 			ImGui::TableNextRow();
-			ImGui::TableNextColumn(); ImGui::Text("Start Thickness");
-			ImGui::TableNextColumn();
-			ImGui::InputFloat("##SThickness", &minThickness, 0.01f, 1.0f, "%.3f");
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn(); ImGui::Text("End Thickness");
-			ImGui::TableNextColumn();
-			ImGui::InputFloat("##EThickness", &maxThickness, 0.01f, 1.0f, "%.3f");
+			ImGui::TableNextColumn(); ImGui::Text("Source");
+			ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
 		}
-
-		ImGui::TableNextRow();
-		if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
-			ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
-			ImGui::TableNextColumn();
-			ImGui::Text("%d", lockedGen->get_seeds().size());
-		}
-		else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
-			ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
-			ImGui::TableNextColumn();
-
-			ImGui::BeginTable("##", 2);
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn();
-			Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
-			ImGui::Text("rMin %4.f", dummy->get_min_radius());
-			ImGui::TableNextColumn();
-			ImGui::Text("rMax %4.f", dummy->get_max_radius());
-			ImGui::EndTable();
-		}
-
+		
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::Text("Openess");
 		ImGui::TableNextColumn();
@@ -2623,12 +2643,6 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 		ImGui::TableNextColumn(); ImGui::Text("Angle");
 		ImGui::TableNextColumn();
 		ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
-
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Resolution");
-		ImGui::TableNextColumn();
-		ImGui::SetNextItemWidth(200.0f);
-		ImGui::InputInt3("##Resolution", blockDims);
 	
 		ImGui::EndTable();
 	}
@@ -2639,7 +2653,10 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 
 	// if the user pressed the update button from the gui
 	if (updateScaffold) {
-
+		if (isLoadedFromFile) {
+			logger->log(LogPriority::WARNING, "Cannot update a static mesh loaded from a file.");
+			updateScaffold = false;
+		}
 		if (lockedCon && lockedGen) {
 
 			auto startTime = std::chrono::steady_clock::now();
@@ -2656,8 +2673,14 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 				bds.zMax
 			};
 
-			if (uniformThicknessFlag == 1) {
-				std::cout << "setting functions" << std::endl;
+			// check the resolution
+			resolution = {
+				static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
+				static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
+				static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
+			};
+
+			if (selectedThicknessOption == 1) {
 
 				switch (selectedFunc) {
 					// linear radius function
@@ -2681,8 +2704,6 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 				switch (selectedDist) {
 					// distance from plane
 					case 0: {
-						//std::array<double, 3> center = { planeCenter.x, planeCenter.y, planeCenter.z };
-						//std::array<double, 3> norm = { normal.x, normal.y, normal.z};
 						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
 						break;
 					}
@@ -2698,11 +2719,19 @@ void GeneratorLewiner::render_properties(Logger* logger, bool& updateScaffold)
 					}
 				}
 			}
+			else {
+				thicknessSDF.reset();
+				thicknessFunction.reset();
+			}
+
+			set_thickness_functions(thicknessSDF, thicknessFunction, startThickness, endThickness, transitionDistance);
 
 			tortuosityPathModel.reset();
 			set_bounds(bounds);
 			set_seeds(seeds);
 			
+			//std::cout << "uniform flag" << selectedThicknessOption << " minT: " << startThickness << " maxT: " << maxThickness << " tDist: " << transitionDistance << " resolution: " << resolution[0] << " " << resolution[1] << " " << resolution[2] << std::endl;
+
 			compute_scalar_field(*lockedCon);
 			marching_cubes();
 			estimate_metrics(*lockedCon);
@@ -2794,9 +2823,6 @@ void GeneratorLewiner::render_metrics() {
 		ImGui::TableNextColumn(); ImGui::Text("Porosity (%%)");
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", porosity * 100.0f);
 
-		//ImGui::TableNextRow();
-		//ImGui::TableNextColumn(); ImGui::Text("Local Thickness (mm)");
-		//ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
 		draw_metric_row("Local Thickness (mm)", thicknessVersion, [&]() {
 			ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
 		});
@@ -2805,34 +2831,18 @@ void GeneratorLewiner::render_metrics() {
 			ImGui::Text("%.4f std: %.4f", localSeparation, localSeparationStd);
 		});
 
-		//ImGui::TableNextRow();
-		//ImGui::TableNextColumn(); ImGui::Text("Local Separation (mm)");
-		//ImGui::TableNextColumn(); ImGui::Text("%.4f std: %.4f", localSeparation, localSeparationStd);
-
-		//ImGui::TableNextRow();
-		//ImGui::TableNextColumn(); ImGui::Text("Trabecular Number (1/mm)");
-		//ImGui::TableNextColumn(); ImGui::Text("%.4f", trabecularNr);
 		draw_metric_row("Trabecular Number (1/mm)", trabecularNrVersion, [&]() {
 			ImGui::Text("%.4f", trabecularNr);
 		});
 
-		//ImGui::TableNextRow();
-		//ImGui::TableNextColumn(); ImGui::Text("Connectivity Density (1/mm^3)");
-		//ImGui::TableNextColumn(); ImGui::Text("%.4f", connectivityDensity);
 		draw_metric_row("Connectivity Density (1/mm^3)", connectivityVersion, [&]() {
 			ImGui::Text("%.4f", connectivityDensity);
 		});
 
-		//ImGui::TableNextRow();
-		//ImGui::TableNextColumn(); ImGui::Text("Tortuosity");
-		//ImGui::TableNextColumn(); ImGui::Text("%.4f", tortuosity);
 		draw_metric_row("Tortuosity", tortuosityVersion, [&]() {
 			ImGui::Text("%.4f", tortuosity);
 		});
 
-		//ImGui::TableNextRow();
-		//ImGui::TableNextColumn(); ImGui::Text("Degree of Anisotropy");
-		//ImGui::TableNextColumn(); ImGui::Text("%.4f", anisotropyDegree);
 		draw_metric_row("Degree of Anisotropy", anisotropyVersion, [&]() {
 			ImGui::Text("%.4f", anisotropyDegree);
 		});
@@ -2844,13 +2854,29 @@ void GeneratorLewiner::render_metrics() {
 void GeneratorLewiner::set_thickness_functions(
 	std::shared_ptr<const SDF> sdf,
 	std::shared_ptr<const RadiusFunction> radFunc,
-	float tMin, float tMax
+	float tMin, float tMax, float distance
 ) {
 	thicknessFunction = radFunc;
 	thicknessSDF = sdf;
-	minThickness = tMin;
-	maxThickness = tMax;
-	uniformThicknessFlag = 1;
+	startThickness = tMin;
+	endThickness = tMax;
+	transitionDistance = distance;
+};
+
+void GeneratorLewiner::set_options_from_factory(int distOption, int distFunc, int thicknessOption, float voxSize) {
+	selectedDist = distOption;
+	selectedFunc = distFunc;
+	selectedThicknessOption = thicknessOption;
+	voxelSize = voxSize;
+};
+
+void GeneratorLewiner::set_distance_plane_options(Vec3 center, Vec3 normal) {
+	distancePlaneCenter = center;
+	distancePlaneNormal = normal;
+};
+
+void GeneratorLewiner::set_distance_point_options(Vec3 point) {
+	distancePoint = point;
 };
 
 void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
@@ -2859,6 +2885,9 @@ void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
 
 void GeneratorLewiner::set_bounds(const std::array<float, 6>& newBounds) {
 	bounds = newBounds;
+	stepX = (bounds[1] - bounds[0]) / (blockDims[0] - 1);
+	stepY = (bounds[3] - bounds[2]) / (blockDims[1] - 1);
+	stepZ = (bounds[5] - bounds[4]) / (blockDims[2] - 1);
 };
 
 void GeneratorLewiner::set_seeds(const std::vector<Vec3>& newSeeds) {
@@ -2906,7 +2935,7 @@ void GeneratorLewiner::estimate_local_thickness(
 	int ny = static_cast<int>(std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize));
 	int nz = static_cast<int>(std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize));
 
-	int totalVoxels = (int)field.size();
+	size_t totalVoxels = field.size();
 
 	// initialize all values to infinity
 	std::vector<float> squaredDistanceField;
@@ -2918,14 +2947,39 @@ void GeneratorLewiner::estimate_local_thickness(
 		squaredDistanceField.resize(totalVoxels, std::numeric_limits<float>::max());
 	}
 
+	auto get_idx = [&](int x, int y, int z) -> size_t {
+		return static_cast<size_t>(x) +
+			static_cast<size_t>(y) * static_cast<size_t>(nx) +
+			static_cast<size_t>(z) * static_cast<size_t>(nx) * static_cast<size_t>(ny);
+	};
+
 	// initialize to zero the empty voxels
-	#pragma omp parallel for
-	for (int i{ 0 }; i < totalVoxels; i++) {
+	auto con = container.lock();
 
-		if (field[i] == 0) squaredDistanceField[i] = 0.0f;
+	// initialize to zero the empty voxels AND voxels outside the container
+	#pragma omp parallel for collapse(3)
+	for (int z = 0; z < nz; z++) {
+		for (int y = 0; y < ny; y++) {
+			for (int x = 0; x < nx; x++) {
+				size_t idx = get_idx(x, y, z);
+
+				bool isInsideROI = true;
+				if (con) {
+					// Calculate the physical center of the voxel
+					float px = blockBounds[0] + (x + 0.5f) * voxelSize;
+					float py = blockBounds[2] + (y + 0.5f) * voxelSize;
+					float pz = blockBounds[4] + (z + 0.5f) * voxelSize;
+					isInsideROI = con->is_inside(Vec3(px, py, pz));
+				}
+
+				// If it's outside the container, it acts as a hard boundary (0.0f).
+				// Otherwise, check the image field as usual.
+				if (!isInsideROI || field[idx] == 0) {
+					squaredDistanceField[idx] = 0.0f;
+				}
+			}
+		}
 	}
-
-	auto find_idx = [&](int x, int y, int z) { return z * nx * ny + y * nx + x; };
 
 	// since we have 3d data we need three phases to estimate the distance field one along each dimension, we can use a simple 1D distance transform along each dimension
 	// 1st pass: forward scan along x
@@ -2934,21 +2988,21 @@ void GeneratorLewiner::estimate_local_thickness(
 		for (int y = 0; y < ny; y++) {
 			// forward scan
 			for (int x = 1; x < nx; x++) {
-				int idx = find_idx(x, y, z);
+				size_t idx = get_idx(x, y, z);
 				squaredDistanceField[idx] = std::min(
-					squaredDistanceField[idx], squaredDistanceField[find_idx(x - 1, y, z)] + 1.0f);
+					squaredDistanceField[idx], squaredDistanceField[get_idx(x - 1, y, z)] + 1.0f);
 			}
 			// backward scan
 			for (int x = nx - 2; x >= 0; x--) {
-				int idx = find_idx(x, y, z);
+				size_t idx = get_idx(x, y, z);
 				squaredDistanceField[idx] = std::min(
-					squaredDistanceField[idx], squaredDistanceField[find_idx(x + 1, y, z)] + 1.0f);
+					squaredDistanceField[idx], squaredDistanceField[get_idx(x + 1, y, z)] + 1.0f);
 			}
 
 			// use the squared distance for next pass 
 			for (int x = 0; x < nx; x++) {
 				//int idx = find_vertex_index(x, y, z);
-				int idx = find_idx(x, y, z);
+				size_t idx = get_idx(x, y, z);
 				squaredDistanceField[idx] = squaredDistanceField[idx] * squaredDistanceField[idx];
 			}
 		}
@@ -2959,7 +3013,7 @@ void GeneratorLewiner::estimate_local_thickness(
 		for (int x{ 0 }; x < nx; x++) {
 			std::vector<float> g(ny);
 			for (int y = 0; y < ny; y++) {
-				g[y] = squaredDistanceField[find_idx(x, y, z)];
+				g[y] = squaredDistanceField[get_idx(x, y, z)];
 			}
 			// we need to find for each column the minimum distance for the current x, z coordinate
 			// create the list of segments, in these segmentes we will check the intersection of the parabolas
@@ -2994,7 +3048,7 @@ void GeneratorLewiner::estimate_local_thickness(
 			for (int u = ny - 1; u >= 0; u--) {
 				while (u < t[q]) q--;
 				float dy = (float)(u - s[q]);
-				squaredDistanceField[find_idx(x, u, z)] = g[s[q]] + dy * dy;
+				squaredDistanceField[get_idx(x, u, z)] = g[s[q]] + dy * dy;
 			}
 		}
 	}
@@ -3006,7 +3060,7 @@ void GeneratorLewiner::estimate_local_thickness(
 
 			std::vector<float> g(nz);
 
-			for (int z = 0; z < nz; z++) g[z] = squaredDistanceField[find_idx(x, y, z)];
+			for (int z = 0; z < nz; z++) g[z] = squaredDistanceField[get_idx(x, y, z)];
 			std::vector<int> s(nz);
 			std::vector<float> t(nz);
 
@@ -3028,21 +3082,21 @@ void GeneratorLewiner::estimate_local_thickness(
 			for (int u = nz - 1; u >= 0; u--) {
 				while (u < t[q]) q--;
 				float dz = (float)(u - s[q]);
-				squaredDistanceField[find_idx(x, y, u)] = g[s[q]] + dz * dz;
+				squaredDistanceField[get_idx(x, y, u)] = g[s[q]] + dz * dz;
 			}
 		}
 	}
 	// now that we have our distance field we can find redundant voxels, these are not local maxima in their neighborhood, we can remove them by setting their distance to zero, this will give us a skeleton of the solid part that represents the local thickness
-	std::vector<int> redundantVoxels;
+	std::vector<size_t> redundantVoxels;
 
 	#pragma omp parallel
 	{
-		std::vector<int> localRedundant;
-	#pragma omp for
+		std::vector<size_t> localRedundant;
+		#pragma omp for
 		for (int z = 1; z < nz - 1; z++) {
 			for (int y = 1; y < ny - 1; y++) {
 				for (int x = 1; x < nx - 1; x++) {
-					int idx = find_idx(x, y, z);
+					size_t idx = get_idx(x, y, z);
 
 					float r = std::sqrt(squaredDistanceField[idx]);
 					//if (scalarField[idx] >= isoLevel) continue; // only consider solid voxels
@@ -3051,7 +3105,7 @@ void GeneratorLewiner::estimate_local_thickness(
 					bool isLocalMax = true;
 					// check 26 neighbors we already have the indices in the const std::array<Neighbor, 26> neighbors> , we can just iterate through them and check if any of the neighbors has a higher distance value than the current voxel, if it does, then the current voxel is not a local maximum and we can mark it as redundant
 					for (const auto& nb : neighbors) {
-						int nidx = find_idx(x + nb.dx, y + nb.dy, z + nb.dz);
+						size_t nidx = get_idx(x + nb.dx, y + nb.dy, z + nb.dz);
 						//if (scalarField[nidx] >= isoLevel) continue; // only consider solid voxels
 						if (field[nidx] == 0) continue; // only consider solid voxels
 
@@ -3073,8 +3127,8 @@ void GeneratorLewiner::estimate_local_thickness(
 		redundantVoxels.insert(redundantVoxels.end(), localRedundant.begin(), localRedundant.end());
 
 	}
-	// now estimate the local thickness at any voxel as the maximum diameter of all the spheres that can fit inside the solid part at that point, which is just twice the distance value at that voxel in the distance field
 
+	// now estimate the local thickness at any voxel as the maximum diameter of all the spheres that can fit inside the solid part at that point, which is just twice the distance value at that voxel in the distance field
 	std::vector<omp_lock_t> z_locks(nz);
 	for (int z = 0; z < nz; z++) {
 		omp_init_lock(&z_locks[z]);
@@ -3083,18 +3137,18 @@ void GeneratorLewiner::estimate_local_thickness(
 	std::vector<float> thicknessMap(totalVoxels, 0.0f);
 
 	#pragma omp parallel for schedule(dynamic)
-	for (int i = 0; i < redundantVoxels.size(); i++) {
+	for (long long i = 0; i < static_cast<long long>(redundantVoxels.size()); i++) {
 
-		int ridgeIdx = redundantVoxels[i];
+		size_t ridgeIdx = redundantVoxels[i];
 
 		float radius = std::sqrt(squaredDistanceField[ridgeIdx]);
 		float diameter = 2.0f * radius;
 		float rSq = radius * radius;
 
 		// get the position of the voxel in the grid
-		int rz = ridgeIdx % nz;
-		int ry = (ridgeIdx / nz) % ny;
-		int rx = ridgeIdx / (ny * nz);
+		int rz = static_cast<int>(ridgeIdx % nz);
+		int ry = static_cast<int>((ridgeIdx / nz) % ny);
+		int rx = static_cast<int>(ridgeIdx / (ny * nz));
 
 		// Define a bounding box for the sphere to limit the search
 		int R = (int)std::ceil(radius);
@@ -3127,13 +3181,11 @@ void GeneratorLewiner::estimate_local_thickness(
 				int x_start = std::max(0, rx - max_dx);
 				int x_end = std::min(nx - 1, rx + max_dx);
 
-				// --- CRITICAL SECTION: Lock only this Z-plane ---
-				// Threads processing different Z-planes can work simultaneously!
-
+				// Threads processing different Z-planes can work simultaneously, lock the thread
 				omp_set_lock(&z_locks[z]);
 
 				for (int x = x_start; x <= x_end; x++) {
-					int targetIdx = find_idx(x, y, z);
+					size_t targetIdx = get_idx(x, y, z);
 
 					// No distance check needed! Every 'x' in this loop is guaranteed inside.
 					if (diameter > thicknessMap[targetIdx]) {
@@ -3152,21 +3204,32 @@ void GeneratorLewiner::estimate_local_thickness(
 	}
 
 	float totalThicknessSum = 0.0f;
-	int solidVoxelCount = 0;
+	size_t solidVoxelCount = 0;
 	float T_min = 1.5f; // Minimum thickness threshold to avoid surface noise
-	// Physical voxel size
 
-	//float voxelSize = (bounds[5] - bounds[4]) / (float)blockDim[2];
+	#pragma omp parallel for reduction(+:totalThicknessSum, solidVoxelCount) collapse(3)
+	for (int z = 0; z < nz; z++) {
+		for (int y = 0; y < ny; y++) {
+			for (int x = 0; x < nx; x++) {
+				size_t idx = get_idx(x, y, z);
 
-	#pragma omp parallel for reduction(+:totalThicknessSum, solidVoxelCount)
-	for (int i = 0; i < totalVoxels; i++) {
+				bool isInsideROI = true;
+				if (con) {
+					float px = blockBounds[0] + (x + 0.5f) * voxelSize;
+					float py = blockBounds[2] + (y + 0.5f) * voxelSize;
+					float pz = blockBounds[4] + (z + 0.5f) * voxelSize;
+					isInsideROI = con->is_inside(Vec3(px, py, pz));
+				}
 
-		//if (scalarField[i] <= isoLevel) {
-		float t = thicknessMap[i];
-		// Filter out surface noise (Equation in paper refers to filtering small spheres)
-		if (t >= T_min) {
-			totalThicknessSum += t;
-			solidVoxelCount++;
+				// Only accumulate if the voxel is physically inside the container ROI
+				if (isInsideROI) {
+					float t = thicknessMap[idx];
+					if (t >= T_min) {
+						totalThicknessSum += t;
+						solidVoxelCount++;
+					}
+				}
+			}
 		}
 	}
 
@@ -3176,14 +3239,28 @@ void GeneratorLewiner::estimate_local_thickness(
 	// estimate standard deviation
 	float deviationSum = 0.0f;
 
-	#pragma omp parallel for reduction(+:deviationSum)
-	for (int i = 0; i < totalVoxels; i++) {
+	#pragma omp parallel for reduction(+:deviationSum) collapse(3)
+	for (int z = 0; z < nz; z++) {
+		for (int y = 0; y < ny; y++) {
+			for (int x = 0; x < nx; x++) {
+				size_t idx = get_idx(x, y, z);
 
-		// Only consider voxels that are part of the SOLID structure
-		float t = thicknessMap[i];
-		if (t >= T_min) {
-			float diff = t - meanThicknessVoxels;
-			deviationSum += (diff * diff);
+				bool isInsideROI = true;
+				if (con) {
+					float px = blockBounds[0] + (x + 0.5f) * voxelSize;
+					float py = blockBounds[2] + (y + 0.5f) * voxelSize;
+					float pz = blockBounds[4] + (z + 0.5f) * voxelSize;
+					isInsideROI = con->is_inside(Vec3(px, py, pz));
+				}
+
+				if (isInsideROI) {
+					float t = thicknessMap[idx];
+					if (t >= T_min) {
+						float diff = t - meanThicknessVoxels;
+						deviationSum += (diff * diff);
+					}
+				}
+			}
 		}
 	}
 
@@ -3202,9 +3279,11 @@ void GeneratorLewiner::estimate_local_thickness(
 
 	if (separation) {
 		separationVersion = meshVersion;
+		logger->log(LogPriority::SUCCESS, "Estimated Local Separation!");
 	}
 	else {
 		thicknessVersion = meshVersion;
+		logger->log(LogPriority::SUCCESS, "Estimated Local Thickness!");
 	}
 };
 
@@ -3218,18 +3297,15 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 	float sizeZ = blockBounds[5] - blockBounds[4];
 
 	// get number of voxels
-	int nx = (int)std::ceil(sizeX / voxelSize);
-	int ny = (int)std::ceil(sizeY / voxelSize);
-	int nz = (int)std::ceil(sizeZ / voxelSize);
+	size_t nx = static_cast<size_t>(std::ceil(sizeX / voxelSize));
+	size_t ny = static_cast<size_t>(std::ceil(sizeY / voxelSize));
+	size_t nz = static_cast<size_t>(std::ceil(sizeZ / voxelSize));
 
-	// step is the voxel size
 	float step = voxelSize;
-
-	int totalVoxels = nx * ny * nz;
+	size_t totalVoxels = nx * ny * nz;
 
 	std::vector<uint8_t> field(totalVoxels, 0);
 
-	// Helper to clamp indices to avoid segfaults
 	auto clamp_idx = [](int val, int maxVal) {
 		if (val < 0) return 0;
 		if (val >= maxVal) return maxVal - 1;
@@ -3237,12 +3313,12 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 	};
 
 	#pragma omp parallel for
-	for (int idx{ 0 }; idx < totalVoxels; idx++) {
+	for (long long idx = 0; idx < static_cast<long long>(totalVoxels); idx++) {
 
-		// find the indices in the new grid
-		int z = idx / (nx * ny);
-		int y = (idx % (nx * ny)) / nx;
-		int x = idx % nx;
+		// 2. Use size_t for the extracted grid coordinates
+		size_t z = idx / (nx * ny);
+		size_t y = (idx % (nx * ny)) / nx;
+		size_t x = idx % nx;
 
 		// find physical position
 		float pX = blockBounds[0] + x * voxelSize;
@@ -3263,9 +3339,9 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 
 		// this is like 5.1, 7.8, 9.1, we need to find the interpolated value of the scalar field to assing 0 or 255
 		// get the 8 corners
-		int x0 = (int)std::floor(oldX);
-		int y0 = (int)std::floor(oldY);
-		int z0 = (int)std::floor(oldZ);
+		int x0 = static_cast<int>(std::floor(oldX));
+		int y0 = static_cast<int>(std::floor(oldY));
+		int z0 = static_cast<int>(std::floor(oldZ));
 
 		int x1 = clamp_idx(x0 + 1, blockDims[0]);
 		int y1 = clamp_idx(y0 + 1, blockDims[1]);
@@ -3309,211 +3385,606 @@ std::vector<uint8_t> GeneratorLewiner::get_image_field(
 	return field;
 };
 
+void GeneratorLewiner::export_scaf(const std::string& fileName) {
+
+	std::ofstream out(fileName, std::ios::out | std::ios::binary);
+	if (!out.is_open()) {
+		logger->log(LogPriority::ERROR, "Failed to open file for binary serialization: " + fileName);
+		return;
+	}
+
+	// 1. Header Block
+	char header[4] = { 'S', 'C', 'A', 'F' };
+	out.write(header, 4);
+	uint32_t fileVersion = 1;
+	out.write(reinterpret_cast<const char*>(&fileVersion), sizeof(fileVersion));
+
+	// 2. Core Parameters Block
+	out.write(reinterpret_cast<const char*>(&selectedThicknessOption), sizeof(selectedThicknessOption));
+	out.write(reinterpret_cast<const char*>(&selectedDist), sizeof(selectedDist));
+	out.write(reinterpret_cast<const char*>(&selectedFunc), sizeof(selectedFunc));
+	out.write(reinterpret_cast<const char*>(&startThickness), sizeof(startThickness));
+	out.write(reinterpret_cast<const char*>(&endThickness), sizeof(endThickness));
+	out.write(reinterpret_cast<const char*>(&transitionDistance), sizeof(transitionDistance));
+	out.write(reinterpret_cast<const char*>(&threshold), sizeof(threshold));
+	out.write(reinterpret_cast<const char*>(&isoLevel), sizeof(isoLevel));
+	out.write(reinterpret_cast<const char*>(&foam), sizeof(foam));
+	out.write(reinterpret_cast<const char*>(&voxelSize), sizeof(voxelSize));
+	out.write(reinterpret_cast<const char*>(&stretchX), sizeof(stretchX));
+	out.write(reinterpret_cast<const char*>(&stretchY), sizeof(stretchY));
+	out.write(reinterpret_cast<const char*>(&stretchZ), sizeof(stretchZ));
+	out.write(reinterpret_cast<const char*>(&anisotropyAngle), sizeof(anisotropyAngle));
+
+	// FIXED: Explicitly write components of Vec3 to avoid struct padding offsets
+	out.write(reinterpret_cast<const char*>(&anisotropyVec.x), sizeof(float));
+	out.write(reinterpret_cast<const char*>(&anisotropyVec.y), sizeof(float));
+	out.write(reinterpret_cast<const char*>(&anisotropyVec.z), sizeof(float));
+
+	out.write(reinterpret_cast<const char*>(&renderMode), sizeof(renderMode));
+
+	// 3. Container Context Block
+	std::shared_ptr<IContainer> lockedCon = container.lock();
+	int32_t containerTypeID = 0;
+
+	if (lockedCon) {
+		if (lockedCon->get_type() == ObjectType::BoxContainerType) {
+			containerTypeID = 1;
+			out.write(reinterpret_cast<const char*>(&containerTypeID), sizeof(containerTypeID));
+			auto* box = static_cast<BoxContainer*>(lockedCon.get());
+
+			// Fixed: Component-wise Vec3 decomposition
+			out.write(reinterpret_cast<const char*>(&box->size.x), sizeof(float));
+			out.write(reinterpret_cast<const char*>(&box->size.y), sizeof(float));
+			out.write(reinterpret_cast<const char*>(&box->size.z), sizeof(float));
+			out.write(reinterpret_cast<const char*>(&box->origin.x), sizeof(float));
+			out.write(reinterpret_cast<const char*>(&box->origin.y), sizeof(float));
+			out.write(reinterpret_cast<const char*>(&box->origin.z), sizeof(float));
+		}
+		else if (lockedCon->get_type() == ObjectType::CylinderContainerType) {
+			containerTypeID = 2;
+			out.write(reinterpret_cast<const char*>(&containerTypeID), sizeof(containerTypeID));
+			auto* cylinder = static_cast<CylinderContainer*>(lockedCon.get());
+			out.write(reinterpret_cast<const char*>(&cylinder->cylinderHeight), sizeof(cylinder->cylinderHeight));
+			out.write(reinterpret_cast<const char*>(&cylinder->cylinderRadius), sizeof(cylinder->cylinderRadius));
+		}
+		else if (lockedCon->get_type() == ObjectType::AbstractContainerType) {
+			containerTypeID = 3;
+			out.write(reinterpret_cast<const char*>(&containerTypeID), sizeof(containerTypeID));
+			auto* meshContainer = static_cast<AbstractContainer*>(lockedCon.get());
+			std::string pathStr = meshContainer->fileName;
+
+			uint32_t pathLength = static_cast<uint32_t>(pathStr.size());
+			out.write(reinterpret_cast<const char*>(&pathLength), sizeof(pathLength));
+			if (pathLength > 0) {
+				out.write(pathStr.data(), pathLength);
+			}
+		}
+
+		std::string conName = lockedCon->name;
+		uint32_t nameLength = static_cast<uint32_t>(conName.size());
+		out.write(reinterpret_cast<const char*>(&nameLength), sizeof(nameLength));
+		if (nameLength > 0) {
+			out.write(conName.data(), nameLength);
+		}
+	}
+	else {
+		out.write(reinterpret_cast<const char*>(&containerTypeID), sizeof(containerTypeID));
+	}
+
+	// 4. Generator Context Block
+	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
+	int32_t genTypeID = -1;
+
+	if (lockedGen) {
+		if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+			genTypeID = 0;
+			out.write(reinterpret_cast<const char*>(&genTypeID), sizeof(genTypeID));
+			auto* randGen = static_cast<Random*>(lockedGen.get());
+			int seedSize = randGen->seedNr;
+			out.write(reinterpret_cast<const char*>(&seedSize), sizeof(seedSize));
+		}
+		else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType ||
+			lockedGen->get_type() == ObjectType::UniformGeneratorType ||
+			lockedGen->get_type() == ObjectType::VariedGeneratorType) {
+			genTypeID = 1;
+			out.write(reinterpret_cast<const char*>(&genTypeID), sizeof(genTypeID));
+			auto* poissonGen = static_cast<Poisson3D*>(lockedGen.get());
+			float minRad = static_cast<float>(poissonGen->get_min_radius());
+			float maxRad = static_cast<float>(poissonGen->get_max_radius());
+			out.write(reinterpret_cast<const char*>(&minRad), sizeof(minRad));
+			out.write(reinterpret_cast<const char*>(&maxRad), sizeof(maxRad));
+		}
+
+		std::string genName = lockedGen->name;
+		uint32_t nameLength = static_cast<uint32_t>(genName.size());
+		out.write(reinterpret_cast<const char*>(&nameLength), sizeof(nameLength));
+		if (nameLength > 0) {
+			out.write(genName.data(), nameLength);
+		}
+	}
+	else {
+		out.write(reinterpret_cast<const char*>(&genTypeID), sizeof(genTypeID));
+	}
+
+	// 5. Metrics Block
+	out.write(reinterpret_cast<const char*>(&porosity), sizeof(porosity));
+	out.write(reinterpret_cast<const char*>(&volume), sizeof(volume));
+	out.write(reinterpret_cast<const char*>(&surfaceArea), sizeof(surfaceArea));
+	out.write(reinterpret_cast<const char*>(&surfaceToVolume), sizeof(surfaceToVolume));
+	out.write(reinterpret_cast<const char*>(&connectivityDensity), sizeof(connectivityDensity));
+	out.write(reinterpret_cast<const char*>(&localThickness), sizeof(localThickness));
+	out.write(reinterpret_cast<const char*>(&localThicknessStd), sizeof(localThicknessStd));
+	out.write(reinterpret_cast<const char*>(&localSeparation), sizeof(localSeparation));
+	out.write(reinterpret_cast<const char*>(&localSeparationStd), sizeof(localSeparationStd));
+	out.write(reinterpret_cast<const char*>(&trabecularNr), sizeof(trabecularNr));
+	out.write(reinterpret_cast<const char*>(&anisotropyDegree), sizeof(anisotropyDegree));
+	out.write(reinterpret_cast<const char*>(&tortuosity), sizeof(tortuosity));
+
+	// 6. Versions Block
+	out.write(reinterpret_cast<const char*>(&thicknessVersion), sizeof(thicknessVersion));
+	out.write(reinterpret_cast<const char*>(&separationVersion), sizeof(separationVersion));
+	out.write(reinterpret_cast<const char*>(&trabecularNrVersion), sizeof(trabecularNrVersion));
+	out.write(reinterpret_cast<const char*>(&connectivityVersion), sizeof(connectivityVersion));
+	out.write(reinterpret_cast<const char*>(&tortuosityVersion), sizeof(tortuosityVersion));
+	out.write(reinterpret_cast<const char*>(&anisotropyVersion), sizeof(anisotropyVersion));
+	out.write(reinterpret_cast<const char*>(&meshVersion), sizeof(meshVersion));
+
+	// 7. Spatial Structure Configuration Block
+	out.write(reinterpret_cast<const char*>(blockDims.data()), sizeof(int) * 3);
+	out.write(reinterpret_cast<const char*>(bounds.data()), sizeof(float) * 6);
+
+	// 8. Seeds Array Block
+	uint64_t seedCount = static_cast<uint64_t>(seeds.size());
+	out.write(reinterpret_cast<const char*>(&seedCount), sizeof(seedCount));
+	if (seedCount > 0) {
+		out.write(reinterpret_cast<const char*>(seeds.data()), sizeof(Vec3) * seedCount);
+	}
+
+	// 9. Raw Grid Density Array Block
+	uint64_t voxelCount = static_cast<uint64_t>(scalarField.size());
+	out.write(reinterpret_cast<const char*>(&voxelCount), sizeof(voxelCount));
+	if (voxelCount > 0) {
+		out.write(reinterpret_cast<const char*>(scalarField.data()), sizeof(float) * voxelCount);
+	}
+
+	out.close();
+	logger->log(LogPriority::SUCCESS, "Procedural scaffold serialized smoothly to " + fileName);
+}
+
+bool GeneratorLewiner::load_scaf(const std::string& fileName,
+	std::vector<std::shared_ptr<IContainer>>& containerList,
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generatorList
+) {
+	std::ifstream in(fileName, std::ios::in | std::ios::binary);
+	if (!in.is_open()) {
+		logger->log(LogPriority::ERROR, "Failed to open file for binary deserialization: " + fileName);
+		return false;
+	}
+
+	char magic[4];
+	in.read(magic, 4);
+	if (magic[0] != 'S' || magic[1] != 'C' || magic[2] != 'A' || magic[3] != 'F') {
+		logger->log(LogPriority::ERROR, "Invalid file format! Not a true .scaf file.");
+		return false;
+	}
+
+	uint32_t fileVersion = 0;
+	in.read(reinterpret_cast<char*>(&fileVersion), sizeof(fileVersion));
+	if (fileVersion != 1) {
+		logger->log(LogPriority::ERROR, "Unsupported file version.");
+		return false;
+	}
+
+	// Read Core Parameters Block
+	in.read(reinterpret_cast<char*>(&selectedThicknessOption), sizeof(selectedThicknessOption));
+	in.read(reinterpret_cast<char*>(&selectedDist), sizeof(selectedDist));
+	in.read(reinterpret_cast<char*>(&selectedFunc), sizeof(selectedFunc));
+	in.read(reinterpret_cast<char*>(&startThickness), sizeof(startThickness));
+	in.read(reinterpret_cast<char*>(&endThickness), sizeof(endThickness));
+	in.read(reinterpret_cast<char*>(&transitionDistance), sizeof(transitionDistance));
+	in.read(reinterpret_cast<char*>(&threshold), sizeof(threshold));
+	in.read(reinterpret_cast<char*>(&isoLevel), sizeof(isoLevel));
+	in.read(reinterpret_cast<char*>(&foam), sizeof(foam));
+	in.read(reinterpret_cast<char*>(&voxelSize), sizeof(voxelSize));
+	in.read(reinterpret_cast<char*>(&stretchX), sizeof(stretchX));
+	in.read(reinterpret_cast<char*>(&stretchY), sizeof(stretchY));
+	in.read(reinterpret_cast<char*>(&stretchZ), sizeof(stretchZ));
+	in.read(reinterpret_cast<char*>(&anisotropyAngle), sizeof(anisotropyAngle));
+
+	// FIXED: Explicit element parsing for Vec3 elements
+	in.read(reinterpret_cast<char*>(&anisotropyVec.x), sizeof(float));
+	in.read(reinterpret_cast<char*>(&anisotropyVec.y), sizeof(float));
+	in.read(reinterpret_cast<char*>(&anisotropyVec.z), sizeof(float));
+
+	in.read(reinterpret_cast<char*>(&renderMode), sizeof(renderMode));
+
+	// Load Container Context Block
+	int32_t containerTypeID = 0;
+	in.read(reinterpret_cast<char*>(&containerTypeID), sizeof(containerTypeID));
+	std::shared_ptr<IContainer> rebuiltContainer = nullptr;
+
+	if (containerTypeID == 1) {
+		Vec3 boxSize, boxOrigin;
+		in.read(reinterpret_cast<char*>(&boxSize.x), sizeof(float));
+		in.read(reinterpret_cast<char*>(&boxSize.y), sizeof(float));
+		in.read(reinterpret_cast<char*>(&boxSize.z), sizeof(float));
+		in.read(reinterpret_cast<char*>(&boxOrigin.x), sizeof(float));
+		in.read(reinterpret_cast<char*>(&boxOrigin.y), sizeof(float));
+		in.read(reinterpret_cast<char*>(&boxOrigin.z), sizeof(float));
+		rebuiltContainer = std::make_shared<BoxContainer>(boxSize, boxOrigin);
+	}
+	else if (containerTypeID == 2) {
+		float height = 0.0f, radius = 0.0f;
+		in.read(reinterpret_cast<char*>(&height), sizeof(height));
+		in.read(reinterpret_cast<char*>(&radius), sizeof(radius));
+		rebuiltContainer = std::make_shared<CylinderContainer>(height, radius);
+	}
+	else if (containerTypeID == 3) {
+		uint32_t pathLength = 0;
+		in.read(reinterpret_cast<char*>(&pathLength), sizeof(pathLength));
+		std::string pathStr;
+		if (pathLength > 0) {
+			pathStr.resize(pathLength);
+			in.read(&pathStr[0], pathLength);
+		}
+		if (std::filesystem::exists(pathStr)) {
+			rebuiltContainer = std::make_shared<AbstractContainer>(pathStr);
+		}
+	}
+
+	if (containerTypeID != 0) {
+		uint32_t nameLength = 0;
+		in.read(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
+		std::string conName;
+		if (nameLength > 0) {
+			conName.resize(nameLength);
+			in.read(&conName[0], nameLength);
+		}
+		if (rebuiltContainer) {
+			rebuiltContainer->name = conName.empty() ? "Restored_Container" : conName;
+		}
+	}
+
+	if (rebuiltContainer) {
+		containerList.push_back(rebuiltContainer);
+		this->container = rebuiltContainer;
+	}
+
+	// Read Generator Context Block
+	int32_t genTypeID = -1;
+	in.read(reinterpret_cast<char*>(&genTypeID), sizeof(genTypeID));
+
+	int tempSeedNr = 0;
+	float tempRmin = 0.0f;
+	float tempRmax = 0.0f;
+
+	if (genTypeID == 0) {
+		in.read(reinterpret_cast<char*>(&tempSeedNr), sizeof(tempSeedNr));
+	}
+	else if (genTypeID == 1) {
+		in.read(reinterpret_cast<char*>(&tempRmin), sizeof(tempRmin));
+		in.read(reinterpret_cast<char*>(&tempRmax), sizeof(tempRmax));
+	}
+
+	std::string genName = "Restored_Generator";
+	if (genTypeID != -1) {
+		uint32_t nameLength = 0;
+		in.read(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
+		if (nameLength > 0) {
+			genName.resize(nameLength);
+			in.read(&genName[0], nameLength);
+		}
+	}
+
+	// --- STREAM HEALTH VERIFICATION ---
+	// If our stream collapsed due to layout offsets, trap it before loading garbage metrics!
+	if (in.fail()) {
+		logger->log(LogPriority::ERROR, "SCAF Stream Deserialization corrupted prior to Metrics parsing block!");
+		in.close();
+		return false;
+	}
+
+	// Read Metrics Block
+	in.read(reinterpret_cast<char*>(&porosity), sizeof(porosity));
+	in.read(reinterpret_cast<char*>(&volume), sizeof(volume));
+	in.read(reinterpret_cast<char*>(&surfaceArea), sizeof(surfaceArea));
+	in.read(reinterpret_cast<char*>(&surfaceToVolume), sizeof(surfaceToVolume));
+	in.read(reinterpret_cast<char*>(&connectivityDensity), sizeof(connectivityDensity));
+	in.read(reinterpret_cast<char*>(&localThickness), sizeof(localThickness));
+	in.read(reinterpret_cast<char*>(&localThicknessStd), sizeof(localThicknessStd));
+	in.read(reinterpret_cast<char*>(&localSeparation), sizeof(localSeparation));
+	in.read(reinterpret_cast<char*>(&localSeparationStd), sizeof(localSeparationStd));
+	in.read(reinterpret_cast<char*>(&trabecularNr), sizeof(trabecularNr));
+	in.read(reinterpret_cast<char*>(&anisotropyDegree), sizeof(anisotropyDegree));
+	in.read(reinterpret_cast<char*>(&tortuosity), sizeof(tortuosity));
+
+	// Read Versions Block
+	in.read(reinterpret_cast<char*>(&thicknessVersion), sizeof(thicknessVersion));
+	in.read(reinterpret_cast<char*>(&separationVersion), sizeof(separationVersion));
+	in.read(reinterpret_cast<char*>(&trabecularNrVersion), sizeof(trabecularNrVersion));
+	in.read(reinterpret_cast<char*>(&connectivityVersion), sizeof(connectivityVersion));
+	in.read(reinterpret_cast<char*>(&tortuosityVersion), sizeof(tortuosityVersion));
+	in.read(reinterpret_cast<char*>(&anisotropyVersion), sizeof(anisotropyVersion));
+	in.read(reinterpret_cast<char*>(&meshVersion), sizeof(meshVersion));
+
+	// Map verification states
+	bool thicknessValid = (thicknessVersion == meshVersion);
+	bool separationValid = (separationVersion == meshVersion);
+	bool trabecularValid = (trabecularNrVersion == meshVersion);
+	bool connectivityValid = (connectivityVersion == meshVersion);
+	bool tortuosityValid = (tortuosityVersion == meshVersion);
+	bool anisotropyValid = (anisotropyVersion == meshVersion);
+
+	// Read Grid Bounds Setup Block
+	in.read(reinterpret_cast<char*>(blockDims.data()), sizeof(int) * 3);
+	in.read(reinterpret_cast<char*>(bounds.data()), sizeof(float) * 6);
+	update_steps();
+
+	// Read Seeds Array Block
+	uint64_t seedCount = 0;
+	in.read(reinterpret_cast<char*>(&seedCount), sizeof(seedCount));
+	seeds.resize(seedCount);
+	if (seedCount > 0) {
+		in.read(reinterpret_cast<char*>(seeds.data()), sizeof(Vec3) * seedCount);
+	}
+
+	// Reconstruct Generator Instance Graph
+	std::shared_ptr<InterfaceSeedGenerator> rebuiltGen = nullptr;
+	if (genTypeID == 0) {
+		auto randGen = std::make_shared<Random>();
+		randGen->seedNr = tempSeedNr;
+		randGen->name = genName;
+		rebuiltGen = randGen;
+	}
+	else if (genTypeID == 1) {
+		auto poissonGen = std::make_shared<Poisson3D>();
+		poissonGen->name = genName;
+		poissonGen->set_min_radius(static_cast<double>(tempRmin));
+		poissonGen->set_max_radius(static_cast<double>(tempRmax));
+		poissonGen->type = (tempRmin == tempRmax) ?
+			ObjectType::UniformGeneratorType : ObjectType::VariedGeneratorType;
+		rebuiltGen = poissonGen;
+	}
+
+	if (rebuiltGen) {
+		rebuiltGen->set_seeds(seeds);
+		rebuiltGen->set_renderMode(renderMode);
+
+		if (this->renderMode && !this->seeds.empty()) {
+			rebuiltGen->update_model();
+		}
+
+		generatorList.push_back(rebuiltGen);
+		this->generator = rebuiltGen;
+	}
+
+	// Read Raw Grid Array Block
+	uint64_t voxelCount = 0;
+	in.read(reinterpret_cast<char*>(&voxelCount), sizeof(voxelCount));
+	scalarField.resize(voxelCount);
+	if (voxelCount > 0) {
+		in.read(reinterpret_cast<char*>(scalarField.data()), sizeof(float) * voxelCount);
+	}
+
+	in.close();
+
+	// Re-verify stream status right before triggering reconstruction
+	if (in.fail()) {
+		logger->log(LogPriority::ERROR, "SCAF Stream parsing collapsed during binary data array extraction phases!");
+		return false;
+	}
+
+	// 12. Run final level-set boundary tracking reconstruction
+	marching_cubes();
+
+	// Re-snap accurate visual state matches post-marching cubes execution
+	if (thicknessValid)    thicknessVersion = meshVersion;
+	if (separationValid)   separationVersion = meshVersion;
+	if (trabecularValid)   trabecularNrVersion = meshVersion;
+	if (connectivityValid) connectivityVersion = meshVersion;
+	if (tortuosityValid)   tortuosityVersion = meshVersion;
+	if (anisotropyValid)   anisotropyVersion = meshVersion;
+
+	isLoadedFromFile = false;
+	return true;
+}
+
 //@brief function to estimate tortuosity of the porous structure, using the A* algorithm on the grid, we can estimate the shortest path between two points in the porous structure, and compare it to the straight line distance between those points to get an estimate of the tortuosity
 bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
 
-	tortuosityPathModel.reset();
-	tortuosityPathVertices.clear();
-	tortuosityPathEdges.clear();
+	if (isLoadedFromFile) return false;
 
-	// use the bounds of the aabb
-	std::array<float, 6> aabbBounds = {
-		aabb.pMin.x,
-		aabb.pMax.x,
-		aabb.pMin.y,
-		aabb.pMax.y,
-		aabb.pMin.z,
-		aabb.pMax.z
-	};
+    tortuosityPathModel.reset();
+    tortuosityPathVertices.clear();
+    tortuosityPathEdges.clear();
 
-	// interpolate the scalar field
-	std::vector<uint8_t> field = get_image_field(voxelSize, aabbBounds, 1);
+    // use the bounds of the aabb
+    std::array<float, 6> aabbBounds = {
+        aabb.pMin.x, aabb.pMax.x,
+        aabb.pMin.y, aabb.pMax.y,
+        aabb.pMin.z, aabb.pMax.z
+    };
 
-	// estimate new block dimensions
-	int nx = static_cast<int>(std::ceil((aabbBounds[1] - aabbBounds[0]) / voxelSize));
-	int ny = static_cast<int>(std::ceil((aabbBounds[3] - aabbBounds[2]) / voxelSize));
-	int nz = static_cast<int>(std::ceil((aabbBounds[5] - aabbBounds[4]) / voxelSize));
+    // FIX 1: Pass 'false' (0) instead of 1. 
+    // Now Bone = 255 and Air/Pores = 0, which perfectly matches A* logic.
+    std::vector<uint8_t> field = get_image_field(voxelSize, aabbBounds, false);
 
-	// we have to set the height equal to the actual
-	//float height = (aabbBounds[5] - aabbBounds[4]);
+    // estimate new block dimensions
+    int nx = static_cast<int>(std::ceil((aabbBounds[1] - aabbBounds[0]) / voxelSize));
+    int ny = static_cast<int>(std::ceil((aabbBounds[3] - aabbBounds[2]) / voxelSize));
+    int nz = static_cast<int>(std::ceil((aabbBounds[5] - aabbBounds[4]) / voxelSize));
 
-	// Safety check: ensure the field size matches our expected dimensions
-	if (field.size() != (size_t)nx * ny * nz) {
-		std::cerr << "Dimension mismatch in tortuosity estimation!" << std::endl;
-		return false;
-	}
+    // Safety check: ensure the field size matches our expected dimensions
+    if (field.size() != (size_t)nx * ny * nz) {
+        std::cerr << "Dimension mismatch in tortuosity estimation!" << std::endl;
+        return false;
+    }
 
-	auto get_idx = [&](int x, int y, int z) {
-		return x + y * nx + z * nx * ny; // Consistent Z-Major indexing
-	};
+    auto get_idx = [&](int x, int y, int z) -> size_t {
+        return static_cast<size_t>(x) +
+            static_cast<size_t>(y) * static_cast<size_t>(nx) +
+            static_cast<size_t>(z) * static_cast<size_t>(nx) * static_cast<size_t>(ny);
+    };
 
-	int totalVoxels = field.size();
-	std::vector<int> parentMap(totalVoxels, -1);
-	std::vector<float> gScore(totalVoxels, std::numeric_limits<float>::max());
+    size_t totalVoxels = field.size();
+    std::vector<size_t> parentMap(totalVoxels, SIZE_MAX);
+    std::vector<float> gScore(totalVoxels, std::numeric_limits<float>::max());
+    std::vector<bool> visited(totalVoxels, false);
 
-	// this is the closed list
-	std::vector<bool> visited(totalVoxels, false);
+    // FIX 3: Define a 26-connected Moore Neighborhood for 3D diagonal traversal
+    struct Neighbor { int dx, dy, dz; float cost; };
+    std::vector<Neighbor> neighbors26;
+    for (int dz = -1; dz <= 1; dz++) {
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx == 0 && dy == 0 && dz == 0) continue;
+                // Cost is geometric distance: 1.0 for straight, 1.41 for 2D diag, 1.73 for 3D diag
+                float cost = std::sqrt(static_cast<float>(dx * dx + dy * dy + dz * dz));
+                neighbors26.push_back({ dx, dy, dz, cost });
+            }
+        }
+    }
 
-	// this is the open list, 
-	// we will use a priority queue to store the voxels to explore, ordered by their fScore, use std::greater to 
-	// store the nodes with the minimum fscore at the top
-	std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
+    std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
 
-	// start from the 2nd voxel up to the -1 voxel
-	int startZ = 1;
-	int targetZ = nz - 2;
+    int startZ = 1;
+    int targetZ = nz - 2;
 
-	// initialize the open set with the inlet voxels (z = 0 plane), so here we add all voxels 
-	// in the z=0 plane that are below the isoLevel (solid voxels) as starting points for the A* search,
-	// since we want to find paths through the porous structure
-	// we also use a smaller grid to search our points
-	int xSize = static_cast<int>(nx * 0.15f);
-	int ySize = static_cast<int>(ny * 0.15f);
-	if (xSize == 0) xSize = 1;
-	if (ySize == 0) ySize = 1;
+    int xSize = static_cast<int>(nx * 0.15f);
+    int ySize = static_cast<int>(ny * 0.15f);
+    if (xSize == 0) xSize = 1;
+    if (ySize == 0) ySize = 1;
 
-	//std::cout << xSize << " " << ySize << std::endl;
-	//std::cout << nx << " " << ny << std::endl;
+    bool foundStart = false;
 
-	bool foundStart = false;
-	for (int x = xSize; x < nx - xSize - 1; x++) {
-		for (int y = ySize; y < ny - ySize - 1; y++) {
-			
-			// get the index of the node
-			int idx = get_idx(x, y, startZ);
+    // Helper lambda to search for inlets
+    auto add_inlets = [&](int marginX, int marginY) {
+        for (int x = marginX; x < nx - marginX - 1; x++) {
+            for (int y = marginY; y < ny - marginY - 1; y++) {
+                size_t idx = get_idx(x, y, startZ);
+                float h = (targetZ - startZ) * voxelSize;
 
-			// get position
-			float h = (targetZ - startZ) * voxelSize;
+                // field == 0 is now correctly mapped to Air
+                if (field[idx] == 0 && gScore[idx] > 0.0f) { 
+                    gScore[idx] = 0.0f;
+                    openSet.push({ idx, h });
+                    foundStart = true;
+                }
+            }
+        }
+    };
 
-			// check if the field at node idx is air or pore, we need air to start
-			if (field[idx] == 0) { 
-				gScore[idx] = 0.0f; // g score is zero as it is a starting candidate
-				openSet.push({ idx, h }); // push to the openset, add the straight line with length equalt to height as fscore
-				foundStart = true;
-			}
-		}
-	}
+    // Try central region first
+    add_inlets(xSize, ySize);
 
-	if (!foundStart) {
-		std::cout << " not found a starting point " << std::endl;
-		return false;
-	}
+    // FIX 2: Fallback to the entire Z slice if the center is blocked by bone
+    if (!foundStart) {
+        add_inlets(1, 1); 
+    }
 
-	// now we can perform the A* search to find the shortest path from the inlet to the outlet, 
-	// we will keep track of the best path length found to reach the outlet
-	float minPathLength = std::numeric_limits<float>::infinity();
+    if (!foundStart) {
+        std::cerr << "Inlet is completely blocked! No starting points found." << std::endl;
+        return false;
+    }
 
-	// this is the index of the end target, it should lie on the +z plane
-	int goalIndex = -1;
+    float minPathLength = std::numeric_limits<float>::infinity();
+    size_t goalIndex = SIZE_MAX;
 
-	while (!openSet.empty()) {
+    while (!openSet.empty()) {
+        AStarNode current = openSet.top();
+        openSet.pop();
 
-		// get the node at the top of the priority queue, it has the least f score
-		AStarNode current = openSet.top();
-		
-		// pop it of the list
-		openSet.pop();
+        int idx = current.idx;
 
-		// find the index of the current node
-		int idx = current.idx;
+        if (visited[idx]) continue;
+        visited[idx] = true;
 
-		// check if we have already visited
-		if (visited[idx]) continue;
-		visited[idx] = true;
+        int x = idx % nx;
+        int y = (idx / nx) % ny;
+        int z = idx / (nx * ny);
 
-		// get the three indices of the current node in the grid (Z-Major)
-		int x = idx % nx;
-		int y = (idx / nx) % ny;
-		int z = idx / (nx * ny);
+        if (z >= targetZ) {
+            minPathLength = gScore[idx];
+            goalIndex = idx;
+            break;
+        }
 
-		// Use the explicit targetZ
-		if (z >= targetZ) {
-			minPathLength = gScore[idx];
-			goalIndex = idx;
-			break;
-		}
+        // Use the newly defined 26-connected array
+        for (const auto& nb : neighbors26) { 
+            int nx_ = x + nb.dx;
+            int ny_ = y + nb.dy;
+            int nz_ = z + nb.dz;
 
-		// loop for the successors
-		for (const auto& nb : neighbors6) { // Use the 6-neighbor array we built
-			
-			// get the index of the successor
-			int nx_ = x + nb.dx;
-			int ny_ = y + nb.dy;
-			int nz_ = z + nb.dz;
+            if (nx_ >= 0 && nx_ < nx && ny_ >= 0 && ny_ < ny && nz_ >= 0 && nz_ < nz) {
+                size_t nbIdx = get_idx(nx_, ny_, nz_);
 
-			// check if is inside the bounds
-			if (nx_ >= 0 && nx_ < nx && ny_ >= 0 && ny_ < ny && nz_ >= 0 && nz_ < nz) {
-				int nbIdx = get_idx(nx_, ny_, nz_);
+                if (!visited[nbIdx] && field[nbIdx] == 0) {
+                    
+                    float g = gScore[idx] + (nb.cost * voxelSize);
 
-				// check if we have not visited the neighbor and the field value there is 0 (air)
-				if (!visited[nbIdx] && field[nbIdx] == 0) {
-					
-					// g score is the distance from the start and the distance to travel to the neighbor is cost * the voxel size, this gives the gscore in actual units (mm)
-					float g = gScore[idx] + (nb.cost * voxelSize);
+                    if (g < gScore[nbIdx]) {
+                        gScore[nbIdx] = g;
 
-					// if the g score is smaller than the stored g score, update it
-					if (g < gScore[nbIdx]) {
+                        // Target exact distance to end plane
+                        float h = (targetZ - nz_) * voxelSize; 
+                        openSet.push({ nbIdx, g + h});
 
-						gScore[nbIdx] = g;
+                        parentMap[nbIdx] = idx;
+                    }
+                }
+            }
+        }
+    }
 
-						// f score is the actual height from the current neighbor to end plane (z = zglobal)
-						float h = (nz - 1 - nz_) * voxelSize;
-						openSet.push({ nbIdx, g + h});
+    if (goalIndex == SIZE_MAX) {
+        std::cerr << "No connected path found from inlet to outlet! Porosity is closed." << std::endl;
+        tortuosity = -1;
+        return false;
+    }
 
-						// update the parent map for the neighbor with the current node's id
-						parentMap[nbIdx] = idx;
-					}
-				}
-			}
-		}
-	}
+    // --- Path Reconstruction ---
+    size_t currIdx = goalIndex;
+    int vertexCount = 0;
 
-	if (goalIndex == -1) {
-		std::cerr << "No path found from inlet to outlet!" << std::endl;
-		tortuosity = -1;
-		return false;
-	}
+    while (currIdx != SIZE_MAX) {
+        int cx = static_cast<int>(currIdx % nx);
+        int cy = static_cast<int>((currIdx / nx) % ny);
+        int cz = static_cast<int>(currIdx / (nx * ny));
 
-	// update the model by visiting the parent map
-	int currIdx = goalIndex;
-	int vertexCount = 0;
+        Vec3 pos(
+            aabbBounds[0] + cx * voxelSize,
+            aabbBounds[2] + cy * voxelSize,
+            aabbBounds[4] + cz * voxelSize);
 
-	while (currIdx != -1) {
-		int cx = currIdx % nx;
-		int cy = (currIdx / nx) % ny;
-		int cz = currIdx / (nx * ny);
+        tortuosityPathVertices.push_back(pos.x);
+        tortuosityPathVertices.push_back(pos.y);
+        tortuosityPathVertices.push_back(pos.z);
 
-		Vec3 pos(
-			aabbBounds[0] + cx * voxelSize,
-			aabbBounds[2] + cy * voxelSize,
-			aabbBounds[4] + cz * voxelSize);
+        if (vertexCount > 0) { 
+            tortuosityPathEdges.push_back(vertexCount - 1);
+            tortuosityPathEdges.push_back(vertexCount);
+        }
 
-		tortuosityPathVertices.push_back(pos.x);
-		tortuosityPathVertices.push_back(pos.y);
-		tortuosityPathVertices.push_back(pos.z);
+        currIdx = parentMap[currIdx];
+        vertexCount++;
+    }
 
-		if (vertexCount > 0) { // Add edge from previous vertex to current vertex
-			tortuosityPathEdges.push_back(vertexCount - 1);
-			tortuosityPathEdges.push_back(vertexCount);
-		}
+    // create a model
+    tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
+    
+    // tortuosity is the ratio of the actual path length to the straight line distance
+    float straightLineDist = (targetZ - startZ) * voxelSize;
+    tortuosity = minPathLength / straightLineDist; 
+    
+    if (tortuosity < 1.0f) {
+        tortuosity = 1.0f;
+    }
 
-		currIdx = parentMap[currIdx];
-		vertexCount++;
-	}
-
-	// create a model
-	tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
+    tortuosityVersion = meshVersion;
 	
-	// tortuosity is the ratio of the actual path length to the straight line distance (height)
-	float straightLineDist = (targetZ - startZ) * voxelSize;
-	tortuosity = minPathLength / straightLineDist; 
-	if (tortuosity < 1.0f) {
-		tortuosity = 1.0f;
-	}
+	logger->log(LogPriority::SUCCESS, "Estimated Tortuosity!");
 
-	tortuosityVersion = meshVersion;
-
-	return true;
+    return true;
 };
 
 void GeneratorLewiner::draw_tortuosity_path() {
@@ -3540,7 +4011,7 @@ void GeneratorLewiner::apply_scale() {
 
 }
 
-void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirection, int mode) {
+void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirection, int mode, ROI* roi) {
 
 	std::vector<float> milValues(daDirectionNr, 0.0f);
 
@@ -3555,58 +4026,67 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
 	}
 
-	// 2. Setup Geometry in STRICT VOXEL SPACE
-	float dimX = static_cast<float>(blockDims[0]);
-	float dimY = static_cast<float>(blockDims[1]);
-	float dimZ = static_cast<float>(blockDims[2]);
+	float boundsVoxel[6];
+	if (roi) {
+		std::array<float, 6> reqBounds = roi->get_bounds();
+		int min_i = std::max(0, static_cast<int>(std::floor((reqBounds[0] - bounds[0]) / stepX)));
+		int max_i = std::min(blockDims[0] - 1, static_cast<int>(std::ceil((reqBounds[1] - bounds[0]) / stepX)));
+		int min_j = std::max(0, static_cast<int>(std::floor((reqBounds[2] - bounds[2]) / stepY)));
+		int max_j = std::min(blockDims[1] - 1, static_cast<int>(std::ceil((reqBounds[3] - bounds[2]) / stepY)));
+		int min_k = std::max(0, static_cast<int>(std::floor((reqBounds[4] - bounds[4]) / stepZ)));
+		int max_k = std::min(blockDims[2] - 1, static_cast<int>(std::ceil((reqBounds[5] - bounds[4]) / stepZ)));
 
-	Vec3 boxCenter(dimX * 0.5f, dimY * 0.5f, dimZ * 0.5f);
+		boundsVoxel[0] = static_cast<float>(min_i); boundsVoxel[1] = static_cast<float>(max_i);
+		boundsVoxel[2] = static_cast<float>(min_j); boundsVoxel[3] = static_cast<float>(max_j);
+		boundsVoxel[4] = static_cast<float>(min_k); boundsVoxel[5] = static_cast<float>(max_k);
+	}
+	else {
+		// Fallback to full grid voxel dimensions
+		boundsVoxel[0] = 0.0f; boundsVoxel[1] = static_cast<float>(blockDims[0]);
+		boundsVoxel[2] = 0.0f; boundsVoxel[3] = static_cast<float>(blockDims[1]);
+		boundsVoxel[4] = 0.0f; boundsVoxel[5] = static_cast<float>(blockDims[2]);
+	}
 
-	// BoneJ Plane size d = sqrt(w^2 + h^2 + d^2)
-	float d_plane = std::sqrt(dimX * dimX + dimY * dimY + dimZ * dimZ);
+	Vec3 boxCenter((boundsVoxel[1] + boundsVoxel[0]) * 0.5f,
+		(boundsVoxel[3] + boundsVoxel[2]) * 0.5f,
+		(boundsVoxel[5] + boundsVoxel[4]) * 0.5f);
+
+	float d_plane = std::sqrt(std::pow(boundsVoxel[1] - boundsVoxel[0], 2) + std::pow(boundsVoxel[3] - boundsVoxel[2], 2) + std::pow(boundsVoxel[5] - boundsVoxel[4], 2));
+
 	float R = d_plane * 0.5f;
 
 	int gridN = static_cast<int>(std::ceil(std::sqrt(linesPerDirection)));
 	float gridStep = d_plane / std::max(1, gridN);
 
-	// THE SECRET SAUCE: BoneJ's exact sampling increment
+	//BoneJ's exact sampling increment
 	float rayStepSize = std::sqrt(3.0f);
 
-	// 3. Parallelize Ray Marching
-	#pragma omp parallel 
+#pragma omp parallel 
 	{
-		// Thread-local RNG for stratified jittering
 		std::mt19937 rng(1337 + omp_get_thread_num());
 		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
-	#pragma omp for
+#pragma omp for
 		for (int i = 0; i < daDirectionNr; i++) {
 			Vec3 d = dirs[i];
-
-			// create a local basis
 			Vec3 w = (std::abs(d.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
 			Vec3 u = d.cross(w).normalized();
 			Vec3 v = d.cross(u).normalized();
 
-			long localTransitions = 0;
+			long long localTransitions = 0;
 			float localBoxLen = 0.0;
 
 			for (int uIdx = 0; uIdx < gridN; uIdx++) {
 				for (int vIdx = 0; vIdx < gridN; vIdx++) {
-
-					// Stratified Random Grid (Jittering inside the cell)
 					float uPos = -R + (uIdx + dist(rng)) * gridStep;
 					float vPos = -R + (vIdx + dist(rng)) * gridStep;
-
 					Vec3 rayOrigin = boxCenter + (u * uPos) + (v * vPos) - (d * R);
 
-					// --- Exact Voxel AABB Intersection ---
 					float tMin = 0.0f;
 					float tMax = 1e9f;
 					bool hit = true;
 
-					float boundsVoxel[6] = { 0.0f, dimX, 0.0f, dimY, 0.0f, dimZ };
-
+					// The loop runs identically, but uses the dynamically updated boundsVoxel array!
 					for (int axis = 0; axis < 3; ++axis) {
 						float invD = 1.0f / (axis == 0 ? d.x : (axis == 1 ? d.y : d.z));
 						float t0 = (boundsVoxel[axis * 2] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
@@ -3620,43 +4100,24 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 					if (hit && tMax > 0.0f) {
 						tMin = std::max(0.0f, tMin);
 						localBoxLen += (tMax - tMin);
-
-						// Random line start offset
 						float startT = tMin + dist(rng) * rayStepSize;
 						long samples = static_cast<long>(std::ceil((tMax - startT) / rayStepSize));
-
-						// BoneJ initial phase state
 						bool previousPhase = false;
 
 						for (long s = 0; s < samples; s++) {
 							Vec3 pt = rayOrigin + d * (startT + s * rayStepSize);
-
-							// EXACT BoneJ Nearest-Neighbor Integer Lookup
-							long vx = static_cast<long>(pt.x);
-							long vy = static_cast<long>(pt.y);
-							long vz = static_cast<long>(pt.z);
-
-							vx = std::clamp<long>(vx, 0, blockDims[0] - 1);
-							vy = std::clamp<long>(vy, 0, blockDims[1] - 1);
-							vz = std::clamp<long>(vz, 0, blockDims[2] - 1);
+							long vx = std::clamp<long>(static_cast<long>(pt.x), static_cast<long>(boundsVoxel[0]), static_cast<long>(boundsVoxel[1]) - 1);
+							long vy = std::clamp<long>(static_cast<long>(pt.y), static_cast<long>(boundsVoxel[2]), static_cast<long>(boundsVoxel[3]) - 1);
+							long vz = std::clamp<long>(static_cast<long>(pt.z), static_cast<long>(boundsVoxel[4]), static_cast<long>(boundsVoxel[5]) - 1);
 
 							bool currentPhase = (get_data(vx, vy, vz) < isoLevel);
-
-							if (currentPhase != previousPhase) {
-								localTransitions++;
-							}
+							if (currentPhase != previousPhase) { localTransitions++; }
 							previousPhase = currentPhase;
 						}
 					}
 				}
 			}
-
-			if (localBoxLen > 0.0) {
-				milValues[i] = (localTransitions > 0) ? static_cast<float>(localBoxLen / localTransitions) : static_cast<float>(localBoxLen);
-			}
-			else {
-				milValues[i] = d_plane;
-			}
+			milValues[i] = (localBoxLen > 0.0) ? ((localTransitions > 0) ? static_cast<float>(localBoxLen / localTransitions) : static_cast<float>(localBoxLen)) : d_plane;
 		}
 	}
 
@@ -3779,127 +4240,194 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 
 	//ellipsoidModel = std::make_unique<Ellipsoid>(origin, v, r1, r2, r3);
 	anisotropyVersion = meshVersion;
+
+	logger->log(LogPriority::SUCCESS, "Estimated Anisotropy Degree!");
 };
 
-void GeneratorLewiner::estimate_trabecular_number(int daDirectionNr, int linesPerDirection) {
+// Requires: #include <limits>  (for std::numeric_limits<float>::infinity())
+// Also assumes <random>, <cmath>, <algorithm>, <vector>, and OpenMP are already included.
+//
+// Key changes vs. the original:
+//   1) Removed the spurious "/ 2.0".  Tb.N = S_V/2 and S_V = 2*P_L  ==>  Tb.N = P_L.
+//      The two factors of 2 cancel, so isotropically-averaged transitions/length
+//      already IS Tb.N. No extra division.
+//   2) Replaced the sqrt(3) point-sampling with an exact 3D DDA (Amanatides & Woo)
+//      voxel walk, so no thin strut is ever skipped and the count is step-size-free.
+//   3) Baseline phase is taken from the FIRST voxel, removing the phantom entry transition.
+//   4) Unit conversion unchanged: valid IFF stepX is the physical voxel size in mm/voxel.
 
-	// 1. Create Random Uniform Directions (Fibonacci Sphere)
+void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr, int linesPerDirection, ROI* roi) {
+
+	// this is if the formula is set to use the Tb.N = (BV/TV) / Tb.Th
+	if (formula == 1 && trabecularNrVersion < thicknessVersion) {
+		float bvtv = 1.0f - porosity;
+		trabecularNr = bvtv / localThickness;
+		logger->log(LogPriority::SUCCESS, "Estimated Trabecular Number with Tb.N = (BV/TV) / Tb.Th");
+		logger->log(LogPriority::WARNING, "The Estimated Trabecular Number is measured with the previously estimated local thickness. If this was estimated inside a ROI, the estimation is wrong. Try creating the scaffold inside the ROI first.");
+		trabecularNrVersion = meshVersion;
+		return;
+	}
+
+	else {
+		logger->log(LogPriority::WARNING, "Thickness is not updated! Estimate thickness first! Falling back to MIL method...");
+	}
+
+	// else use the MIL method
 	std::vector<Vec3> dirs(daDirectionNr);
 	const float PI = 3.14159265359f;
 	const float goldenRatio = (1.0f + std::sqrt(5.0f)) * 0.5f;
-
 	for (int i = 0; i < daDirectionNr; i++) {
 		float theta = 2.0f * PI * i / goldenRatio;
 		float phi = std::acos(1.0f - 2.0f * (i + 0.5f) / daDirectionNr);
 		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
 	}
 
-	// 2. Setup Geometry in STRICT VOXEL SPACE
-	float dimX = static_cast<float>(blockDims[0]);
-	float dimY = static_cast<float>(blockDims[1]);
-	float dimZ = static_cast<float>(blockDims[2]);
+	float boundsVoxel[6];
+	if (roi) {
+		std::array<float, 6> reqBounds = roi->get_bounds();
+		int min_i = std::max(0, static_cast<int>(std::floor((reqBounds[0] - bounds[0]) / stepX)));
+		int max_i = std::min(blockDims[0] - 1, static_cast<int>(std::ceil((reqBounds[1] - bounds[0]) / stepX)));
+		int min_j = std::max(0, static_cast<int>(std::floor((reqBounds[2] - bounds[2]) / stepY)));
+		int max_j = std::min(blockDims[1] - 1, static_cast<int>(std::ceil((reqBounds[3] - bounds[2]) / stepY)));
+		int min_k = std::max(0, static_cast<int>(std::floor((reqBounds[4] - bounds[4]) / stepZ)));
+		int max_k = std::min(blockDims[2] - 1, static_cast<int>(std::ceil((reqBounds[5] - bounds[4]) / stepZ)));
 
-	Vec3 boxCenter(dimX * 0.5f, dimY * 0.5f, dimZ * 0.5f);
+		boundsVoxel[0] = static_cast<float>(min_i); boundsVoxel[1] = static_cast<float>(max_i);
+		boundsVoxel[2] = static_cast<float>(min_j); boundsVoxel[3] = static_cast<float>(max_j);
+		boundsVoxel[4] = static_cast<float>(min_k); boundsVoxel[5] = static_cast<float>(max_k);
+	}
+	else {
+		// Fallback to full grid voxel dimensions
+		boundsVoxel[0] = 0.0f; boundsVoxel[1] = static_cast<float>(blockDims[0]);
+		boundsVoxel[2] = 0.0f; boundsVoxel[3] = static_cast<float>(blockDims[1]);
+		boundsVoxel[4] = 0.0f; boundsVoxel[5] = static_cast<float>(blockDims[2]);
+	}
 
-	float d_plane = std::sqrt(dimX * dimX + dimY * dimY + dimZ * dimZ);
+	// Center plane tracks the specific targeted box sub-window
+	Vec3 boxCenter((boundsVoxel[1] + boundsVoxel[0]) * 0.5f,
+		(boundsVoxel[3] + boundsVoxel[2]) * 0.5f,
+		(boundsVoxel[5] + boundsVoxel[4]) * 0.5f);
+
+	// create the plane that passes through the center
+	float d_plane = std::sqrt(
+		std::pow(boundsVoxel[1] - boundsVoxel[0], 2) +
+		std::pow(boundsVoxel[3] - boundsVoxel[2], 2) +
+		std::pow(boundsVoxel[5] - boundsVoxel[4], 2)
+	);
+
 	float R = d_plane * 0.5f;
-
-	int gridN = static_cast<int>(std::ceil(std::sqrt(linesPerDirection)));
+	int gridN = static_cast<int>(std::ceil(std::sqrt(static_cast<float>(linesPerDirection))));
 	float gridStep = d_plane / std::max(1, gridN);
-	float rayStepSize = std::sqrt(3.0f);
+
+	const float INF = std::numeric_limits<const float>::infinity();
 
 	// Global accumulators
-	long globalTransitions = 0;
+	long long globalTransitions = 0;
 	double globalBoxLen = 0.0;
 
 	// 3. Parallelize Ray Marching
-#pragma omp parallel reduction(+:globalTransitions, globalBoxLen) 
+#pragma omp parallel reduction(+:globalTransitions, globalBoxLen)
 	{
 		std::mt19937 rng(1337 + omp_get_thread_num());
 		std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
 #pragma omp for
 		for (int i = 0; i < daDirectionNr; i++) {
 			Vec3 d = dirs[i];
-
 			Vec3 w = (std::abs(d.x) > 0.9f) ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
 			Vec3 u = d.cross(w).normalized();
 			Vec3 v = d.cross(u).normalized();
 
 			// Local tally for THIS specific direction 'i'
-			long localTransitions = 0;
+			long long localTransitions = 0;
 			double localBoxLen = 0.0;
 
 			for (int uIdx = 0; uIdx < gridN; uIdx++) {
 				for (int vIdx = 0; vIdx < gridN; vIdx++) {
-
 					float uPos = -R + (uIdx + dist(rng)) * gridStep;
 					float vPos = -R + (vIdx + dist(rng)) * gridStep;
 					Vec3 rayOrigin = boxCenter + (u * uPos) + (v * vPos) - (d * R);
 
+					// --- Slab test: clip ray to the voxel box (same as before) ---
 					float tMin = 0.0f;
 					float tMax = 1e9f;
 					bool hit = true;
-
-					float boundsVoxel[6] = { 0.0f, dimX, 0.0f, dimY, 0.0f, dimZ };
-
 					for (int axis = 0; axis < 3; ++axis) {
-						float invD = 1.0f / (axis == 0 ? d.x : (axis == 1 ? d.y : d.z));
-						float t0 = (boundsVoxel[axis * 2] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
-						float t1 = (boundsVoxel[axis * 2 + 1] - (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z))) * invD;
+						float dd = (axis == 0 ? d.x : (axis == 1 ? d.y : d.z));
+						float oo = (axis == 0 ? rayOrigin.x : (axis == 1 ? rayOrigin.y : rayOrigin.z));
+						float invD = 1.0f / dd;
+						float t0 = (boundsVoxel[axis * 2] - oo) * invD;
+						float t1 = (boundsVoxel[axis * 2 + 1] - oo) * invD;
 						if (invD < 0.0f) std::swap(t0, t1);
 						tMin = std::max(tMin, t0);
 						tMax = std::min(tMax, t1);
 						if (tMax <= tMin) { hit = false; break; }
 					}
+					if (!hit || tMax <= 0.0f) continue;
 
-					if (hit && tMax > 0.0f) {
-						tMin = std::max(0.0f, tMin);
-						localBoxLen += (tMax - tMin);
+					float tEntry = std::max(0.0f, tMin);
+					float tExit = tMax;
+					localBoxLen += (tExit - tEntry);
 
-						float startT = tMin + dist(rng) * rayStepSize;
-						long samples = static_cast<long>(std::ceil((tMax - startT) / rayStepSize));
+					// --- Exact 3D DDA Voxel Walk within the Subgrid ---
+					Vec3 p = rayOrigin + d * tEntry;
+					int ix = std::clamp<int>(static_cast<int>(std::floor(p.x)), static_cast<int>(boundsVoxel[0]), static_cast<int>(boundsVoxel[1]) - 1);
+					int iy = std::clamp<int>(static_cast<int>(std::floor(p.y)), static_cast<int>(boundsVoxel[2]), static_cast<int>(boundsVoxel[3]) - 1);
+					int iz = std::clamp<int>(static_cast<int>(std::floor(p.z)), static_cast<int>(boundsVoxel[4]), static_cast<int>(boundsVoxel[5]) - 1);
 
-						bool previousPhase = false;
+					int sx = (d.x > 0.0f) ? 1 : ((d.x < 0.0f) ? -1 : 0);
+					int sy = (d.y > 0.0f) ? 1 : ((d.y < 0.0f) ? -1 : 0);
+					int sz = (d.z > 0.0f) ? 1 : ((d.z < 0.0f) ? -1 : 0);
 
-						for (long s = 0; s < samples; s++) {
-							Vec3 pt = rayOrigin + d * (startT + s * rayStepSize);
+					float tDeltaX = (d.x != 0.0f) ? std::abs(1.0f / d.x) : INF;
+					float tDeltaY = (d.y != 0.0f) ? std::abs(1.0f / d.y) : INF;
+					float tDeltaZ = (d.z != 0.0f) ? std::abs(1.0f / d.z) : INF;
 
-							long vx = std::clamp<long>(static_cast<long>(pt.x), 0, blockDims[0] - 1);
-							long vy = std::clamp<long>(static_cast<long>(pt.y), 0, blockDims[1] - 1);
-							long vz = std::clamp<long>(static_cast<long>(pt.z), 0, blockDims[2] - 1);
+					float nextX = (sx > 0) ? static_cast<float>(ix + 1) : static_cast<float>(ix);
+					float nextY = (sy > 0) ? static_cast<float>(iy + 1) : static_cast<float>(iy);
+					float nextZ = (sz > 0) ? static_cast<float>(iz + 1) : static_cast<float>(iz);
+					float tMaxX = (d.x != 0.0f) ? (tEntry + (nextX - p.x) / d.x) : INF;
+					float tMaxY = (d.y != 0.0f) ? (tEntry + (nextY - p.y) / d.y) : INF;
+					float tMaxZ = (d.z != 0.0f) ? (tEntry + (nextZ - p.z) / d.z) : INF;
 
-							bool currentPhase = (get_data(vx, vy, vz) < isoLevel);
+					bool previousPhase = (get_data(ix, iy, iz) < isoLevel);
 
-							if (currentPhase != previousPhase) {
-								localTransitions++;
-							}
-							previousPhase = currentPhase;
-						}
+					while (true) {
+						float tNext = std::min(tMaxX, std::min(tMaxY, tMaxZ));
+						if (tNext > tExit) break;
+
+						if (tMaxX <= tMaxY && tMaxX <= tMaxZ) { ix += sx; tMaxX += tDeltaX; }
+						else if (tMaxY <= tMaxZ) { iy += sy; tMaxY += tDeltaY; }
+						else { iz += sz; tMaxZ += tDeltaZ; }
+
+						// Break if out of the scoped boundary limits
+						if (ix < static_cast<int>(boundsVoxel[0]) || ix >= static_cast<int>(boundsVoxel[1]) ||
+							iy < static_cast<int>(boundsVoxel[2]) || iy >= static_cast<int>(boundsVoxel[3]) ||
+							iz < static_cast<int>(boundsVoxel[4]) || iz >= static_cast<int>(boundsVoxel[5])) break;
+
+						bool currentPhase = (get_data(ix, iy, iz) < isoLevel);
+						if (currentPhase != previousPhase) localTransitions++;
+						previousPhase = currentPhase;
 					}
 				}
 			}
 
-			// ADD TO GLOBAL TALLY HERE! (At the end of the 'i' loop, outside the grid loops)
 			globalTransitions += localTransitions;
 			globalBoxLen += localBoxLen;
 		}
-	} 
+	}
 
-	// Calculate final values 
+	// final values
 	if (globalBoxLen > 0.0) {
-		double PL_voxels = static_cast<double>(globalTransitions) / globalBoxLen;
-		double TbN_voxels = PL_voxels / 2.0;
-
-		// Convert to physical space
-		trabecularNr = static_cast<float>(TbN_voxels / stepX);
+		double PL_voxels = static_cast<double>(globalTransitions) / globalBoxLen; // intersections / voxel-length
+		double TbN_voxels = PL_voxels;            // Tb.N = P_L  (NO extra /2)
+		trabecularNr = static_cast<float>(TbN_voxels / stepX); // 1/voxel -> 1/mm  (stepX must be mm/voxel)
 	}
 	else {
 		trabecularNr = 0.0f;
 	}
-
 	trabecularNrVersion = meshVersion;
-	//std::cout << "Trabecular Number (Tb.N): " << trabecularNr << " [1/units]" << std::endl;
+
+	logger->log(LogPriority::SUCCESS, "Estimated Trabecular Number using MIL method!");
 }
 
 void GeneratorLewiner::estimate_connectivity_density() {
@@ -3918,18 +4446,23 @@ void GeneratorLewiner::estimate_connectivity_density() {
 	long long E = edgeSet.size();
 	long long eulerCharacteristic = V - E + F;
 
-	std::cout << eulerCharacteristic << std::endl;
-	std::cout << domainVolume << std::endl;
+	//std::cout << eulerCharacteristic << std::endl;
+	//std::cout << domainVolume << std::endl;
 
 	// estimate the genus
 	float genus = 1.0f - (static_cast<float>(eulerCharacteristic) / 2.0f);
 
 	// connectivity density is genus / domain volume
 	connectivityDensity = genus / domainVolume;
+	
+	connectivityVersion = meshVersion;
+
+	logger->log(LogPriority::SUCCESS, "Estimated Connectivity Density!");
 };
 
 void GeneratorLewiner::estimate_connectivity_network() {
 
+	logger->log(LogPriority::ERROR, "Not implemented yet!");
 	return;
 
 };
@@ -3968,7 +4501,7 @@ void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 		}
 
 		// Pass 2: Inflate (using mu < 0)
-#pragma omp parallel for
+		#pragma omp parallel for
 		for (int i = 0; i < vertNr; ++i) {
 			const auto& nbrs = adjacency[i];
 			if (nbrs.empty()) {
@@ -3999,6 +4532,8 @@ void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 
 	// update opengl objects
 	_update_render();
+
+	logger->log(LogPriority::SUCCESS, "Applied Taubin Smoothing!");
 
 };
 
@@ -4040,35 +4575,316 @@ void GeneratorLewiner::export_metrics(std::string fileName) {
 	fout << porosity << "," << volume << "," << surfaceArea << "," << surfaceToVolume << "," << connectivityDensity << "," << localThickness << "," << localThicknessStd << "," << localSeparation << "," << localSeparationStd << "," << trabecularNr << "," << anisotropyDegree << "," << tortuosity << "\n";
 
 	fout.close();
+
+	logger->log(LogPriority::SUCCESS, "Exported metrics to " + fileName + "!");
+
 };
+
+void GeneratorLewiner::read_metrics(const std::string fileName) {
+	std::ifstream fin(fileName);
+
+	if (!fin.is_open()) {
+		if (logger) logger->log(LogPriority::ERROR, "File " + fileName + " not successfully read. Metrics Not Loaded!");
+		return;
+	}
+
+	// Lambda to trim whitespace
+	auto trim = [](std::string& s) {
+		s.erase(0, s.find_first_not_of(" \t\r\n"));
+		s.erase(s.find_last_not_of(" \t\r\n") + 1);
+	};
+
+	std::string line;
+
+	// 1. Read Header
+	if (!std::getline(fin, line)) {
+		if (logger) logger->log(LogPriority::ERROR, "Metrics file is empty!");
+		return;
+	}
+	std::vector<std::string> header;
+	std::stringstream headerStream(line);
+	std::string cell;
+	while (std::getline(headerStream, cell, ',')) {
+		trim(cell);
+		header.push_back(cell);
+	}
+
+	// 2. Read Data
+	if (!std::getline(fin, line)) {
+		if (logger) logger->log(LogPriority::ERROR, "Metrics data row is missing!");
+		return;
+	}
+	std::vector<std::string> data;
+	std::stringstream dataStream(line);
+	while (std::getline(dataStream, cell, ',')) {
+		trim(cell);
+		data.push_back(cell);
+	}
+
+	if (header.size() != data.size()) {
+		if (logger) logger->log(LogPriority::ERROR, "CSV Column mismatch in metrics file!");
+		return;
+	}
+
+	// Instantiate your struct
+	ScaffoldMetrics loadedMetrics;
+
+	// 3. Map Data dynamically based on the exact strings in your export_metrics
+	for (size_t i = 0; i < header.size(); ++i) {
+		std::string key = header[i];
+		float val = 0.0f;
+
+		try {
+			val = std::stof(data[i]);
+		}
+		catch (...) {
+			continue; // Skip corrupted float data
+		}
+
+		if (key == "Porosity") { loadedMetrics.porosity = val; }
+		else if (key == "Volume") { loadedMetrics.volume = val; }
+		else if (key == "TotalSurface") { loadedMetrics.totalSurface = val; }
+		else if (key == "SurfaceToVolume") { loadedMetrics.surfToVol = val; }
+		else if (key == "Connectivity Density") { loadedMetrics.connectivityDensity = val; }
+		else if (key == "Local Thickness") { loadedMetrics.thickness = val; }
+		else if (key == "Local Thickness Std") { loadedMetrics.thicknessStd = val; }
+		else if (key == "Local Separation") { loadedMetrics.separation = val; }
+		else if (key == "Local Separation Std") { loadedMetrics.separationStd = val; }
+		else if (key == "trabecular Nr") { loadedMetrics.trNumber = val; }
+		else if (key == "Anisotropy") { loadedMetrics.anisotropyDeg = val; }
+		else if (key == "Tortuosity") { loadedMetrics.tortuosity = val; }
+	}
+
+	// 4. Apply the struct values back to your class members
+	porosity = loadedMetrics.porosity;
+	volume = loadedMetrics.volume;
+	surfaceArea = loadedMetrics.totalSurface;
+	surfaceToVolume = loadedMetrics.surfToVol;
+	connectivityDensity = loadedMetrics.connectivityDensity;
+	localThickness = loadedMetrics.thickness;
+	localThicknessStd = loadedMetrics.thicknessStd;
+	localSeparation = loadedMetrics.separation;
+	localSeparationStd = loadedMetrics.separationStd;
+	trabecularNr = loadedMetrics.trNumber;
+	anisotropyDegree = loadedMetrics.anisotropyDeg;
+	tortuosity = loadedMetrics.tortuosity;
+
+	if (logger) {
+		logger->log(LogPriority::SUCCESS, "Successfully loaded metrics from " + fileName);
+	}
+}
 
 //@brief export the applied parameters for scaffold in csv
 void GeneratorLewiner::export_parameters(std::string fileName) {
-
-	std::ofstream fout;
-	fout.open(fileName);
-
 	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
+	if (!lockedGen) return;
 
-	if (lockedGen && lockedGen->type == ObjectType::RandomGeneratorType) {
-		// add header
-		fout << "Thickness, SeedNr, Openess, xStretch, yStretch, zStretch, anisotropyAngle, anisotropyDirectionX, anisotropyDirectionY, anisotropyDirectionZ\n";
+	std::ofstream fout(fileName);
+	if (!fout.is_open()) return;
 
-		Random* rgn = static_cast<Random*>(lockedGen.get());
-		fout << isoLevel << "," << rgn->get_seeds().size() << "," << threshold << "," << stretchX << "," << stretchY << "," << stretchZ << "," << anisotropyAngle << "," << anisotropyVec.x << "," << anisotropyVec.y << "," << anisotropyVec.z << "\n" ;
+	ScaffoldParameters cfg;
 
+	// Populate Core Parameters
+	cfg.thicknessOption = selectedThicknessOption;
+	cfg.openess = threshold;
+	cfg.stretchX = stretchX; cfg.stretchY = stretchY; cfg.stretchZ = stretchZ;
+	cfg.anisotropyAngle = anisotropyAngle;
+	cfg.dirX = anisotropyVec.x; cfg.dirY = anisotropyVec.y; cfg.dirZ = anisotropyVec.z;
+
+	// Populate Thickness & Distance Parameters
+	if (selectedThicknessOption == 0) {
+		cfg.uniformThickness = isoLevel;
 	}
 	else {
-		// add header
-		fout << "Thickness, Min Radius, Max radius, Openess, xStretch, yStretch, zStretch, anisotropyAngle, anisotropyDirectionX, anisotropyDirectionY, anisotropyDirectionZ\n";
+		cfg.startThickness = startThickness;
+		cfg.endThickness = endThickness;
+		cfg.distFunction = selectedDist;
+		cfg.radFunction = selectedFunc;
 
-		Poisson3D* rgn = static_cast<Poisson3D*>(lockedGen.get());
-		fout << isoLevel << "," << rgn->get_min_radius() << "," << rgn->get_max_radius() << "," << threshold << "," << stretchX << "," << stretchY << "," << stretchZ << "," << anisotropyAngle << "," << anisotropyVec.x << "," << anisotropyVec.y << "," << anisotropyVec.z << "\n";
+		// Capture Vector Components
+		cfg.planeOriginX = distancePlaneCenter.x; cfg.planeOriginY = distancePlaneCenter.y; cfg.planeOriginZ = distancePlaneCenter.z;
+		cfg.planeNormalX = distancePlaneNormal.x; cfg.planeNormalY = distancePlaneNormal.y; cfg.planeNormalZ = distancePlaneNormal.z;
+		cfg.pointX = distancePoint.x; cfg.pointY = distancePoint.y; cfg.pointZ = distancePoint.z;
 	}
 
+	// Populate Generator Parameters
+	if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+		cfg.generatorType = 0;
+		auto rgn = std::dynamic_pointer_cast<Random>(lockedGen);
+		if (rgn) cfg.seedNr = static_cast<int>(rgn->get_seeds().size());
+	}
+	else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
+		cfg.generatorType = 1;
+		auto pgn = std::dynamic_pointer_cast<Poisson3D>(lockedGen);
+		if (pgn) {
+			cfg.minRadius = pgn->get_min_radius();
+			if (!pgn->is_uniform()) {
+				cfg.maxRadius = pgn->get_max_radius();
+			}
+		}
+	}
+
+	// Write Fixed Header (Expanded)
+	fout << "ThicknessOption,UniformThickness,StartThickness,EndThickness,DistFunction,RadFunction,"
+		<< "PlaneOriginX,PlaneOriginY,PlaneOriginZ,PlaneNormalX,PlaneNormalY,PlaneNormalZ,PointX,PointY,PointZ,"
+		<< "GeneratorType,SeedNr,MinRadius,MaxRadius,Openess,StretchX,StretchY,StretchZ,"
+		<< "AnisotropyAngle,DirX,DirY,DirZ\n";
+
+	// Write Fixed Data Row
+	fout << cfg.thicknessOption << "," << cfg.uniformThickness << "," << cfg.startThickness << "," << cfg.endThickness << "," << cfg.distFunction << "," << cfg.radFunction << ","
+		<< cfg.planeOriginX << "," << cfg.planeOriginY << "," << cfg.planeOriginZ << ","
+		<< cfg.planeNormalX << "," << cfg.planeNormalY << "," << cfg.planeNormalZ << ","
+		<< cfg.pointX << "," << cfg.pointY << "," << cfg.pointZ << ","
+		<< cfg.generatorType << "," << cfg.seedNr << "," << cfg.minRadius << "," << cfg.maxRadius << ","
+		<< cfg.openess << "," << cfg.stretchX << "," << cfg.stretchY << "," << cfg.stretchZ << ","
+		<< cfg.anisotropyAngle << "," << cfg.dirX << "," << cfg.dirY << "," << cfg.dirZ << "\n";
+
 	fout.close();
+
+	logger->log(LogPriority::SUCCESS, "Exported parameters to " + fileName + "!");
 };
 
+void GeneratorLewiner::read_parameters(const std::string fileName) {
+	std::ifstream fin(fileName);
+
+	if (!fin.is_open()) {
+		logger->log(LogPriority::ERROR, "File " + fileName + " not successfully read");
+		return;
+	}
+
+	auto trim = [](std::string& s) {
+		s.erase(0, s.find_first_not_of(" \t\r\n"));
+		s.erase(s.find_last_not_of(" \t\r\n") + 1);
+	};
+
+	std::string line;
+
+	// Read Header
+	if (!std::getline(fin, line)) return;
+	std::vector<std::string> header;
+	std::stringstream headerStream(line);
+	std::string cell;
+	while (std::getline(headerStream, cell, ',')) { trim(cell); header.push_back(cell); }
+
+	// Read Data
+	if (!std::getline(fin, line)) return;
+	std::vector<std::string> data;
+	std::stringstream dataStream(line);
+	while (std::getline(dataStream, cell, ',')) { trim(cell); data.push_back(cell); }
+
+	if (header.size() != data.size()) {
+		logger->log(LogPriority::ERROR, "CSV Column mismatch!");
+		return;
+	}
+
+	// Unified mapping loop
+	for (size_t i = 0; i < header.size(); ++i) {
+		std::string key = header[i];
+		float val = 0.0f;
+		try { val = std::stof(data[i]); }
+		catch (...) { continue; }
+
+		if (val == -1.0f) continue; // Ignore unused placeholders
+
+		if (key == "ThicknessOption") { selectedThicknessOption = static_cast<int>(val); }
+		else if (key == "UniformThickness") { isoLevel = val; }
+		else if (key == "StartThickness") { startThickness = val; }
+		else if (key == "EndThickness") { endThickness = val; }
+		else if (key == "DistFunction") { selectedDist = static_cast<int>(val); }
+		else if (key == "RadFunction") { selectedFunc = static_cast<int>(val); }
+
+		// Map Vector Components Back to Vec3
+		else if (key == "PlaneOriginX") { distancePlaneCenter.x = val; }
+		else if (key == "PlaneOriginY") { distancePlaneCenter.y = val; }
+		else if (key == "PlaneOriginZ") { distancePlaneCenter.z = val; }
+		else if (key == "PlaneNormalX") { distancePlaneNormal.x = val; }
+		else if (key == "PlaneNormalY") { distancePlaneNormal.y = val; }
+		else if (key == "PlaneNormalZ") { distancePlaneNormal.z = val; }
+		else if (key == "PointX") { distancePoint.x = val; }
+		else if (key == "PointY") { distancePoint.y = val; }
+		else if (key == "PointZ") { distancePoint.z = val; }
+
+		else if (key == "Openess") { threshold = val; }
+		else if (key == "StretchX") { stretchX = val; }
+		else if (key == "StretchY") { stretchY = val; }
+		else if (key == "StretchZ") { stretchZ = val; }
+		else if (key == "AnisotropyAngle") { anisotropyAngle = val; }
+		else if (key == "DirX") { anisotropyVec.x = val; }
+		else if (key == "DirY") { anisotropyVec.y = val; }
+		else if (key == "DirZ") { anisotropyVec.z = val; }
+	}
+
+	logger->log(LogPriority::SUCCESS, "Successfully loaded parameters from " + fileName);
+}
+
+std::unique_ptr<GeneratorLewiner> GeneratorLewiner::extract_from_ROI(ROI* roi) {
+
+	std::array<float, 6> reqBounds = roi->get_bounds();
+
+	// Calculate the exact integer grid indices in the parent mesh that enclose the ROI
+	int min_i = static_cast<int>(std::floor((reqBounds[0] - this->bounds[0]) / this->stepX));
+	int max_i = static_cast<int>(std::ceil((reqBounds[1] - this->bounds[0]) / this->stepX));
+
+	int min_j = static_cast<int>(std::floor((reqBounds[2] - this->bounds[2]) / this->stepY));
+	int max_j = static_cast<int>(std::ceil((reqBounds[3] - this->bounds[2]) / this->stepY));
+
+	int min_k = static_cast<int>(std::floor((reqBounds[4] - this->bounds[4]) / this->stepZ));
+	int max_k = static_cast<int>(std::ceil((reqBounds[5] - this->bounds[4]) / this->stepZ));
+
+	// Safety Clamp: Ensure we don't accidentally expand outside the parent's actual dimensions
+	min_i = std::max(0, min_i);  max_i = std::min(this->blockDims[0] - 1, max_i);
+	min_j = std::max(0, min_j);  max_j = std::min(this->blockDims[1] - 1, max_j);
+	min_k = std::max(0, min_k);  max_k = std::min(this->blockDims[2] - 1, max_k);
+
+	// Reconstruct the perfectly snapped physical bounds
+	std::array<float, 6> snappedBounds = {
+		this->bounds[0] + min_i * this->stepX,
+		this->bounds[0] + max_i * this->stepX,
+		this->bounds[2] + min_j * this->stepY,
+		this->bounds[2] + max_j * this->stepY,
+		this->bounds[4] + min_k * this->stepZ,
+		this->bounds[4] + max_k * this->stepZ
+	};
+
+	// Calculate exact integer resolution (No floats, no std::ceil needed here)
+	std::array<int, 3> localResolution = {
+		max_i - min_i + 1,
+		max_j - min_j + 1,
+		max_k - min_k + 1
+	};
+	
+	auto roiScaffold = std::make_unique<GeneratorLewiner>(
+		this->seeds,
+		snappedBounds,
+		localResolution,
+		this->logger,
+		this->threshold,
+		this->isoLevel,
+		this->foam,
+		this->renderMode
+	);
+
+	roiScaffold->set_stretch(this->stretchX, this->stretchY, this->stretchZ);
+	roiScaffold->anisotropyAngle = this->anisotropyAngle;
+	roiScaffold->anisotropyVec = this->anisotropyVec;
+	roiScaffold->set_thickness_functions(this->thicknessSDF, this->thicknessFunction, this->startThickness, this->endThickness, this->transitionDistance);
+	roiScaffold->isROI = true;
+	roiScaffold->name = this->name + " (ROI)";
+
+	// 5. Generate the mesh using the parent's container
+	std::shared_ptr<IContainer> parentCon = this->container.lock();
+	if (parentCon) {
+		roiScaffold->compute_scalar_field(*parentCon);
+		roiScaffold->marching_cubes();
+		roiScaffold->estimate_metrics(*parentCon);
+	}
+
+	return roiScaffold;
+}
+
+// =========================================================================
+// Scaffold Factory Class Implementation
+// =========================================================================
 void ScaffoldFactory::launch() {
 
 	selectedCon.reset();
@@ -4082,12 +4898,14 @@ void ScaffoldFactory::launch() {
 	anisotropyVec = { 1.0f, 0.0f, 0.0f };
 	anisotropyAngle = { 0.0f };
 	foam = 0;
-	resolution = { 100, 100, 100 };
+	voxelSize = 0.05;
 
 	// for thickness function
-	uniformThicknessFlag = false;
+	selectedThicknessOption = 0;
 	distancePlaneNormal = { 0.0f, 0.0f, 1.0f };
 	distancePlaneCenter = { 0.0f, 0.0f, 0.0f };
+	distancePoint = { 0.0f, 0.0f, 0.0f };
+	transitionDistance = 10.0f;
 
 	thicknessRadFunc.reset();
 	thicknessSDF.reset();
@@ -4119,10 +4937,10 @@ void ScaffoldFactory::gui_draw(
 		// --------------------------------------------------------------------------------
 		ImGui::SeparatorText("Thickness");
 
-		ImGui::RadioButton("Uniform Thickness", &uniformThicknessFlag, 0);
-		ImGui::RadioButton("Varied Thickness", &uniformThicknessFlag, 1);
+		ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
+		ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
-		if (uniformThicknessFlag == 0) {
+		if (selectedThicknessOption == 0) {
 			ImGui::InputFloat("Thickness", &thickness, 0.001f, 1.0f);
 		}
 		else {
@@ -4163,13 +4981,13 @@ void ScaffoldFactory::gui_draw(
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
-		ImGui::InputInt3("Resolution", resolution);
 		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
 
 		// --------------------------------------------------------------------------------
 		ImGui::SeparatorText("Mode");
 		ImGui::RadioButton("Porous", &foam, 0);
 		ImGui::RadioButton("Foam", &foam, 1);
+		ImGui::InputFloat("Voxel Size", &voxelSize);
 
 		// here we should get the seeds from the corresponding creator
 		ImGui::SeparatorText("Select Container and generator");
@@ -4272,12 +5090,20 @@ void ScaffoldFactory::gui_draw(
 					bds.zMax
 				};
 
+				// estimate the resolution from the voxel size
+				resolution = {
+					static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
+					static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
+					static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
+				};
+
+				std::cout << " resolution: " << resolution[0] << ", " << resolution[1] << "," << resolution[2] << std::endl;
+
 				std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
-					seeds, bounds, resolution, openess, thickness, foam
+					seeds, bounds, resolution, logger, openess, thickness, foam
 				);
 
-				if (uniformThicknessFlag == 1) {
-					std::cout << "setting functions" << std::endl;
+				if (selectedThicknessOption == 1) {
 					
 					switch (selectedFunc) {
 						// linear radius function
@@ -4304,11 +5130,13 @@ void ScaffoldFactory::gui_draw(
 						//std::array<double, 3> center = { planeCenter.x, planeCenter.y, planeCenter.z };
 						//std::array<double, 3> norm = { normal.x, normal.y, normal.z};
 						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
+						scaffold->set_distance_plane_options(distancePlaneCenter, distancePlaneNormal);
 						break;
 					}
 						  // distance from point
 					case 1: {
 						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
+						scaffold->set_distance_point_options(distancePoint);
 						break;
 					}
 						  // distance from container surface
@@ -4317,10 +5145,15 @@ void ScaffoldFactory::gui_draw(
 						break;
 					}
 					}
-
-					scaffold->set_thickness_functions(
-						thicknessSDF, thicknessRadFunc, startThickness, endThickness);
 				}
+				else {
+					thicknessSDF.reset();
+					thicknessRadFunc.reset();
+				}
+				scaffold->set_options_from_factory(selectedDist, selectedFunc, selectedThicknessOption, voxelSize);
+
+				scaffold->set_thickness_functions(
+					thicknessSDF, thicknessRadFunc, startThickness, endThickness, transitionDistance);
 
 				// scalar field settings
 				scaffold->set_stretch(stretchX, stretchY, stretchZ);
@@ -4334,7 +5167,6 @@ void ScaffoldFactory::gui_draw(
 				scaffold->generator = lockedGen;
 
 				if (foam == 1) {
-					std::cout << " create foam " << std::endl;
 					scaffold->foam = true;
 				}
 
@@ -4370,7 +5202,7 @@ void ScaffoldFactory::gui_draw(
 				logger->log(
 					LogPriority::SUCCESS,
 					"Created scaffold succesffully using container " + lockedCon->name +
-					" and generator " + lockedGen->name + " in" + oss.str());
+					" and generator " + lockedGen->name + " in " + oss.str());
 
 				showPopup = false;
 			}

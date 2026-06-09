@@ -28,7 +28,8 @@ struct SimInput {
 
 struct SimOutput {
 	int id;
-	float thickness;
+	float minThickness;
+	float maxThickness;
 	float minRadius;
 	float maxRadius;
 	float openess;

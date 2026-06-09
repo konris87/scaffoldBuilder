@@ -648,7 +648,7 @@ bool Generator::estimate_tortuosity() {
 	// since we want to find paths through the porous structure
 	for(int x{ 10 }; x < nx - 10; x++) {
 		for(int y{ 10 }; y < ny - 10; y++) {
-			int idx = find_vertex_index(x, y, 0);
+			size_t idx = find_vertex_index(x, y, 0);
 			
 			// we only consider solid voxels as starting points for the A* search, 
 			// since we want to find paths through the porous structure, 
@@ -711,7 +711,7 @@ bool Generator::estimate_tortuosity() {
 			if (nx_ >= 1 && nx_ < nx - 1&&
 				ny_ >= 1 && ny_ < ny - 1 &&
 				nz_ >= 0 && nz_ < nz) {
-				int nbIdx = find_vertex_index(nx_, ny_, nz_);
+				size_t nbIdx = find_vertex_index(nx_, ny_, nz_);
 				// we only consider empty voxels as valid neighbors to explore, 
 				// since we want to find paths through the porous structure
 				if (scalarField[nbIdx] > isoLevel) {
@@ -760,10 +760,6 @@ bool Generator::estimate_tortuosity() {
 	}
 
 	tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
-
-	// edges should be half the number of vertices since each edge connects two vertices
-	std::cout << "tortuosity vertices: " << tortuosityPathVertices.size() / 3 << std::endl;	
-	std::cout << "tortuosity edges: " << tortuosityPathEdges.size() / 2 << std::endl;
 
 	tortuosity = minPathLength / height; // tortuosity is the ratio of the actual path length to the straight line distance (height)
 

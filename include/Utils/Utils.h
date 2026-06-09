@@ -27,6 +27,7 @@ enum ObjectType {
 	UniformGeneratorType,
 	VariedGeneratorType,
 	ScaffoldType,
+	Roi,
 	NoneType
 };
 
@@ -56,10 +57,10 @@ struct Aabb {
 };
 
 struct AStarNode {
-	int idx;
+	size_t idx;
 	float fScore;
 
-	AStarNode(int idx, float fScore) : idx(idx), fScore(fScore) {};
+	AStarNode(size_t idx, float fScore) : idx(idx), fScore(fScore) {};
 	// we want the priority queue to order the nodes by their fScore, so we need to overload the < operator
 	bool operator>(const AStarNode& other) const {
 		return fScore > other.fScore; // we want the node with the lowest fScore to be at the top of the priority queue, so we use > instead of <
@@ -81,6 +82,12 @@ public:
 	virtual void run_generate_seeds(
 		const std::array<double, 3>&, const std::array<double, 3>&, double) = 0;
 };
+
+bool ray_aabb_intersection(const Vec3& orig, const Vec3& invDir, const std::array<float, 6> bounds);
+
+bool ray_triangle_intersection(
+	const Vec3& orig, const Vec3& dir, const Vec3& v0, const Vec3& v1, const Vec3& v2
+);
 
 bool ray_intersection(
 	const Eigen::Vector3d& p,

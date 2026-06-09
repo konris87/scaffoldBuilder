@@ -179,7 +179,14 @@ void BoundingBox::clean() {
 
 
 // -------------------------------------------------------------------------------------
-BBox::BBox(float xMin, float xMax, float yMin, float yMax, float zMin, float zMax){
+BBox::BBox(const Vec3 size, const Vec3 center) {
+
+	float xMin = center.x - size.x / 2.0f;
+	float xMax = center.x + size.x / 2.0f;
+	float yMin = center.y - size.y / 2.0f;
+	float yMax = center.y + size.y / 2.0f;
+	float zMin = center.z - size.z / 2.0f;
+	float zMax = center.z + size.z / 2.0f;
 		
 	// first point
 	vertices.push_back(xMin);

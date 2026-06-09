@@ -51,6 +51,7 @@ struct RenderSettings {
 	std::array<float, 4> poreNetworkColor = { 0.0f, 0.0f, 0.0f, 1.0f };
 	float poreNetworkLineSize = 1.0f;
 	std::array<float, 4> tortuosityPathColor = { 1.0f, 0.0f, 0.0f, 1.0f };
+	std::array<float, 4> cutPlaneColor = { 0.5f, 0.5f, 0.5f, 0.5f };
 	float tortuosityPathSize = 3.0f;
 };
 
@@ -89,7 +90,7 @@ public:
 	float seedColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
 	float gridColor[4] = { 0.5f, 0.5f, 0.5f, 1.0f };
 	float meshColor[3] = { 1.0f, 1.0f, 1.0f }; // RGB
-	float seedSize{ 0.05f };
+	float seedSize{ 1.0f };
 	float normalColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
 
 	// lighting
@@ -108,6 +109,8 @@ public:
 	std::vector<std::shared_ptr<InterfaceSeedGenerator>> seedGenerators;
 
 	std::vector<std::shared_ptr<IContainer>> containers;
+
+	std::vector<std::shared_ptr<ROI>> rois;
 
 	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>();
 
@@ -176,6 +179,8 @@ public:
 	bool showVariedSeedCreator{ false };
 	bool showScaffoldCreator{ false };
 	bool showProperties{ false };
+	bool showROICreator{ false };
+	bool showROICutter{ false };
 	bool measureThickness{ false };
 	bool measureSeparation{ false };
 	
@@ -345,6 +350,8 @@ private:
 
 	float tortuosityVoxelSize = 0.02f;
 
+	int trabecularNrFormula = 0;
+
 	// ----------------------------------------------------------------------
 	// 4. Functions
 
@@ -363,6 +370,8 @@ private:
 	void _render_seed_generator_list();
 
 	void _render_container_list();
+
+	void _render_roi_list();
 
 	void _render_object_list();
 
@@ -428,17 +437,9 @@ private:
 
 	void _render_varied_seed_generator_properties();
 
-	void _render_scaffold_creator(const char* popupName, bool& showPopup);
-
-	void _render_scaffold_properties();
-
 	void _render_binary_image_window(const char* popupName, bool& showPopup);
 
-	void _action_update_voronoi();
-
-	void _action_estimate_connectivity();
-
-	void _local_thickness_measure(const char* popupName, bool& showPopup, bool flag);
+	void _action_estimate_local_thickness(const char* popupName, bool& showPopup, bool flag);
 
 	void _action_estimate_tortuosity();
 	
@@ -450,8 +451,6 @@ private:
 
 	void _action_estimate_pore_network();
 
-	void _action_generate_scaffold();
-
 	void _render_cutting_plane_settings(const char* popupName, bool& showPopup);
 
 	void _render_scale_panel(const char* popupName, bool& showPopup);
@@ -459,6 +458,10 @@ private:
 	void _render_taubin_smooth_panel(const char* popupName, bool& showPopup);
 
 	void _render_translate_panel(const char* popupName, bool& showPopup);
+
+	void _render_roi_creator(const char* popupName, bool& showPopup);
+
+	void _render_roi_cutter(const char* popupName, bool& showPopup);
 
 	void _draw_selected_box();
 

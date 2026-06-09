@@ -133,6 +133,8 @@ public:
 
 	float compute_distance(const Vec3& pt) const override;
 
+	bool is_inside_raycast(const Vec3& pt) const;
+
 private:
 
 	std::unique_ptr<AabbTree> tree;
