@@ -305,6 +305,13 @@ public:
 
 	std::string fileName = "";
 
+	// rescale the mesh about its bounding-box center (e.g. to convert a
+	// CAD export's native units into mm) and rebuild the SDF/BVH
+	void set_scale(float scale) {
+		scaleFactor = scale;
+		apply_scale();
+	};
+
 private:
 	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 

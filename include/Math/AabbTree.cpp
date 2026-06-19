@@ -147,7 +147,7 @@ float AabbTree::get_closest_distance(const Vec3& pt) const {
 		stack.pop_back();
 
 		// grab the node
-		AabbNode node = tree[nodeIdx];
+		const AabbNode& node = tree[nodeIdx];
 
 		// check the distance from the querry point to the node box
 		float dist = distance_to_node(pt, node.bounds);

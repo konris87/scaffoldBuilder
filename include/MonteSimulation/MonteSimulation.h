@@ -70,9 +70,6 @@ std::vector<SimInput> generate_lhs_sampling(int nr = 1000, int dims = 3, Samplin
 // @brief this function runs monte carlo simulations for the desired input parameters
 void run_monte_carlo_simulations(int nr = 1000, int dims = 3, SamplingType t=uniform);
 
-void run_voro(std::vector<std::array<double, 3>>& seeds, std::unique_ptr<Graph>& graph,
-	const SimInput& params, SimOutput& out);
-
 void save_csv(const std::string fileName,
 	const std::vector<SimOutput>& outputs,
 	const SamplingType& t);

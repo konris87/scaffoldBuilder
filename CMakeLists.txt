@@ -69,23 +69,14 @@ include_directories(
 set(IMGUI_DIR ./lib/imgui)
 include_directories(${IMGUI_DIR} ${IMGUI_DIR}/backends ..)
 
-# Include Voro ++ 
-set (CMAKE_PREFIX_PATH "C:/Users/Konst/Desktop/Software/voro-install/bin/")
-find_package(VORO CONFIG REQUIRED)
+# sources shared by the main app and the CLI profiling executable
+set(CORE_SOURCES
 
-if (NOT VORO_FOUND)
-  message(FATAL_ERROR "Unable to find VORO.")
-endif()
-
-set(SOURCES
-
-	src/Gui/guiApp.cpp
-    src/main.cpp
 	# src/Scaffold/buildScaffold.cpp
-	
+
 	# glad
 	lib/glad/src/glad.c
-	
+
 	# other src
 	# src/Misc/cell_process.cpp
 	include/Math/Quaternion.cpp
@@ -99,19 +90,19 @@ set(SOURCES
 	src/OpenGlSetup/defaultCamera.cpp
 	src/OpenGlSetup/Misc.cpp
 	include/Utils/Utils.cpp
-	include/Wall/Wall.cpp
+	# include/Wall/Wall.cpp
 	include/Misc/Imgui_Stdlib.cpp
 	# include/SeedGenerator/Random.cpp
 	# include/SeedGenerator/Poisson3D.cpp
 	# include/ScaffoldGenerator/ScaffoldGenerator.cpp
 	include/SeedGenerator/Container.cpp
 	include/SeedGenerator/DistanceCalculator.cpp
-	include/ScaffoldGenerator/Generator.cpp
+	# include/ScaffoldGenerator/Generator.cpp
 	include/ScaffoldGenerator/GeneratorLewiner.cpp
 	include/OpenGlRender/Model.cpp
 	include/SeedGenerator/SeedGenerator.cpp
 	include/MonteSimulation/MonteSimulation.cpp
-	
+
 	# imgui
 	${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
 	${IMGUI_DIR}/backends/imgui_impl_opengl3
@@ -120,19 +111,61 @@ set(SOURCES
  	${IMGUI_DIR}/imgui_widgets.cpp
 	${IMGUI_DIR}/imgui_tables.cpp
 	${IMGUI_DIR}/imgui_demo.cpp
-	
+
 	# imgui file dialog
 	lib/ImGuiFileDialog/ImGuiFileDialog.cpp
+)
+
+set(SOURCES
+	${CORE_SOURCES}
+	src/Gui/guiApp.cpp
+	src/main.cpp
 )
 
 # Add executable
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-# Link libraries
-target_link_libraries(${PROJECT_NAME} PRIVATE
-	${OPENGL_LIBRARIES}
-	glfw
-	${VTK_LIBRARIES}
+# Standalone CLI profiling harness (no GUI/OpenGL window needed) used to
+# measure where time goes in the scaffold generation pipeline on a real mesh.
+add_executable(scaffoldProfile ${CORE_SOURCES} src/profile_main.cpp)
+
+# settings shared by both the main app and the CLI profiling executable
+foreach(TGT ${PROJECT_NAME} scaffoldProfile)
+
+	if (MSVC)
+		target_compile_options(${TGT} PRIVATE /bigobj)
+	endif()
+
+	# The codebase uses #pragma omp parallel for extensively (scalar field
+	# generation, marching cubes, smoothing, etc.) but without this, MSVC/GCC/Clang
+	# silently ignore those pragmas and the loops run single-threaded.
+	find_package(OpenMP REQUIRED)
+	target_link_libraries(${TGT} PRIVATE OpenMP::OpenMP_CXX)
+
+	# Link libraries
+	target_link_libraries(${TGT} PRIVATE
+		${OPENGL_LIBRARIES}
+		glfw
+		${VTK_LIBRARIES}
+	)
+
+	# Include directories
+	target_include_directories(${TGT} PRIVATE
+	    ${CMAKE_CURRENT_SOURCE_DIR}/include
+	)
+
+	# Eigen
+	target_include_directories(${TGT} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+endforeach()
+
+# Copy the share/ folder (shaders, fonts, textures) next to the built executable
+# so relative paths like "./share/shaders/..." resolve regardless of build type
+# (Debug/Release/RelWithDebInfo) or generator (Ninja/Visual Studio).
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+		${CMAKE_SOURCE_DIR}/share
+		$<TARGET_FILE_DIR:${PROJECT_NAME}>/share
 )
 
 # vtk_module_autoinit is needed
@@ -140,17 +173,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 #  TARGETS ${PROJECT_NAME}
 #  MODULES ${VTK_LIBRARIES}
 #)
-
-target_include_directories(${PROJECT_NAME} PUBLIC VORO::voro++)
-target_link_libraries(${PROJECT_NAME} PUBLIC VORO::voro++)
-
-# Include directories
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-)
-
-# Eigen
-target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # -----------------------------
 # Installation rules
@@ -163,11 +185,8 @@ install(TARGETS scaffoldBuilder
 	LIBRARY DESTINATION	bin# macOS bundle
 )
 
-# Install shader files (uncomment if needed)
-# install(DIRECTORY src/shaders/ DESTINATION bin/shaders)
-# install(DIRECTORY share/ DESTINATION bin/share)
-
-install(DIRECTORY ${CMAKE_BINARY_DIR}/share/ DESTINATION bin/share)
+# Install the share/ folder (shaders, fonts, textures) alongside the executable
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/share/ DESTINATION bin/share)
 # -----------------------------
 # CPack setup (packaging)
 # -----------------------------

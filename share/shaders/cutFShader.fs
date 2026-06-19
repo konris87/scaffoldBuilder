@@ -5,6 +5,7 @@ in vec4 vertexPosWorld;
 
 uniform vec3 minBounds;
 uniform vec3 maxBounds;
+uniform vec4 planeColor;
 
 // output: fragment color
 out vec4 FragColor;
@@ -18,6 +19,6 @@ void main(){
 //			discard;
 //		} 
 		
-	FragColor = vec4(1.0, 0.0, 0.0, 0.0);
+	FragColor = planeColor;
 
 }

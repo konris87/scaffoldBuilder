@@ -6,6 +6,8 @@
 //@brief constructor, we use this to 
 AbstractContainer::AbstractContainer(const std::string& fileName, const bool renderMode) : fileName(fileName) {
 
+	this->renderMode = renderMode;
+
 	std::ifstream file(fileName, std::ios::in | std::ios::binary);
 	std::vector<openstl::Triangle> meshTriangles = openstl::deserializeStl(file);
 	file.close();
@@ -248,7 +250,7 @@ void AbstractContainer::estimate_pseudonormals() {
 };
 
 void AbstractContainer::apply_scale() {
-	
+
 	Vec3 center = {
 	(bounds[1] + bounds[0]) * 0.5f,
 	(bounds[3] + bounds[2]) * 0.5f,
@@ -264,7 +266,9 @@ void AbstractContainer::apply_scale() {
 	generate();
 
 	// create the visualization model
-	create();
+	if (renderMode) {
+		create();
+	}
 
 	// get the pseudonormals
 	estimate_pseudonormals();

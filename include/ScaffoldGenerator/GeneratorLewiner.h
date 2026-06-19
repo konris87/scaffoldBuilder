@@ -205,6 +205,20 @@ public:
 	void apply_scale();
 
 private:
+	// Per-voxel classification produced by classify_container_narrow_band(),
+	// used to skip the expensive exact container-distance evaluation
+	// (BVH nearest-point query + raycast inside/outside test) for voxels
+	// that a cheap coarse pre-pass already proves are safely far from the
+	// container surface. See classify_container_narrow_band() for the
+	// derivation of why this is exact, not an approximation.
+	enum class NarrowBandClass : uint8_t {
+		NeedsExact = 0,	// within 'margin' of the surface (or unproven) - must call the real SDF
+		Outside    = 1,	// proven > margin outside the container
+		Inside     = 2	// proven > margin inside the container
+	};
+
+	std::vector<NarrowBandClass> classify_container_narrow_band(const IContainer& con, float margin);
+
 	void smooth_scalar_field();
 
 	void seal_grid_boundaries();
@@ -319,7 +333,6 @@ public:
 	Vec3 anisotropyVec{ 1.0f, 0.0f, 0.0f };
 	float anisotropyAngle{ 0.0f };
 	std::unique_ptr<Ellipsoid> ellipsoidModel;
-	std::array<int, 3> resolution = { 150, 150, 150 };
 
 	// loaded from csv
 	bool isLoadedFromFile = false;

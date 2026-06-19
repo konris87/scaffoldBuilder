@@ -4,7 +4,6 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <math.h>
-#include <voro++.hh>
 
 bool is_inside_box(const std::array<double, 3>& p, const Bounds& b) {
 	return (p[0] >= b.xMin && p[0] <= b.xMax) &&

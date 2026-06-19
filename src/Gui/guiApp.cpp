@@ -111,8 +111,8 @@ void myGUI::_init_opengl() {
 	
 	// load shaders
 	scaffoldShader = Shader(
-		std::filesystem::absolute(std::filesystem::path("./share/shaders/mainVShader.vertexshader")).string().c_str(),
-		std::filesystem::absolute(std::filesystem::path("./share/shaders/mainFShader.fragmentshader")).string().c_str(),
+		"./share/shaders/mainVShader.vertexshader",
+		"./share/shaders/mainFShader.fragmentshader",
 		NULL
 	);
 
@@ -721,7 +721,7 @@ void myGUI::run() {
 			_draw_selected_box();
 		}
 
-		// ----------------------------------------------------------------------------
+		// ---------------------------------------------------------------------
 		// Pass 2, draw transparent objects
 
 		glEnable(GL_BLEND);       // Enable blending
@@ -1031,6 +1031,7 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 		showGeometryExportWindow = false;
 	}
+
 	if (ImGuiFileDialog::Instance()->Display("Export Binary Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
@@ -1116,7 +1117,7 @@ void myGUI::_render_settings_panel() {
 			// now create a scaffold using these
 			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>();
 			scaffold->set_logger(&logger);
-			scaffold->name = fileName;
+			scaffold->name = p.stem().string();
 
 			scaffold->load_scaf(filePath, containers, seedGenerators);
 				
@@ -1134,7 +1135,7 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
-	if (ImGuiFileDialog::Instance()->Display("Load Mesh", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+	if (ImGuiFileDialog::Instance()->Display("Load Mesh Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
@@ -1867,7 +1868,7 @@ void myGUI::_render_main_menu_bar() {
 				showGeometryExportWindow = true;
 				IGFD::FileDialogConfig config;
 				config.path = "../data";
-				ImGuiFileDialog::Instance()->OpenDialog("Export Geometry Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
+				ImGuiFileDialog::Instance()->OpenDialog("Export Mesh Scaffold", "Export Scaffold Geometry", ".stl, .vtk", config);
 			}
 
 			if (ImGui::MenuItem("Save Scaffold as binary image", "Export scaffold as binary image.")) {
@@ -3437,6 +3438,10 @@ void myGUI::_action_estimate_trabecular_number() {
 		ImGui::SeparatorText("Parameters");
 
 		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
+		
+		const char* formulaOptions[] = { "Mean Intercept Length (DDA)", "Derived Proxy (BV/TV / Tb.Th)" };
+		ImGui::Combo("Algorithm", &trabecularNrFormula, formulaOptions, IM_ARRAYSIZE(formulaOptions));
+		
 		ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
 		ImGui::RadioButton("Analyze Inside ROI", &analysisScope, 1);
 
@@ -3463,9 +3468,6 @@ void myGUI::_action_estimate_trabecular_number() {
 				ImGui::EndCombo();
 			}
 		}
-
-		const char* formulaOptions[] = { "Mean Intercept Length (DDA)", "Derived Proxy (BV/TV / Tb.Th)" };
-		ImGui::Combo("Algorithm", &trabecularNrFormula, formulaOptions, IM_ARRAYSIZE(formulaOptions));
 
 		ImGui::NewLine();
 		if (ImGui::Button("Estimate")) {
@@ -3524,9 +3526,9 @@ void myGUI::_render_translate_panel(const char* popupName, bool& showPopup) {
 		static float tempY = { 0.0f };
 		static float tempZ = { 0.0f };
 
-		ImGui::InputFloat("Translate X", &tempX, 0.001f, 1000.0f);
-		ImGui::InputFloat("Translate Y", &tempY, 0.001f, 1000.0f);
-		ImGui::InputFloat("Translate Z", &tempZ, 0.001f, 1000.0f);
+		ImGui::InputFloat("Translate X", &tempX, 0.01f, 1000.0f);
+		ImGui::InputFloat("Translate Y", &tempY, 0.01f, 1000.0f);
+		ImGui::InputFloat("Translate Z", &tempZ, 0.01f, 1000.0f);
 
 		// grab the selected panel
 		GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
@@ -3618,18 +3620,18 @@ void myGUI::_render_roi_creator(const char* popupName, bool& showPopup) {
 		if (ImGui::Button("Create")) {
 			std::shared_ptr<ROI> roi = std::make_shared<ROI>(size, origin);
 			if (buffer.empty()) {
-				roi->name = "roi" + std::to_string(rois.size());
+				roi->name = "roi" + std::to_string(rois.size() + 1);
 			}
 			else {
 				roi->name = buffer;
 			};
-			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedSceneObj);
-			roi->relatedMeshName = gen->name;
+
 			rois.push_back(roi);
 
 			size = { 10.0f, 10.0f, 10.0f };
 			buffer[0] = '\0';
 			origin = Vec3{ 0.0f, 0.0f, 0.0f };
+			showPopup = false;
 			showPopup = false;
 		}
 	

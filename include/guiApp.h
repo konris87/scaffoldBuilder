@@ -26,7 +26,6 @@
 #include "OpenGlSetup/simpleCamera.h"
 #include "OpenGlSetup/UniformManager.h"
 #include "OpenGlSetup/Grid.h"
-#include "ScaffoldGenerator/Generator.h"
 #include "ScaffoldGenerator/GeneratorLewiner.h"
 #include "Shader.h"
 #include "Utils/Utils.h"

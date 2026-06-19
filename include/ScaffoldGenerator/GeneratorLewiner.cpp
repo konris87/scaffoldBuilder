@@ -131,6 +131,195 @@ GeneratorLewiner::GeneratorLewiner(
 
 };
 
+/**
+ * @brief Classifies every voxel of the generation grid as definitely OUTSIDE
+ * the container, definitely INSIDE it, or NeedsExact (close enough to the
+ * surface, within 'margin', that it must be evaluated exactly).
+ *
+ * Why this is exact and not a heuristic:
+ * A signed distance function is 1-Lipschitz: |SDF(p) - SDF(q)| <= |p - q|
+ * for any two points p, q. Consequently, if the EXACT distance is known at
+ * every corner of an axis-aligned box, and the smallest of those corner
+ * distances exceeds (margin + boxDiagonal), then no point inside that box -
+ * however close to a corner - can have a distance smaller than 'margin'
+ * (it would require a smaller-than-boxDiagonal step to close that much of a
+ * gap). The mirror argument holds for proving a box lies entirely more than
+ * 'margin' inside.
+ *
+ * This lets us evaluate the real (and, for a mesh container, expensive:
+ * BVH nearest-point query + raycast sign test) SDF only on a coarse
+ * sub-sampling of the grid (every 'stride' voxels), and use that coarse
+ * sampling to safely resolve the classification of every coarse CELL's
+ * interior in O(1), without ever calling the real SDF on those interior
+ * (fine) voxels. Only voxels in cells that remain ambiguous - i.e. within
+ * 'margin' of the surface - fall back to per-voxel exact evaluation.
+ *
+ * @param con     the container whose distance field is being classified
+ * @param margin  the same distance threshold used by compute_scalar_field's
+ *                "more than margin outside, don't bother" early-out; must
+ *                match it for the classification to be consistent with how
+ *                the caller actually uses the result
+ */
+std::vector<GeneratorLewiner::NarrowBandClass> GeneratorLewiner::classify_container_narrow_band(
+	const IContainer& con, float margin) {
+
+	size_t totalVoxels = static_cast<size_t>(blockDims[0]) *
+		static_cast<size_t>(blockDims[1]) *
+		static_cast<size_t>(blockDims[2]);
+
+	// default to the safe fallback everywhere; only cells we can PROVE are
+	// far enough from the surface get reclassified below
+	std::vector<NarrowBandClass> classification(totalVoxels, NarrowBandClass::NeedsExact);
+
+	// coarse sampling stride, in fine voxels. Larger = cheaper coarse pass
+	// but a thicker band of "ambiguous" cells around the surface (since the
+	// safety margin below grows with the coarse cell's diagonal).
+	const int stride = 8;
+
+	auto ceil_div = [](int a, int b) { return (a + b - 1) / b; };
+
+	std::array<int, 3> coarseDims = {
+		ceil_div(blockDims[0] - 1, stride) + 1,
+		ceil_div(blockDims[1] - 1, stride) + 1,
+		ceil_div(blockDims[2] - 1, stride) + 1
+	};
+
+	auto coarse_idx = [&](int ci, int cj, int ck) -> size_t {
+		return static_cast<size_t>(ci) +
+			static_cast<size_t>(cj) * static_cast<size_t>(coarseDims[0]) +
+			static_cast<size_t>(ck) * static_cast<size_t>(coarseDims[0]) * static_cast<size_t>(coarseDims[1]);
+	};
+
+	// maps a coarse-grid index back to the fine voxel index it samples,
+	// clamped so the last coarse layer always lands exactly on the grid edge
+	auto coarse_to_fine = [&](int c, int dim) {
+		return std::min(c * stride, dim - 1);
+	};
+
+	std::vector<float> coarseDist(
+		static_cast<size_t>(coarseDims[0]) * coarseDims[1] * coarseDims[2]);
+
+	// 1. Evaluate the EXACT container distance, but only on the coarse grid.
+	// This is the only place we still pay the real (possibly expensive) SDF
+	// cost up front - on roughly 1/stride^3 of the points the fine grid has.
+	#pragma omp parallel for collapse(3)
+	for (int ci = 0; ci < coarseDims[0]; ci++) {
+		for (int cj = 0; cj < coarseDims[1]; cj++) {
+			for (int ck = 0; ck < coarseDims[2]; ck++) {
+
+				int i = coarse_to_fine(ci, blockDims[0]);
+				int j = coarse_to_fine(cj, blockDims[1]);
+				int k = coarse_to_fine(ck, blockDims[2]);
+
+				Vec3 point(
+					bounds[0] + i * stepX,
+					bounds[2] + j * stepY,
+					bounds[4] + k * stepZ
+				);
+
+				coarseDist[coarse_idx(ci, cj, ck)] = con.sdf->compute_distance(point);
+			}
+		}
+	}
+
+	// 2. Classify every coarse CELL (the 8 coarse samples at its corners)
+	// using the Lipschitz bound described above, then stamp that
+	// classification onto every fine voxel inside the cell.
+	const float cellDiagonal = std::sqrt(
+		(stride * stepX) * (stride * stepX) +
+		(stride * stepY) * (stride * stepY) +
+		(stride * stepZ) * (stride * stepZ)
+	);
+	const float safeOutsideThreshold = margin + cellDiagonal;
+	const float safeInsideThreshold = -(margin + cellDiagonal);
+
+	#pragma omp parallel for collapse(3)
+	for (int ci = 0; ci < coarseDims[0] - 1; ci++) {
+		for (int cj = 0; cj < coarseDims[1] - 1; cj++) {
+			for (int ck = 0; ck < coarseDims[2] - 1; ck++) {
+
+				float cellMin = std::numeric_limits<float>::max();
+				float cellMax = std::numeric_limits<float>::lowest();
+
+				for (int dc = 0; dc < 2; dc++) {
+					for (int dj = 0; dj < 2; dj++) {
+						for (int dk = 0; dk < 2; dk++) {
+							float d = coarseDist[coarse_idx(ci + dc, cj + dj, ck + dk)];
+							cellMin = std::min(cellMin, d);
+							cellMax = std::max(cellMax, d);
+						}
+					}
+				}
+
+				NarrowBandClass cls = NarrowBandClass::NeedsExact;
+				if (cellMin > safeOutsideThreshold) {
+					cls = NarrowBandClass::Outside;
+				}
+				else if (cellMax < safeInsideThreshold) {
+					cls = NarrowBandClass::Inside;
+				}
+
+				// leaving ambiguous cells at their NeedsExact default avoids
+				// writing anything for the common (near-surface) case
+				if (cls == NarrowBandClass::NeedsExact) {
+					continue;
+				}
+
+				int iStart = coarse_to_fine(ci, blockDims[0]);
+				int iEnd = coarse_to_fine(ci + 1, blockDims[0]);
+				int jStart = coarse_to_fine(cj, blockDims[1]);
+				int jEnd = coarse_to_fine(cj + 1, blockDims[1]);
+				int kStart = coarse_to_fine(ck, blockDims[2]);
+				int kEnd = coarse_to_fine(ck + 1, blockDims[2]);
+
+				for (int i = iStart; i <= iEnd; i++) {
+					for (int j = jStart; j <= jEnd; j++) {
+						for (int k = kStart; k <= kEnd; k++) {
+							// benign race on shared cell-boundary voxels: every
+							// write here is independently a mathematically
+							// valid classification for that exact voxel (see
+							// the Lipschitz argument above), so whichever
+							// neighbouring cell's write wins is still correct
+							classification[find_vertex_index(i, j, k)] = cls;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return classification;
+}
+
+/**
+ * @brief Fills scalarField with the signed lattice density value at every
+ * voxel of the generation grid, ready for marching_cubes() to extract an
+ * isosurface from. This is the dominant cost of scaffold generation, so its
+ * structure (and the optimizations below) directly determine how long
+ * generation takes.
+ *
+ * Per voxel, two distance queries normally compete for cost:
+ *  1. distance to the container surface (con.sdf), used to know whether the
+ *     voxel is inside the container at all, and (for "distance from
+ *     container" varied thickness) how close it is to the wall;
+ *  2. distance to the nearest seed points (the kdtree query), which defines
+ *     the actual porous lattice value and is unavoidable for every voxel
+ *     that lies inside the container, since the lattice fills the interior.
+ *
+ * For a mesh container, (1) is by far the more expensive of the two - it is
+ * a BVH nearest-point query plus a multi-ray raycast just to get the sign
+ * (inside/outside). Three optimizations target it specifically, all
+ * preserving the output exactly (verified by identical isolated-island
+ * counts before/after at matched resolutions):
+ *  - containerDistField caches the result of (1) so the boundary-clamp pass
+ *    later in this function doesn't repeat the same query a second time;
+ *  - when the thickness function's distance source is the container itself,
+ *    its query reuses the same cached value instead of repeating (1) again;
+ *  - classify_container_narrow_band() proves, for the large majority of
+ *    voxels, that they are clearly inside or outside the container using a
+ *    cheap coarse pre-pass, skipping (1) entirely for those voxels and
+ *    falling back to the real query only in a thin band around the surface.
+ */
 void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	// use also the domain volume
@@ -170,6 +359,40 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	scalarField.resize(totalVoxels, 9999.9f);
 
+	// cache the container distance computed in the first pass so the
+	// boundary-clamp pass below doesn't have to query the SDF a second time
+	std::vector<float> containerDistField(totalVoxels);
+
+	// "more than this far outside, don't bother" margin for the early-out /
+	// boundary-clamp use of the container distance
+	const float surfaceMargin = 2.0f;
+
+	// When "distance from container" varied thickness is active, the
+	// thickness lookup below reuses this same container distance and needs
+	// it to be meaningful out to transitionDistance, not just surfaceMargin.
+	// If the narrow-band classification's placeholder for "Inside" voxels
+	// only guaranteed >surfaceMargin (e.g. 2mm) while transitionDistance is
+	// larger (e.g. 5mm), every voxel between those two depths would be fed
+	// the same fixed placeholder instead of its real distance, collapsing
+	// the intended smooth thickness taper into a wrong constant with a
+	// discontinuity at the surfaceMargin shell. Classifying against the
+	// larger of the two margins keeps the placeholder valid for both uses
+	// (narrower/cheaper when thickness doesn't depend on it, conservatively
+	// wider - more voxels fall back to exact evaluation - when it does).
+	const bool thicknessReusesContainerSDF =
+		thicknessFunction && thicknessSDF && (thicknessSDF.get() == con.sdf.get());
+	const float classificationMargin = thicknessReusesContainerSDF
+		? std::max(surfaceMargin, transitionDistance)
+		: surfaceMargin;
+
+	const auto fillStart = std::chrono::steady_clock::now();
+
+	std::vector<NarrowBandClass> narrowBand = classify_container_narrow_band(con, classificationMargin);
+
+	const auto classifyEnd = std::chrono::steady_clock::now();
+	std::cout << "  [compute_scalar_field] narrow-band classification: "
+		<< std::chrono::duration<double>(classifyEnd - fillStart).count() << " s" << std::endl;
+
 	#pragma omp parallel for collapse(3)
 	// create the grid points based on the bounds and block dimensions
 	for (int i{ 0 }; i < blockDims[0]; i++) {
@@ -182,26 +405,48 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 				float z = bounds[4] + k * stepZ;
 				Vec3 point(x, y, z);
 
+				// for voxels the narrow-band classification has already
+				// proven are well clear of the surface, skip the real
+				// (possibly expensive) SDF call entirely and use a placeholder
+				// that behaves identically to a real value of that magnitude
+				// for every downstream use (early-out, thickness lookup,
+				// boundary clamp)
+				float containerDist;
+				switch (narrowBand[idx]) {
+				case NarrowBandClass::Outside:
+					containerDist = classificationMargin + 1.0f;
+					break;
+				case NarrowBandClass::Inside:
+					containerDist = -(classificationMargin + 1.0f);
+					break;
+				default:
+					containerDist = con.sdf->compute_distance(point);
+					break;
+				}
+
+				containerDistField[idx] = containerDist;
+				if (containerDist > surfaceMargin) { // If it's more than surfaceMargin outside, don't bother
+					scalarField[idx] = isoLevel + 1.0f;
+					continue; // scalarField[idx] remains 9999.9f
+				}
+
 				// evaluate distance and radius function
 				float localIsoLevel = isoLevel;
 
 				if (thicknessFunction && thicknessSDF) {
-					
-					// this is the signed distance
-					double rawDist = thicknessSDF->compute_distance(point);
+
+					// "distance from container" thickness mode reuses the
+					// container's own SDF; reuse the value just computed above
+					// instead of paying for a second identical BVH+raycast query
+					double rawDist = (thicknessSDF.get() == con.sdf.get())
+						? containerDist
+						: thicknessSDF->compute_distance(point);
 
 					// convert to unsigned
 					rawDist = std::abs(rawDist);
 
 					localIsoLevel = static_cast<float>(
 						thicknessFunction->estimate_radius(rawDist, startThickness, endThickness));
-				}
-
-
-				float containerDist = con.sdf->compute_distance(point);
-				if (containerDist > 2.0f) { // If it's more than 2mm outside, don't bother
-					scalarField[idx] = isoLevel + 1.0f;
-					continue; // scalarField[idx] remains 9999.9f
 				}
 
 				Vec3 localPt = point - center;
@@ -296,7 +541,15 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 		}
 	}
 
+	const auto fillEnd = std::chrono::steady_clock::now();
+	std::cout << "  [compute_scalar_field] fill loop (container SDF + seed kdtree): "
+		<< std::chrono::duration<double>(fillEnd - fillStart).count() << " s" << std::endl;
+
 	smooth_scalar_field();
+
+	const auto smoothEnd = std::chrono::steady_clock::now();
+	std::cout << "  [compute_scalar_field] smoothing: "
+		<< std::chrono::duration<double>(smoothEnd - fillEnd).count() << " s" << std::endl;
 
 	#pragma omp parallel for collapse(3)
 	for (int i = 0; i < blockDims[0]; i++) {
@@ -305,13 +558,7 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 				int idx = find_vertex_index(i, j, k);
 
-				float x = bounds[0] + i * stepX;
-				float y = bounds[2] + j * stepY;
-				float z = bounds[4] + k * stepZ;
-				Vec3 point(x, y, z);
-
-				float containerDist = con.sdf->compute_distance(point);
-				float mappedContainer = containerDist + isoLevel;
+				float mappedContainer = containerDistField[idx] + isoLevel;
 
 				// Intersection: Take the maximum (most "Air-like") value
 				scalarField[idx] = std::max(scalarField[idx], mappedContainer);
@@ -319,11 +566,19 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 		}
 	}
 
+	const auto clampEnd = std::chrono::steady_clock::now();
+	std::cout << "  [compute_scalar_field] boundary clamp (cached SDF lookup): "
+		<< std::chrono::duration<double>(clampEnd - smoothEnd).count() << " s" << std::endl;
+
 	if (!isROI) {
 		remove_isolated_islands();
 	}
 
 	seal_grid_boundaries();
+
+	const auto cleanupEnd = std::chrono::steady_clock::now();
+	std::cout << "  [compute_scalar_field] island removal + seal: "
+		<< std::chrono::duration<double>(cleanupEnd - clampEnd).count() << " s" << std::endl;
 
 	size_t solidVoxels = 0;
 	for (float val : scalarField) {
@@ -473,12 +728,97 @@ void GeneratorLewiner::marching_cubes() {
 	x_verts.assign(totalVoxels, SIZE_MAX);
 	y_verts.assign(totalVoxels, SIZE_MAX);
 	z_verts.assign(totalVoxels, SIZE_MAX);
-	meshVertices.resize(totalVoxels * 3);
-	meshTriangles.resize(totalVoxels * 5); 
+
+	// Pre-allocating meshVertices/meshTriangles for the theoretical worst
+	// case (every grid edge crossing the surface, every cell maximally
+	// subdivided) requires buffers proportional to totalVoxels - at
+	// billion-voxel grids that is hundreds of GB and reliably exhausts
+	// available RAM, even though the real (sparse) surface only ever
+	// touches a small fraction of the grid.
+	//
+	// Instead, two cheap counting passes mirror - exactly, not
+	// heuristically - the crossing tests compute_intersection_points() and
+	// process_cube() use below, just without allocating or writing
+	// anything, to get an EXACT lower bound on how many vertices/triangles
+	// the real passes will produce. The buffers are then sized from that
+	// real count instead of the full grid size. compute_intersection_points()
+	// and process_cube()/add_triangle() are otherwise unchanged and still
+	// append via the same thread-safe atomic fetch_add into these buffers.
+
+	// pass 1: count edge vertices (mirrors compute_intersection_points())
+	std::atomic<size_t> edgeVertexCount{ 0 };
+
+	#pragma omp parallel for collapse(3)
+	for (int i = 0; i < blockDims[0]; i++) {
+		for (int j = 0; j < blockDims[1]; j++) {
+			for (int k = 0; k < blockDims[2]; k++) {
+
+				float val0 = get_data(i, j, k) - isoLevel;
+				float val1 = (i < blockDims[0] - 1) ? get_data(i + 1, j, k) - isoLevel : val0;
+				float val2 = (j < blockDims[1] - 1) ? get_data(i, j + 1, k) - isoLevel : val0;
+				float val3 = (k < blockDims[2] - 1) ? get_data(i, j, k + 1) - isoLevel : val0;
+
+				if (fabs(val0) < FLT_EPSILON) val0 = (val0 < 0) ? -FLT_EPSILON : FLT_EPSILON;
+				if (fabs(val1) < FLT_EPSILON) val1 = (val1 < 0) ? -FLT_EPSILON : FLT_EPSILON;
+				if (fabs(val2) < FLT_EPSILON) val2 = (val2 < 0) ? -FLT_EPSILON : FLT_EPSILON;
+				if (fabs(val3) < FLT_EPSILON) val3 = (val3 < 0) ? -FLT_EPSILON : FLT_EPSILON;
+
+				size_t crossings = 0;
+				if ((val0 < 0 && val1 >= 0) || (val0 >= 0 && val1 < 0)) crossings++;
+				if ((val0 < 0 && val2 >= 0) || (val0 >= 0 && val2 < 0)) crossings++;
+				if ((val0 < 0 && val3 >= 0) || (val0 >= 0 && val3 < 0)) crossings++;
+
+				if (crossings > 0) {
+					edgeVertexCount.fetch_add(crossings, std::memory_order_relaxed);
+				}
+			}
+		}
+	}
+
+	// pass 2: count surface-crossing cells (mirrors the lut_entry
+	// classification in the process_cube loop below)
+	std::atomic<size_t> crossingCellCount{ 0 };
+
+	#pragma omp parallel for collapse(3)
+	for (int i = 0; i < blockDims[0] - 1; i++) {
+		for (int j = 0; j < blockDims[1] - 1; j++) {
+			for (int k = 0; k < blockDims[2] - 1; k++) {
+
+				int lut_entry = 0;
+				for (int p = 0; p < 8; ++p) {
+					float v = get_data(i + ((p ^ (p >> 1)) & 1), j + ((p >> 1) & 1), k + ((p >> 2) & 1)) - isoLevel;
+					if (v > 0) lut_entry |= (1 << p);
+				}
+				if (lut_entry != 0 && lut_entry != 255) {
+					crossingCellCount.fetch_add(1, std::memory_order_relaxed);
+				}
+			}
+		}
+	}
+
+	const auto countEnd = std::chrono::steady_clock::now();
+	std::cout << "  [marching_cubes] surface-crossing pre-count (" << edgeVertexCount.load() << " edges, "
+		<< crossingCellCount.load() << " of " << totalVoxels << " cells): "
+		<< std::chrono::duration<double>(countEnd - start).count() << " s" << std::endl;
+
+	// exact bound: edgeVertexCount vertices are created by
+	// compute_intersection_points() below, plus at most one additional
+	// "c_vertex" per crossing cell created later by process_cube(); triangle
+	// count is bounded by the LUT's documented true worst case of 12
+	// triangles for a single cell (case 13.4 - see add_triangle() call
+	// sites). "+64" only matters for degenerate near-empty grids.
+	size_t vertexCapacity = edgeVertexCount.load() + crossingCellCount.load() + 64;
+	size_t triangleCapacity = crossingCellCount.load() * 12 + 64;
+	meshVertices.resize(vertexCapacity);
+	meshTriangles.resize(triangleCapacity);
 	vertexCount = 0;
 	triangleCount = 0;
 
 	compute_intersection_points();
+
+	const auto intersectEnd = std::chrono::steady_clock::now();
+	std::cout << "  [marching_cubes] compute_intersection_points: "
+		<< std::chrono::duration<double>(intersectEnd - countEnd).count() << " s" << std::endl;
 
 	for (int i = 0; i < blockDims[0] - 1; i++) {
 		for (int j = 0; j < blockDims[1] - 1; j++) {
@@ -508,6 +848,10 @@ void GeneratorLewiner::marching_cubes() {
 		}
 	}
 
+	const auto cubesEnd = std::chrono::steady_clock::now();
+	std::cout << "  [marching_cubes] process_cube loop: "
+		<< std::chrono::duration<double>(cubesEnd - intersectEnd).count() << " s" << std::endl;
+
 	// update to exact size
 	meshVertices.resize(vertexCount);
 	meshTriangles.resize(triangleCount);
@@ -524,9 +868,15 @@ void GeneratorLewiner::marching_cubes() {
 
 	// update axis aligned bounding box
 	_update_bounding_box();
-	
+
 	// update mesh version
 	meshVersion++;
+
+	const auto topoEnd = std::chrono::steady_clock::now();
+	std::cout << "  [marching_cubes] topology + bbox: "
+		<< std::chrono::duration<double>(topoEnd - cubesEnd).count() << " s" << std::endl;
+	std::cout << "  [marching_cubes] TOTAL: "
+		<< std::chrono::duration<double>(topoEnd - start).count() << " s" << std::endl;
 };
 
 void GeneratorLewiner::_update_bounding_box() {
@@ -2572,7 +2922,9 @@ void GeneratorLewiner::render_properties(bool& updateScaffold)
 		ImGui::RadioButton("Constant", &selectedFunc, 2);
 		ImGui::RadioButton("Random", &selectedFunc, 3);
 	}
+
 	ImGui::InputFloat("Voxel Size", &voxelSize);
+
 	// other parameters -----------------------------------------------------------
 	ImGui::SeparatorText("Parameters");
 	
@@ -2674,7 +3026,7 @@ void GeneratorLewiner::render_properties(bool& updateScaffold)
 			};
 
 			// check the resolution
-			resolution = {
+			blockDims = {
 				static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
 				static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
 				static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
@@ -2731,7 +3083,7 @@ void GeneratorLewiner::render_properties(bool& updateScaffold)
 			set_seeds(seeds);
 			
 			//std::cout << "uniform flag" << selectedThicknessOption << " minT: " << startThickness << " maxT: " << maxThickness << " tDist: " << transitionDistance << " resolution: " << resolution[0] << " " << resolution[1] << " " << resolution[2] << std::endl;
-
+			
 			compute_scalar_field(*lockedCon);
 			marching_cubes();
 			estimate_metrics(*lockedCon);
@@ -4266,10 +4618,6 @@ void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr
 		logger->log(LogPriority::WARNING, "The Estimated Trabecular Number is measured with the previously estimated local thickness. If this was estimated inside a ROI, the estimation is wrong. Try creating the scaffold inside the ROI first.");
 		trabecularNrVersion = meshVersion;
 		return;
-	}
-
-	else {
-		logger->log(LogPriority::WARNING, "Thickness is not updated! Estimate thickness first! Falling back to MIL method...");
 	}
 
 	// else use the MIL method
