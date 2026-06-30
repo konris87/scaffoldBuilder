@@ -6,44 +6,6 @@ project(scaffoldBuilder)
 # Specify C++ standard
 set(CMAKE_CXX_STANDARD 17)
 
-# --------------------------
-# VTK
-# find_package(VTK COMPONENTS 
-  # AcceleratorsVTKmCore
-  # AcceleratorsVTKmFilters
-  # CommonColor
-  # CommonCore
-  # CommonDataModel
-  # CommonTransforms
-  # FiltersGeneral
-  # FiltersSources
-  # FiltersCore
-  # FiltersSources
-  # FiltersParallel
-  # FiltersGeometry
-  # FiltersHybrid
-  # FiltersModeling
-  # FiltersPoints
-  # IOGeometry
-  # IOImage
-  # IOCore
-  # IOLegacy
-  # IOXML
-  # InteractionStyle
-  # RenderingAnnotation
-  # RenderingContextOpenGL2
-  # RenderingCore
-  # RenderingFreeType
-  # RenderingGL2PSOpenGL2
-  # RenderingOpenGL2
-  # RenderingLabel
-  # ImagingStencil
-# )
-
-# if (NOT VTK_FOUND)
-  # message(FATAL_ERROR "${sName}: Unable to find the VTK build folder.")
-# endif()
-
 # Find OpenGL
 find_package(OpenGL REQUIRED)
 include_directories( ${OPENGL_INCLUDE_DIRS} )

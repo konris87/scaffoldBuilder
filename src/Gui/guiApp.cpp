@@ -1120,7 +1120,9 @@ void myGUI::_render_settings_panel() {
 			scaffold->name = p.stem().string();
 
 			scaffold->load_scaf(filePath, containers, seedGenerators);
-				
+			
+			scaffold->update_render();
+
 			_update_cameras(*scaffold);
 
 			// push to the scaffold list
@@ -1315,7 +1317,7 @@ void myGUI::_render_properties_panel() {
 			}
 			case ObjectType::ScaffoldType: {
 				GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
-				scaffold->render_properties(updateScaffold);
+				scaffold->render_properties(updateScaffold, gTask.get());
 				break;
 			}
 			case ObjectType::Roi: {
@@ -2065,6 +2067,7 @@ void myGUI::_render_main_menu_bar() {
 	if (showScaffoldCreator) {
 		//_render_scaffold_creator("Scaffold Creator", showScaffoldCreator);
 		factory->gui_draw(
+			gTask.get(),
 			&logger,
 			"Scaffold Creator", showScaffoldCreator,
 			&selectedPanelObj, selectedSceneObj, 

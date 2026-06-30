@@ -27,6 +27,7 @@
 #include "OpenGlSetup/UniformManager.h"
 #include "OpenGlSetup/Grid.h"
 #include "ScaffoldGenerator/GeneratorLewiner.h"
+#include "ScaffoldGenerator/GenerationTask.h"
 #include "Shader.h"
 #include "Utils/Utils.h"
 //#include "SeedGenerator/Poisson3D.h"
@@ -112,6 +113,8 @@ public:
 	std::vector<std::shared_ptr<ROI>> rois;
 
 	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>();
+	// create a generation task for the scaffold thread
+	std::unique_ptr<GenerationTask> gTask = std::make_unique<GenerationTask>();
 
 	std::vector<poreNetworkObject> poreNetworkList;
 	int activePoreNetworkIndex{ -1 };

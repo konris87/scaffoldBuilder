@@ -122,7 +122,7 @@ GeneratorLewiner::GeneratorLewiner(
 		_setup_edges();
 
 		// update opengl objects
-		_update_render();
+		update_render();
 	}
 	// update axis aligned bounding box
 	_update_bounding_box();
@@ -322,29 +322,60 @@ std::vector<GeneratorLewiner::NarrowBandClass> GeneratorLewiner::classify_contai
  */
 void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
+	// we have to control the number of anisotropy sources. 
+	const bool variedAnisotropy = anisotropySources.size() >= 1;
+
+	// we use the general anisotropy tensor as a background
+	AnisotropySource background;
+	background.angle = anisotropyAngle;
+	background.direction = anisotropyVec;
+	background.stretch = Vec3(stretchX, stretchY, stretchZ);
+	create_metric(background);
+
+	// ensure every source's M is up-to-date (GUI edits don't call create_metric)
+	for (auto& src : anisotropySources) {
+		create_metric(src);
+	}
+
 	// use also the domain volume
 	domainVolume = con.get_volume();
 
 	update_steps();
 
-	//Eigen::Matrix3f rot = rotation_from_direction(anisotropyVec, anisotropyAngle, stretchX, stretchY, stretchZ);
 	Eigen::Matrix3f rot = rotation_axis_angle(anisotropyVec, anisotropyAngle);
 
 	Vec3 center = con.compute_bounds().center;
 
 	std::vector<Vec3> warpedSeeds = this->seeds;
 
-	for (auto& seed : warpedSeeds) {
-		Vec3 local = seed - center;
-		Vec3 rotated = Vec3(rot * Eigen::Vector3f{ local.x, local.y, local.z });
+	if (!variedAnisotropy){
+		for (auto& seed : warpedSeeds) {
+			Vec3 local = seed - center;
+			Vec3 rotated = Vec3(rot * Eigen::Vector3f{ local.x, local.y, local.z });
 
-		seed.x = rotated.x / stretchX;
-		seed.y = rotated.y / stretchY;
-		seed.z = rotated.z / stretchZ;
+			seed.x = rotated.x / stretchX;
+			seed.y = rotated.y / stretchY;
+			seed.z = rotated.z / stretchZ;
+		}
 	}
 
-	// first populate the kdtree with the seeds
+	// first populate the kdtree with the seeds (warped in case of uniform anisotropy, unwarped in case of varied anisotropy)
 	std::unique_ptr<Kdtree>kdtree = std::make_unique<Kdtree>(warpedSeeds);
+
+	// decide the number k of nn for the kdtree
+	std::vector<float> stretches = {stretchX, stretchY, stretchZ};
+	for (const auto& src: anisotropySources){
+		stretches.push_back(src.stretch.x);
+		stretches.push_back(src.stretch.y);
+		stretches.push_back(src.stretch.z);
+	}
+
+	auto minmax = std::minmax_element(stretches.begin(), stretches.end());
+	float sMin = *minmax.first;
+	float sMax = *minmax.second;
+
+	size_t Kn = variedAnisotropy ? choose_candidate_number(
+		sMin, sMax, seeds.size()) : 3;
 
 	// update scalar field
 	scalarField.clear();
@@ -448,71 +479,107 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 					localIsoLevel = static_cast<float>(
 						thicknessFunction->estimate_radius(rawDist, startThickness, endThickness));
 				}
+				float d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
+				Vec3 grad1, grad2, grad3;
 
-				Vec3 localPt = point - center;
-
-				Vec3 rotatedPt = Vec3(rot * Eigen::Vector3f{ localPt.x, localPt.y, localPt.z });
-
-				// wrap the point
-				//Vec3 wrapped(point.x / stretchX, point.y / stretchY, point.z / stretchZ);
-				Vec3 wrapped(rotatedPt.x / stretchX, rotatedPt.y / stretchY, rotatedPt.z / stretchZ);
-
-				// we need to find the two nearest seeds to the point, and compute the distance to the nearest seed, and the distance to the second nearest seed
-				auto neighbors = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
-					// apply the formula (p - q)^T M (p - q), where M = diag(stretchX,stretchY,stretchZ)
-					Vec3 v = p2 - p1;
-					return (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
-				});
-
-				// get_distances of three closest seeds
-				float d1 = std::sqrt(neighbors[0].second);
-				float d2 = std::sqrt(neighbors[1].second);
-				float d3 = std::sqrt(neighbors[2].second);
-
-				//float kf = 0.5f; // Smoothing radius (tunable)
-				//float smoothd1 = smin(d1, d2, kf);
-				//float smoothd2 = smin(d2, d3, kf);
-
-				//float value = 0.0;
-				//if (foam) {
-				//	//value = (smoothd2 - smoothd1) + threshold * (d3 - d2);
-				//	value = d2 - d1;
-				//}
-				//else {
-				//	//value = (d3 - d1) + threshold * (smoothd2 - smoothd1);
-				//	value = (d3 - d1) + threshold * (d2 - d1);
-				//}
-
-				//scalarField[idx] = value;
-				
-				// Retrieve the actual warped seed coordinates using the indices
-				//Vec3 p1 = seeds[neighbors[0].first];
-				//Vec3 p2 = seeds[neighbors[1].first];
-				//Vec3 p3 = seeds[neighbors[2].first];
-				Vec3 p1 = warpedSeeds[neighbors[0].first];
-				Vec3 p2 = warpedSeeds[neighbors[1].first];
-				Vec3 p3 = warpedSeeds[neighbors[2].first];
-
-				// Lambda to calculate the exact analytical gradient of a single distance
-				auto calc_grad = [&](const Vec3& p, float d) -> Vec3 {
-					if (d < 1e-6f) return Vec3(0.0f, 0.0f, 0.0f); // Prevent division by zero at the exact seed center
+				if(variedAnisotropy){
 					
-					Vec3 local(
-						(wrapped.x - p.x) / (d * stretchX),
-						(wrapped.y - p.y) / (d * stretchY),
-						(wrapped.z - p.z) / (d * stretchZ)
+					// estimate the blended metric
+					Eigen::Matrix3f M = blend_metric(
+						point, anisotropySources, background, backgroundWeight);
+
+					// use the estimated candidate number to find knn
+					auto cand = kdtree->knn(
+						point, Kn,
+						[](const Vec3& a, const Vec3& b){
+       						Vec3 v = b - a; return double(v.x*v.x + v.y*v.y + v.z*v.z);   // Euclidean
+   						}
 					);
 
-					Vec3 res = Vec3(rot.transpose() * Eigen::Vector3f(local.x, local.y, local.z));
+					// re-rank them
+					// first change the distance of each candidate to anisotropic
+					for (auto& c : cand){
+						c.second = aniso_distance_sq(M, point, seeds[c.first]);
+					}
+					std::partial_sort(
+						cand.begin(), cand.begin() + 3, cand.end(),
+						[](const auto& a, const auto& b){ return a.second < b.second; });
+					
+					d1 = std::sqrt((float)cand[0].second);
+					d2 = std::sqrt((float)cand[1].second);
+					d3 = std::sqrt((float)cand[2].second);
+					Vec3 p1 = seeds[cand[0].first];  
+					Vec3 p2 = seeds[cand[1].first];
+					Vec3 p3 = seeds[cand[2].first];
+					grad1 = aniso_distance_grad(M, point, p1, d1);
+					grad2 = aniso_distance_grad(M, point, p2, d2);
+					grad3 = aniso_distance_grad(M, point, p3, d3);
+				}
+				else{
+					Vec3 localPt = point - center;
 
-					return res;
-				};
+					Vec3 rotatedPt = Vec3(rot * Eigen::Vector3f{ localPt.x, localPt.y, localPt.z });
 
-				// Calculate the individual distance gradients
-				Vec3 grad1 = calc_grad(p1, d1);
-				Vec3 grad2 = calc_grad(p2, d2);
-				Vec3 grad3 = calc_grad(p3, d3);
+					// wrap the point
+					//Vec3 wrapped(point.x / stretchX, point.y / stretchY, point.z / stretchZ);
+					Vec3 wrapped(rotatedPt.x / stretchX, rotatedPt.y / stretchY, rotatedPt.z / stretchZ);
 
+					// we need to find the two nearest seeds to the point, and compute the distance to the nearest seed, and the distance to the second nearest seed
+					auto neighbors = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
+						// apply the formula (p - q)^T M (p - q), where M = diag(stretchX,stretchY,stretchZ)
+						Vec3 v = p2 - p1;
+						return (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
+					});
+
+					// get_distances of three closest seeds
+					d1 = (float)std::sqrt(neighbors[0].second);
+					d2 = (float)std::sqrt(neighbors[1].second);
+					d3 = (float)std::sqrt(neighbors[2].second);
+
+					//float kf = 0.5f; // Smoothing radius (tunable)
+					//float smoothd1 = smin(d1, d2, kf);
+					//float smoothd2 = smin(d2, d3, kf);
+
+					//float value = 0.0;
+					//if (foam) {
+					//	//value = (smoothd2 - smoothd1) + threshold * (d3 - d2);
+					//	value = d2 - d1;
+					//}
+					//else {
+					//	//value = (d3 - d1) + threshold * (smoothd2 - smoothd1);
+					//	value = (d3 - d1) + threshold * (d2 - d1);
+					//}
+
+					//scalarField[idx] = value;
+					
+					// Retrieve the actual warped seed coordinates using the indices
+					//Vec3 p1 = seeds[neighbors[0].first];
+					//Vec3 p2 = seeds[neighbors[1].first];
+					//Vec3 p3 = seeds[neighbors[2].first];
+					Vec3 p1 = warpedSeeds[neighbors[0].first];
+					Vec3 p2 = warpedSeeds[neighbors[1].first];
+					Vec3 p3 = warpedSeeds[neighbors[2].first];
+
+					// Lambda to calculate the exact analytical gradient of a single distance
+					auto calc_grad = [&](const Vec3& p, float d) -> Vec3 {
+						if (d < 1e-6f) return Vec3(0.0f, 0.0f, 0.0f); // Prevent division by zero at the exact seed center
+						
+						Vec3 local(
+							(wrapped.x - p.x) / (d * stretchX),
+							(wrapped.y - p.y) / (d * stretchY),
+							(wrapped.z - p.z) / (d * stretchZ)
+						);
+
+						Vec3 res = Vec3(rot.transpose() * Eigen::Vector3f(local.x, local.y, local.z));
+
+						return res;
+					};
+
+					// Calculate the individual distance gradients
+					grad1 = calc_grad(p1, d1);
+					grad2 = calc_grad(p2, d2);
+					grad3 = calc_grad(p3, d3);
+				}
 				float value = 0.0f;
 				Vec3 gradValue;
 
@@ -860,11 +927,6 @@ void GeneratorLewiner::marching_cubes() {
 
 	// build adjacency
 	build_topology();
-
-	if (renderMode) {
-		// update opengl objects
-		_update_render();
-	}
 
 	// update axis aligned bounding box
 	_update_bounding_box();
@@ -1724,7 +1786,7 @@ size_t GeneratorLewiner::add_c_vertex(const int i, const int j, const int k) {
 		vertex.nz += v.nz;
 	}
 	vid = get_x_vert(i, j, k + 1);
-	if (vid != -SIZE_MAX) {
+	if (vid != SIZE_MAX) {
 		++u;
 		const LVertex& v = meshVertices[vid];
 		vertex.x += v.x;
@@ -2580,7 +2642,7 @@ void GeneratorLewiner::draw_edges() {
 	glDrawElements(GL_LINES, edgeIndices.size(), GL_UNSIGNED_INT, 0);
 };
 
-void GeneratorLewiner::_update_render() {
+void GeneratorLewiner::update_render() {
 
 	// update vertices
 	vertices.clear();
@@ -2866,245 +2928,453 @@ void GeneratorLewiner::validate_topology() {
 	}
 }
 
-void GeneratorLewiner::render_properties(bool& updateScaffold) 
+// void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* task) 
+// {
+// 	std::shared_ptr<IContainer> lockedCon = container.lock();
+// 	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
+
+// 	ImGui::ColorEdit4("Appearance", (float*)&color);
+
+// 	// first render the applied generator and container
+// 	if (lockedCon) {
+// 		ImGui::Text("Container: %s", lockedCon->name.c_str());
+// 	}
+// 	if (lockedGen) {
+// 		ImGui::Text("Generator: %s", lockedGen->name.c_str());
+// 	}
+
+// 	// --------------------------------------------------------------------------------
+// 	ImGui::SeparatorText("Thickness");
+
+// 	ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
+// 	ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
+
+// 	// this is the uniform case
+// 	if (selectedThicknessOption == 0) {
+// 		ImGui::SetNextItemWidth(200);
+// 		ImGui::InputFloat("Thickness", &isoLevel);
+// 	}
+// 	// this is the varied case
+// 	else {
+// 		ImGui::SetNextItemWidth(200);
+// 		ImGui::InputFloat("Start Thickness", &startThickness);
+// 		ImGui::SetNextItemWidth(200);
+// 		ImGui::InputFloat("End Thickness", &endThickness);
+// 		ImGui::SetNextItemWidth(200);
+// 		ImGui::InputFloat("Transition Distance", &transitionDistance);
+
+// 		ImGui::SeparatorText("Select Distance Function");
+// 		ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
+// 		if (selectedDist == 0) {
+// 			ImGui::SetNextItemWidth(200);
+// 			ImGui::InputFloat3("Normal", distancePlaneNormal);
+// 			ImGui::SetNextItemWidth(200);
+// 			ImGui::InputFloat3("Center", distancePlaneCenter);
+// 		};
+// 		ImGui::RadioButton("Distance From Point", &selectedDist, 1);
+// 		if (selectedDist == 1) {
+// 			ImGui::SetNextItemWidth(200);
+// 			ImGui::InputFloat3("Point", distancePoint);
+// 		}
+// 		ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+
+// 		ImGui::SeparatorText("Select Radius Function");
+// 		ImGui::RadioButton("Linear", &selectedFunc, 0);
+// 		ImGui::RadioButton("Quadratic", &selectedFunc, 1);
+// 		ImGui::RadioButton("Constant", &selectedFunc, 2);
+// 		ImGui::RadioButton("Random", &selectedFunc, 3);
+// 	}
+
+// 	ImGui::InputFloat("Voxel Size", &voxelSize);
+
+// 	// other parameters -----------------------------------------------------------
+// 	ImGui::SeparatorText("Parameters");
+	
+// 	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
+// 	// create a table
+// 	if (ImGui::BeginTable("", 2, flags = flags)) {
+		
+// 		if (lockedGen) {
+// 			ImGui::TableNextRow();
+
+// 			if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+// 				ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
+// 				ImGui::TableNextColumn();
+// 				ImGui::Text("%d", lockedGen->get_seeds().size());
+// 			}
+// 			else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
+// 				ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
+// 				ImGui::TableNextColumn();
+
+// 				Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
+// 				if (dummy->is_uniform()) {
+// 					ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
+// 				}
+// 				else {
+// 					ImGui::BeginTable("##", 2);
+// 					ImGui::TableNextRow();
+// 					ImGui::TableNextColumn();
+// 					ImGui::Text("Rmin %4.f", dummy->get_min_radius());
+// 					ImGui::TableNextColumn();
+// 					ImGui::Text("Rmax %4.f", dummy->get_max_radius());
+// 					ImGui::EndTable();
+// 				}
+// 			}
+// 		}
+// 		else {
+// 			ImGui::TableNextRow();
+// 			ImGui::TableNextColumn(); ImGui::Text("Source");
+// 			ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
+// 		}
+		
+// 		ImGui::TableNextRow();
+// 		ImGui::TableNextColumn(); ImGui::Text("Openess");
+// 		ImGui::TableNextColumn();
+// 		ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
+
+// 		ImGui::TableNextRow();
+// 		ImGui::TableNextColumn(); ImGui::Text("Stretch X");
+// 		ImGui::TableNextColumn();
+// 		ImGui::InputFloat("##Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
+
+// 		ImGui::TableNextRow();
+// 		ImGui::TableNextColumn(); ImGui::Text("Stretch Y");
+// 		ImGui::TableNextColumn();
+// 		ImGui::InputFloat("##Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
+
+// 		ImGui::TableNextRow();
+// 		ImGui::TableNextColumn(); ImGui::Text("Stretch Z");
+// 		ImGui::TableNextColumn();
+// 		ImGui::InputFloat("##Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
+
+// 		ImGui::TableNextRow();
+// 		ImGui::TableNextColumn(); ImGui::Text("Material Direction");
+// 		ImGui::TableNextColumn();
+// 		ImGui::SetNextItemWidth(200.0f);
+// 		ImGui::InputFloat3("##Material Direction", anisotropyVec, "%.4f");
+
+// 		ImGui::TableNextRow();
+// 		ImGui::TableNextColumn(); ImGui::Text("Angle");
+// 		ImGui::TableNextColumn();
+// 		ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+	
+// 		ImGui::EndTable();
+// 	}
+	
+// 	ImGui::SeparatorText("Metrics");
+
+// 	render_metrics();
+
+// 	// if the user pressed the update button from the gui
+// 	if (updateScaffold) {
+// 		if (isLoadedFromFile) {
+// 			logger->log(LogPriority::WARNING, "Cannot update a static mesh loaded from a file.");
+// 			updateScaffold = false;
+// 		}
+// 		if (lockedCon && lockedGen) {
+
+// 			auto startTime = std::chrono::steady_clock::now();
+
+// 			std::vector<Vec3> seeds = lockedGen->get_seeds();
+// 			Bounds bds = lockedCon->compute_bounds();
+
+// 			std::array<float, 6> bounds = {
+// 				bds.xMin,
+// 				bds.xMax,
+// 				bds.yMin,
+// 				bds.yMax,
+// 				bds.zMin,
+// 				bds.zMax
+// 			};
+
+// 			// check the resolution
+// 			blockDims = {
+// 				static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
+// 				static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
+// 				static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
+// 			};
+
+// 			if (selectedThicknessOption == 1) {
+
+// 				switch (selectedFunc) {
+// 					// linear radius function
+// 					case 0: {
+// 						thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);
+// 						break;
+// 					}
+// 					case 1: {
+// 						thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance);
+// 						break;
+// 					}
+// 					case 2: {
+// 						thicknessFunction = std::make_shared<ConstantRadiusFunction>();
+// 						break;
+// 					}
+// 					case 3: {
+// 						thicknessFunction = std::make_shared<RandomRadiusFunction>();
+// 					}
+// 				}
+
+// 				switch (selectedDist) {
+// 					// distance from plane
+// 					case 0: {
+// 						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
+// 						break;
+// 					}
+// 						  // distance from point
+// 					case 1: {
+// 						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
+// 						break;
+// 					}
+// 						  // distance from container surface
+// 					case 2: {
+// 						thicknessSDF = lockedCon->get_distance_estimator();
+// 						break;
+// 					}
+// 				}
+// 			}
+// 			else {
+// 				thicknessSDF.reset();
+// 				thicknessFunction.reset();
+// 			}
+
+// 			set_thickness_functions(thicknessSDF, thicknessFunction, startThickness, endThickness, transitionDistance);
+
+// 			tortuosityPathModel.reset();
+// 			set_bounds(bounds);
+// 			set_seeds(seeds);
+			
+// 			//std::cout << "uniform flag" << selectedThicknessOption << " minT: " << startThickness << " maxT: " << maxThickness << " tDist: " << transitionDistance << " resolution: " << resolution[0] << " " << resolution[1] << " " << resolution[2] << std::endl;
+			
+// 			compute_scalar_field(*lockedCon);
+// 			marching_cubes();
+// 			estimate_metrics(*lockedCon);
+
+// 			auto endTime = std::chrono::steady_clock::now();
+
+// 			// Calculate the duration in milliseconds
+// 			auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
+
+// 			std::ostringstream oss;
+// 			oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
+// 				<< duration_ms.count() / 1000.0   // Convert ms to seconds
+// 				<< " seconds!";
+
+// 			logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
+
+// 			// reset
+// 			updateScaffold = false;
+// 		}
+// 	}
+// };
+
+void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* task)
 {
-	std::shared_ptr<IContainer> lockedCon = container.lock();
-	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
+    std::shared_ptr<IContainer> lockedCon = container.lock();
+    std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
 
-	ImGui::ColorEdit4("Appearance", (float*)&color);
+    const bool mineBusy = task && task->is_running_for(this);
 
-	// first render the applied generator and container
-	if (lockedCon) {
-		ImGui::Text("Container: %s", lockedCon->name.c_str());
-	}
-	if (lockedGen) {
-		ImGui::Text("Generator: %s", lockedGen->name.c_str());
-	}
+    ImGui::ColorEdit4("Appearance", (float*)&color);   // color isn't touched by the worker
 
-	// --------------------------------------------------------------------------------
-	ImGui::SeparatorText("Thickness");
+    if (lockedCon) ImGui::Text("Container: %s", lockedCon->name.c_str());
+    if (lockedGen) ImGui::Text("Generator: %s", lockedGen->name.c_str());
 
-	ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
-	ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
+    // ---- editable parameters: locked while this scaffold is regenerating ----
+    ImGui::BeginDisabled(mineBusy);
 
-	// this is the uniform case
-	if (selectedThicknessOption == 0) {
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Thickness", &isoLevel);
-	}
-	// this is the varied case
-	else {
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Start Thickness", &startThickness);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("End Thickness", &endThickness);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Transition Distance", &transitionDistance);
+    ImGui::SeparatorText("Thickness");
+    ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
+    ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
-		ImGui::SeparatorText("Select Distance Function");
-		ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
-		if (selectedDist == 0) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat3("Normal", distancePlaneNormal);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat3("Center", distancePlaneCenter);
-		};
-		ImGui::RadioButton("Distance From Point", &selectedDist, 1);
-		if (selectedDist == 1) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat3("Point", distancePoint);
+    if (selectedThicknessOption == 0) {
+        ImGui::SetNextItemWidth(200);
+        ImGui::InputFloat("Thickness", &isoLevel);
+    }
+    else {
+        ImGui::SetNextItemWidth(200); ImGui::InputFloat("Start Thickness", &startThickness);
+        ImGui::SetNextItemWidth(200); ImGui::InputFloat("End Thickness", &endThickness);
+        ImGui::SetNextItemWidth(200); ImGui::InputFloat("Transition Distance", &transitionDistance);
+
+        ImGui::SeparatorText("Select Distance Function");
+        ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
+        if (selectedDist == 0) {
+            ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Normal", distancePlaneNormal);
+            ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Center", distancePlaneCenter);
+        }
+        ImGui::RadioButton("Distance From Point", &selectedDist, 1);
+        if (selectedDist == 1) {
+            ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Point", distancePoint);
+        }
+        ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+
+        ImGui::SeparatorText("Select Radius Function");
+        ImGui::RadioButton("Linear", &selectedFunc, 0);
+        ImGui::RadioButton("Quadratic", &selectedFunc, 1);
+        ImGui::RadioButton("Constant", &selectedFunc, 2);
+        ImGui::RadioButton("Random", &selectedFunc, 3);
+    }
+
+    ImGui::InputFloat("Voxel Size", &voxelSize);
+
+    ImGui::SeparatorText("Parameters");
+    ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
+    if (ImGui::BeginTable("", 2, flags)) {
+        if (lockedGen) {
+            ImGui::TableNextRow();
+            if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+                ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
+                ImGui::TableNextColumn(); ImGui::Text("%d", lockedGen->get_seeds().size());
+            }
+            else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
+                ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
+                ImGui::TableNextColumn();
+                Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
+                if (dummy->is_uniform()) {
+                    ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
+                } else {
+                    ImGui::BeginTable("##", 2);
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::Text("Rmin %4.f", dummy->get_min_radius());
+                    ImGui::TableNextColumn(); ImGui::Text("Rmax %4.f", dummy->get_max_radius());
+                    ImGui::EndTable();
+                }
+            }
+        } else {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn(); ImGui::Text("Source");
+            ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
+        }
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("Openess");
+        ImGui::TableNextColumn(); ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("Stretch X");
+        ImGui::TableNextColumn(); ImGui::InputFloat("##Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("Stretch Y");
+        ImGui::TableNextColumn(); ImGui::InputFloat("##Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("Stretch Z");
+        ImGui::TableNextColumn(); ImGui::InputFloat("##Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("Material Direction");
+        ImGui::TableNextColumn(); ImGui::SetNextItemWidth(200.0f);
+        ImGui::InputFloat3("##Material Direction", anisotropyVec, "%.4f");
+
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn(); ImGui::Text("Angle");
+        ImGui::TableNextColumn(); ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+
+        ImGui::EndTable();
+    }
+
+    ImGui::EndDisabled();
+
+    // ---- metrics / progress ----
+    ImGui::SeparatorText("Metrics");
+    if (mineBusy) {
+        ImGui::ProgressBar(task->get_progress(), ImVec2(-1, 0));
+        ImGui::TextDisabled("Regenerating...");
+    } else {
+        render_metrics();
+    }
+
+    // ---- launch (one-shot trigger from the caller's Update button) ----
+    if (updateScaffold) {
+        updateScaffold = false;  // consume the trigger immediately
+
+        if (mineBusy) {
+            // already regenerating this scaffold; ignore
+        }
+        else if (isLoadedFromFile) {
+            logger->log(LogPriority::WARNING, "Cannot update a static mesh loaded from a file.");
+        }
+        else if (lockedCon && lockedGen && task && !task->get_running()) {
+
+            std::vector<Vec3> newSeeds = lockedGen->get_seeds();
+            Bounds bds = lockedCon->compute_bounds();
+            std::array<float, 6> newBounds = {
+                bds.xMin, bds.xMax, bds.yMin, bds.yMax, bds.zMin, bds.zMax
+            };
+
+            blockDims = {
+                static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
+                static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
+                static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
+            };
+
+            if (selectedThicknessOption == 1) {
+                switch (selectedFunc) {
+                    case 0: thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);    break;
+                    case 1: thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance); break;
+                    case 2: thicknessFunction = std::make_shared<ConstantRadiusFunction>();              break;
+                    case 3: thicknessFunction = std::make_shared<RandomRadiusFunction>();                break;
+                }
+                switch (selectedDist) {
+                    case 0: thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal); break;
+                    case 1: thicknessSDF = std::make_shared<PointSDF>(distancePoint);                            break;
+                    case 2: thicknessSDF = lockedCon->get_distance_estimator();                                  break;
+                }
+            } else {
+                thicknessSDF.reset();
+                thicknessFunction.reset();
+            }
+
+            set_thickness_functions(thicknessSDF, thicknessFunction,
+                                    startThickness, endThickness, transitionDistance);
+            tortuosityPathModel.reset();
+            set_bounds(newBounds);
+            set_seeds(newSeeds);
+
+            // keep the container alive for the whole job; capture `this` for the compute
+            auto conShared = lockedCon;
+            GeneratorLewiner* self = this;
+            start_time = std::chrono::steady_clock::now();
+
+            task->start([self, conShared, t = task]() {
+                t->set_progress(0.00f);  self->compute_scalar_field(*conShared);
+                t->set_progress(0.50f);  self->marching_cubes();           // CPU only — no GL
+                t->set_progress(0.90f);  self->estimate_metrics(*conShared);
+                t->set_progress(1.00f);
+            }, this);                      
+			ImGui::OpenPopup("Updating Scaffold..."); // open the progress bar
 		}
-		ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+    }
 
-		ImGui::SeparatorText("Select Radius Function");
-		ImGui::RadioButton("Linear", &selectedFunc, 0);
-		ImGui::RadioButton("Quadratic", &selectedFunc, 1);
-		ImGui::RadioButton("Constant", &selectedFunc, 2);
-		ImGui::RadioButton("Random", &selectedFunc, 3);
-	}
+	// -- progress bar --
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-	ImGui::InputFloat("Voxel Size", &voxelSize);
+   if (ImGui::BeginPopupModal("Updating Scaffold...", NULL, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
+        
+        ImGui::Text("Regenerating '%s' in the background.", name.empty() ? "Scaffold" : name.c_str());
+        ImGui::Dummy(ImVec2(0.0f, 5.0f)); // Small spacer
+        
+        // Fixed width for the progress bar looks better in a floating window
+        ImGui::ProgressBar(task->get_progress(), ImVec2(300.0f, 0.0f)); 
 
-	// other parameters -----------------------------------------------------------
-	ImGui::SeparatorText("Parameters");
-	
-	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
-	// create a table
-	if (ImGui::BeginTable("", 2, flags = flags)) {
-		
-		if (lockedGen) {
-			ImGui::TableNextRow();
+        // ---- completion (main thread: GL upload + log) ----
+        if (task && task->poll(this)) {
+            update_render();                               // GPU upload, GL thread
 
-			if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
-				ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
-				ImGui::TableNextColumn();
-				ImGui::Text("%d", lockedGen->get_seeds().size());
-			}
-			else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
-				ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
-				ImGui::TableNextColumn();
+            auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time);
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(3) << dur.count() / 1000.0 << " seconds!";
+            logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
 
-				Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
-				if (dummy->is_uniform()) {
-					ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
-				}
-				else {
-					ImGui::BeginTable("##", 2);
-					ImGui::TableNextRow();
-					ImGui::TableNextColumn();
-					ImGui::Text("Rmin %4.f", dummy->get_min_radius());
-					ImGui::TableNextColumn();
-					ImGui::Text("Rmax %4.f", dummy->get_max_radius());
-					ImGui::EndTable();
-				}
-			}
-		}
-		else {
-			ImGui::TableNextRow();
-			ImGui::TableNextColumn(); ImGui::Text("Source");
-			ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
-		}
-		
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Openess");
-		ImGui::TableNextColumn();
-		ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
+            ImGui::CloseCurrentPopup(); 
+        }
 
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Stretch X");
-		ImGui::TableNextColumn();
-		ImGui::InputFloat("##Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
-
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Stretch Y");
-		ImGui::TableNextColumn();
-		ImGui::InputFloat("##Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
-
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Stretch Z");
-		ImGui::TableNextColumn();
-		ImGui::InputFloat("##Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
-
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Material Direction");
-		ImGui::TableNextColumn();
-		ImGui::SetNextItemWidth(200.0f);
-		ImGui::InputFloat3("##Material Direction", anisotropyVec, "%.4f");
-
-		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Angle");
-		ImGui::TableNextColumn();
-		ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
-	
-		ImGui::EndTable();
-	}
-	
-	ImGui::SeparatorText("Metrics");
-
-	render_metrics();
-
-	// if the user pressed the update button from the gui
-	if (updateScaffold) {
-		if (isLoadedFromFile) {
-			logger->log(LogPriority::WARNING, "Cannot update a static mesh loaded from a file.");
-			updateScaffold = false;
-		}
-		if (lockedCon && lockedGen) {
-
-			auto startTime = std::chrono::steady_clock::now();
-
-			std::vector<Vec3> seeds = lockedGen->get_seeds();
-			Bounds bds = lockedCon->compute_bounds();
-
-			std::array<float, 6> bounds = {
-				bds.xMin,
-				bds.xMax,
-				bds.yMin,
-				bds.yMax,
-				bds.zMin,
-				bds.zMax
-			};
-
-			// check the resolution
-			blockDims = {
-				static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
-				static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
-				static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
-			};
-
-			if (selectedThicknessOption == 1) {
-
-				switch (selectedFunc) {
-					// linear radius function
-					case 0: {
-						thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);
-						break;
-					}
-					case 1: {
-						thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance);
-						break;
-					}
-					case 2: {
-						thicknessFunction = std::make_shared<ConstantRadiusFunction>();
-						break;
-					}
-					case 3: {
-						thicknessFunction = std::make_shared<RandomRadiusFunction>();
-					}
-				}
-
-				switch (selectedDist) {
-					// distance from plane
-					case 0: {
-						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
-						break;
-					}
-						  // distance from point
-					case 1: {
-						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
-						break;
-					}
-						  // distance from container surface
-					case 2: {
-						thicknessSDF = lockedCon->get_distance_estimator();
-						break;
-					}
-				}
-			}
-			else {
-				thicknessSDF.reset();
-				thicknessFunction.reset();
-			}
-
-			set_thickness_functions(thicknessSDF, thicknessFunction, startThickness, endThickness, transitionDistance);
-
-			tortuosityPathModel.reset();
-			set_bounds(bounds);
-			set_seeds(seeds);
-			
-			//std::cout << "uniform flag" << selectedThicknessOption << " minT: " << startThickness << " maxT: " << maxThickness << " tDist: " << transitionDistance << " resolution: " << resolution[0] << " " << resolution[1] << " " << resolution[2] << std::endl;
-			
-			compute_scalar_field(*lockedCon);
-			marching_cubes();
-			estimate_metrics(*lockedCon);
-
-			auto endTime = std::chrono::steady_clock::now();
-
-			// Calculate the duration in milliseconds
-			auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-
-			std::ostringstream oss;
-			oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
-				<< duration_ms.count() / 1000.0   // Convert ms to seconds
-				<< " seconds!";
-
-			logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
-
-			// reset
-			updateScaffold = false;
-		}
-	}
-};
+        ImGui::EndPopup();
+    }
+}
 
 void GeneratorLewiner::estimate_metrics(const IContainer& container) {
 
@@ -4138,6 +4408,7 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	if (anisotropyValid)   anisotropyVersion = meshVersion;
 
 	isLoadedFromFile = false;
+
 	return true;
 }
 
@@ -4879,7 +5150,7 @@ void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 	_update_bounding_box();
 
 	// update opengl objects
-	_update_render();
+	update_render();
 
 	logger->log(LogPriority::SUCCESS, "Applied Taubin Smoothing!");
 
@@ -5215,6 +5486,7 @@ std::unique_ptr<GeneratorLewiner> GeneratorLewiner::extract_from_ROI(ROI* roi) {
 	roiScaffold->set_stretch(this->stretchX, this->stretchY, this->stretchZ);
 	roiScaffold->anisotropyAngle = this->anisotropyAngle;
 	roiScaffold->anisotropyVec = this->anisotropyVec;
+	roiScaffold->anisotropySources = this->anisotropySources;
 	roiScaffold->set_thickness_functions(this->thicknessSDF, this->thicknessFunction, this->startThickness, this->endThickness, this->transitionDistance);
 	roiScaffold->isROI = true;
 	roiScaffold->name = this->name + " (ROI)";
@@ -5237,7 +5509,11 @@ void ScaffoldFactory::launch() {
 
 	selectedCon.reset();
 	selectedGen.reset();
-	buffer[0] = '\0';
+	lockedCon.reset();
+	lockedGen.reset();
+	name="";
+	genContainerName = "";
+	genGeneratorName = "";
 	thickness = { 0.3f };
 	openess = { 0.5f };
 	stretchX = { 1.0f };
@@ -5245,8 +5521,9 @@ void ScaffoldFactory::launch() {
 	stretchZ = { 1.0f };
 	anisotropyVec = { 1.0f, 0.0f, 0.0f };
 	anisotropyAngle = { 0.0f };
+	anisotropySources.clear();
 	foam = 0;
-	voxelSize = 0.05;
+	voxelSize = 0.05f;
 
 	// for thickness function
 	selectedThicknessOption = 0;
@@ -5255,11 +5532,14 @@ void ScaffoldFactory::launch() {
 	distancePoint = { 0.0f, 0.0f, 0.0f };
 	transitionDistance = 10.0f;
 
+	warningFlashTimer1 = 0.0f;
+	warningFlashTimer2 = 0.0f;
 	thicknessRadFunc.reset();
 	thicknessSDF.reset();
 };
 
 void ScaffoldFactory::gui_draw(
+	GenerationTask* task,
 	Logger* logger,
 	const char* popupName, bool& showPopup,
 	SelectedObject* selectedPanelObj, void*& selectedSceneObj,
@@ -5274,17 +5554,154 @@ void ScaffoldFactory::gui_draw(
 	// always centered
 	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
 	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_Appearing);
 
-	if (ImGui::BeginPopupModal("Scaffold Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	if (ImGui::BeginPopupModal("Scaffold Creator", NULL))
 	{
-		auto lockedCon = selectedCon.lock();
-		auto lockedGen = selectedGen.lock();
+		
+		ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
+		if (ImGui::BeginTabBar("MyTabBar", tab_bar_flags)){
 
-		ImGui::InputText("Name", buffer, sizeof(buffer));
+			main_options(containers, generators);
 
-		// --------------------------------------------------------------------------------
-		ImGui::SeparatorText("Thickness");
+			thickness_options();
 
+			anisotropy_options();
+
+			ImGui::EndTabBar();
+		}
+
+		ImGui::Separator();
+
+        const bool anyBusy = task->get_running();
+		const bool mineBusy = task->is_running_for(this);
+
+        // ---------- Generate ----------
+        ImGui::BeginDisabled(anyBusy);
+        if (ImGui::Button("Generate")) {
+            if (!lockedCon) warningFlashTimer1 = 1.5f;
+            if (!lockedGen) warningFlashTimer2 = 1.5f;
+
+            if (lockedCon && lockedGen) {
+                auto conShared = lockedCon;                 
+                auto seeds     = lockedGen->get_seeds();    
+                auto bds       = conShared->compute_bounds();
+
+                std::array<float, 6> bounds = {
+                    bds.xMin, bds.xMax, bds.yMin, bds.yMax, bds.zMin, bds.zMax
+                };
+                resolution = {
+                    static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
+                    static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
+                    static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
+                };
+
+                auto scaffold = std::make_unique<GeneratorLewiner>(
+                    seeds, bounds, resolution, logger, openess, thickness, foam);
+
+                if (selectedThicknessOption == 1) {
+                    switch (selectedFunc) {
+                        case 0: thicknessRadFunc = std::make_shared<LinearFunction>(transitionDistance);    break;
+                        case 1: thicknessRadFunc = std::make_shared<QuadraticFunction>(transitionDistance); break;
+                        case 2: thicknessRadFunc = std::make_shared<ConstantRadiusFunction>();              break;
+                        case 3: thicknessRadFunc = std::make_shared<RandomRadiusFunction>();                break;
+                    }
+                    switch (selectedDist) {
+                        case 0:
+                            thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
+                            scaffold->set_distance_plane_options(distancePlaneCenter, distancePlaneNormal);
+                            break;
+                        case 1:
+                            thicknessSDF = std::make_shared<PointSDF>(distancePoint);
+                            scaffold->set_distance_point_options(distancePoint);
+                            break;
+                        case 2:
+                            thicknessSDF = conShared->get_distance_estimator();
+                            break;
+                    }
+                } else {
+                    thicknessSDF.reset();
+                    thicknessRadFunc.reset();
+                }
+
+                scaffold->set_options_from_factory(selectedDist, selectedFunc, selectedThicknessOption, voxelSize);
+                scaffold->set_thickness_functions(
+					thicknessSDF, thicknessRadFunc,
+                    startThickness, endThickness, transitionDistance);
+                scaffold->set_stretch(stretchX, stretchY, stretchZ);
+                scaffold->anisotropyAngle = anisotropyAngle;
+                scaffold->anisotropyVec   = anisotropyVec;
+				scaffold->anisotropySources = anisotropySources;
+				scaffold->backgroundWeight  = backgroundWeight;
+                scaffold->container = lockedCon;
+                scaffold->generator = lockedGen;
+                if (foam == 1) scaffold->foam = true;
+
+                genContainerName = lockedCon->name;   // capture identity now, for the log later
+                genGeneratorName = lockedGen->name;
+
+                GeneratorLewiner* raw = scaffold.get();
+                pendingScaffold = std::move(scaffold);
+
+                start_time = std::chrono::steady_clock::now();
+                task->start([raw, conShared, t = task]() {
+                    t->set_progress(0.00f);  
+					raw->compute_scalar_field(*conShared);
+                    t->set_progress(0.50f);  
+					raw->marching_cubes();
+                    t->set_progress(0.90f);
+					raw->estimate_metrics(*conShared);
+                    t->set_progress(1.00f);
+                }, this);
+            }
+        }
+        ImGui::EndDisabled();
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Cancel")) {
+			showPopup = false;
+		};
+
+        // ---------- Progress ----------
+        if (mineBusy) {
+            ImGui::ProgressBar(task->get_progress(),
+			 ImVec2(-FLT_MIN, 0.0f));
+        }
+		else{
+			ImGui::Dummy(ImVec2(0.0f, ImGui::GetFrameHeight()));
+		}
+
+        // ---------- Completion (main thread: GL upload + register) ----------
+        if (task->poll(this)) {
+            pendingScaffold->update_render();    // GPU upload happens here, on the GL thread
+
+            pendingScaffold->name = name.empty()
+                ? "Scaffold" + std::to_string(scaffoldList.size() + 1)
+                : name;
+
+            scaffoldList.push_back(std::move(pendingScaffold));
+            selectedSceneObj       = scaffoldList.back().get();
+            selectedPanelObj->ptr  = scaffoldList.back().get();
+            selectedPanelObj->type = ObjectType::ScaffoldType;
+
+            auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time);
+            std::ostringstream oss;
+            oss << std::fixed << std::setprecision(3) << dur.count() / 1000.0 << " seconds!";
+            logger->log(LogPriority::SUCCESS,
+                "Created scaffold successfully using container " + genContainerName +
+                " and generator " + genGeneratorName + " in " + oss.str());
+
+            showPopup = false;
+            ImGui::CloseCurrentPopup();
+        }
+		ImGui::EndPopup();
+	}
+};
+
+void ScaffoldFactory::thickness_options(){
+	if (ImGui::BeginTabItem("Thickness")){
 		ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
 		ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
@@ -5322,26 +5739,84 @@ void ScaffoldFactory::gui_draw(
 		}
 
 		ImGui::SliderFloat("Openess", &openess, 0.0f, 1.0f, "%.3f");
-		
-		// --------------------------------------------------------------------------------
-		ImGui::SeparatorText("Anisotropy");
+		ImGui::EndTabItem();
+	}
+};
+
+void ScaffoldFactory::anisotropy_options(){
+
+	if(ImGui::BeginTabItem("Anisotropy")){
+		ImGui::SeparatorText("Global Background");
+		// ImGui::SetTooltip("Governs metric everywhere; sources add local modifications.");
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
 		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
 
-		// --------------------------------------------------------------------------------
+		// add a button to create more anisotropy sources
+		// we have to add a selectable for each anisotropy source
+		for (int i{ 0 }; i < anisotropySources.size(); i++) {
+			std::string name = "Anisotropy Source" + std::to_string(i);
+			if (ImGui::TreeNode(name.c_str())){
+				ImGui::InputFloat(
+					"Stretch X",
+					&anisotropySources[i].stretch.x,
+					0.01f, 5.0f, "%.3f"
+				);
+				ImGui::InputFloat(
+					"Stretch Y",
+					&anisotropySources[i].stretch.y,
+					0.01f, 5.0f, "%.3f"
+				);
+				ImGui::InputFloat(
+					"Stretch Z",
+					&anisotropySources[i].stretch.z,
+					0.01f, 5.0f, "%.3f"
+				);
+				ImGui::InputFloat3("Origin", anisotropySources[i].origin);
+				ImGui::InputFloat3(
+					"Rotation Axis", anisotropySources[i].direction);
+				ImGui::InputFloat("Angle",
+					&anisotropySources[i].angle, 0.01f, 10.0f, "%.4f");
+				ImGui::InputFloat("Sigma (influence radius ≈ 3×sigma)",
+					&anisotropySources[i].sigma, 0.1f, 50.0f, "%.2f");
+				ImGui::TreePop();
+			}	
+		}
+		
+		if (ImGui::Button("Add Anisotropy Source")){
+			AnisotropySource source;
+			source.stretch = Vec3(1.0f, 1.0f, 1.0f);
+			source.sigma = 5.0f;  // default covers ~15 units; tune to domain size
+			anisotropySources.push_back(source);
+		}
+		ImGui::EndTabItem();
+	};
+};
+
+void ScaffoldFactory::main_options(
+	std::vector<std::shared_ptr<IContainer>>& containers,
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators
+){
+
+	if(ImGui::BeginTabItem("Main")){
+		ImGui::InputText("Name", &name);
+
 		ImGui::SeparatorText("Mode");
 		ImGui::RadioButton("Porous", &foam, 0);
 		ImGui::RadioButton("Foam", &foam, 1);
 		ImGui::InputFloat("Voxel Size", &voxelSize);
+		
+		lockedCon = selectedCon.lock();
+		lockedGen = selectedGen.lock();
 
 		// here we should get the seeds from the corresponding creator
 		ImGui::SeparatorText("Select Container and generator");
 
 		// timer for flashing
-		static float warningFlashTimer1 = 0.0f;
+		warningFlashTimer1 = 0.0f;
 
 		if (warningFlashTimer1 > 0.0f) {
 			warningFlashTimer1 -= ImGui::GetIO().DeltaTime;
@@ -5375,7 +5850,7 @@ void ScaffoldFactory::gui_draw(
 
 		ImGui::SameLine();
 
-		static float warningFlashTimer2 = 0.0f;
+		warningFlashTimer2 = 0.0f;
 
 		if (warningFlashTimer2 > 0.0f) {
 			warningFlashTimer2 -= ImGui::GetIO().DeltaTime;
@@ -5405,162 +5880,8 @@ void ScaffoldFactory::gui_draw(
 			ImGui::PopStyleVar();  
 		}
 
-		ImGui::EndChild();
-
-		ImGui::Separator();
-
-		ImGui::NewLine();
-
-		if (ImGui::Button("Generate")) {
-
-			if (!lockedCon) {
-				warningFlashTimer1 = 1.5f;
-			}
-
-			if (!lockedGen) {
-				warningFlashTimer2 = 1.5f;
-			}
-
-			else if (lockedCon && lockedGen) {
-
-				auto start_time = std::chrono::steady_clock::now();
-
-				std::string name = std::string(buffer);
-				std::vector<Vec3> seeds = lockedGen->get_seeds();
-				Bounds bds = lockedCon->compute_bounds();
-
-				std::array<float, 6> bounds = {
-					bds.xMin,
-					bds.xMax,
-					bds.yMin,
-					bds.yMax,
-					bds.zMin,
-					bds.zMax
-				};
-
-				// estimate the resolution from the voxel size
-				resolution = {
-					static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
-					static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
-					static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
-				};
-
-				std::cout << " resolution: " << resolution[0] << ", " << resolution[1] << "," << resolution[2] << std::endl;
-
-				std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
-					seeds, bounds, resolution, logger, openess, thickness, foam
-				);
-
-				if (selectedThicknessOption == 1) {
-					
-					switch (selectedFunc) {
-						// linear radius function
-					case 0: {
-						thicknessRadFunc = std::make_shared<LinearFunction>(transitionDistance);
-						break;
-					}
-					case 1: {
-						thicknessRadFunc = std::make_shared<QuadraticFunction>(transitionDistance);
-						break;
-					}
-					case 2: {
-						thicknessRadFunc = std::make_shared<ConstantRadiusFunction>();
-						break;
-					}
-					case 3: {
-						thicknessRadFunc = std::make_shared<RandomRadiusFunction>();
-					}
-					}
-
-					switch (selectedDist) {
-						// distance from plane
-					case 0: {
-						//std::array<double, 3> center = { planeCenter.x, planeCenter.y, planeCenter.z };
-						//std::array<double, 3> norm = { normal.x, normal.y, normal.z};
-						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
-						scaffold->set_distance_plane_options(distancePlaneCenter, distancePlaneNormal);
-						break;
-					}
-						  // distance from point
-					case 1: {
-						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
-						scaffold->set_distance_point_options(distancePoint);
-						break;
-					}
-						  // distance from container surface
-					case 2: {
-						thicknessSDF = lockedCon->get_distance_estimator();
-						break;
-					}
-					}
-				}
-				else {
-					thicknessSDF.reset();
-					thicknessRadFunc.reset();
-				}
-				scaffold->set_options_from_factory(selectedDist, selectedFunc, selectedThicknessOption, voxelSize);
-
-				scaffold->set_thickness_functions(
-					thicknessSDF, thicknessRadFunc, startThickness, endThickness, transitionDistance);
-
-				// scalar field settings
-				scaffold->set_stretch(stretchX, stretchY, stretchZ);
-				scaffold->anisotropyAngle = anisotropyAngle;
-				scaffold->anisotropyVec = anisotropyVec;
-
-				// estimate the scalar field
-				scaffold->compute_scalar_field(*lockedCon);
-
-				scaffold->container = lockedCon;
-				scaffold->generator = lockedGen;
-
-				if (foam == 1) {
-					scaffold->foam = true;
-				}
-
-				if (!name.empty()) {
-					scaffold->name = name;
-				}
-				else {
-					scaffold->name = "Scaffold" + std::to_string(scaffoldList.size() + 1);
-				}
-
-				scaffold->marching_cubes();
-
-				scaffold->estimate_metrics(*lockedCon);
-
-				// push to the scaffold list
-				scaffoldList.push_back(std::move(scaffold));
-
-				// set it as the selected object
-				selectedSceneObj = scaffoldList.back().get();
-				selectedPanelObj->ptr = scaffoldList.back().get();
-				selectedPanelObj->type = ObjectType::ScaffoldType;
-
-				auto end_time = std::chrono::steady_clock::now();
-
-				// Calculate the duration in milliseconds
-				auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-
-				std::ostringstream oss;
-				oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
-					<< duration_ms.count() / 1000.0   // Convert ms to seconds
-					<< " seconds!";
-
-				logger->log(
-					LogPriority::SUCCESS,
-					"Created scaffold succesffully using container " + lockedCon->name +
-					" and generator " + lockedGen->name + " in " + oss.str());
-
-				showPopup = false;
-			}
-		}
-
-		ImGui::SameLine();
-
-		if (ImGui::Button("Cancel")) {
-			showPopup = false;
-		};
-		ImGui::EndPopup();
-	}
+		ImGui::EndChild();	
+		
+		ImGui::EndTabItem();
+	};
 };

@@ -1,12 +1,4 @@
-/**
- * @file    MarchingCubes.h
- * @author  Thomas Lewiner <thomas.lewiner@polytechnique.org>
- * @author  Math Dept, PUC-Rio
- * @version 0.2
- * @date    12/08/2002
- * 
- * @brief   MarchingCubes Algorithm
- */
+/**/
 //________________________________________________
 
 #ifndef GENERATOR_LEWINER_H
@@ -22,8 +14,10 @@
 #include <SeedGenerator/SeedGenerator.h>
 #include <SeedGenerator/DistanceCalculator.h>
 #include <SeedGenerator/RadiusCalculator.h>
+#include <ScaffoldGenerator/GenerationTask.h>
 #include "Math/Vec.h"
 #include "Utils/Utils.h"
+#include "Anisotropy.h"
 #include "Logger/Logger.h"
 
 typedef struct
@@ -199,10 +193,11 @@ public:
 	// rendering
 	void draw();
 	void draw_edges();
-	void render_properties(bool& updateScaffold);
+	void render_properties(bool& updateScaffold, GenerationTask* task);
 	void render_metrics();
 	void draw_tortuosity_path();
 	void apply_scale();
+	void update_render();
 
 private:
 	// Per-voxel classification produced by classify_container_narrow_band(),
@@ -290,7 +285,6 @@ private:
 	// rendering
 	void _setup_mesh();
 	void _setup_edges();
-	void _update_render();
 	void add_edge(int idx1, int idx2, int idx3);
 
 	// members
@@ -333,6 +327,12 @@ public:
 	Vec3 anisotropyVec{ 1.0f, 0.0f, 0.0f };
 	float anisotropyAngle{ 0.0f };
 	std::unique_ptr<Ellipsoid> ellipsoidModel;
+	std::vector<AnisotropySource> anisotropySources;
+	// Weight of the background (global) metric in the blended metric.
+	// Far from all sources this is the only metric; near a source the source
+	// metric dominates.  Raise this value to blend the background into
+	// source regions more aggressively.
+	float backgroundWeight{ 0.1f };
 
 	// loaded from csv
 	bool isLoadedFromFile = false;
@@ -373,6 +373,7 @@ private:
 
 	Logger* logger = nullptr;
 
+	std::chrono::steady_clock::time_point start_time;
 	// ----------------------------------------------------
 	// these are for opengl
 	std::vector<float> vertices;
@@ -410,6 +411,7 @@ public:
 	void launch();
 
 	void gui_draw(
+		GenerationTask* task,
 		Logger* logger,
 		const char* popupName, bool& showPopup,
 		SelectedObject* selectedPanelObj, void*& selectedSceneObj,
@@ -418,9 +420,15 @@ public:
 		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators);
 
 private:
+	std::unique_ptr<GeneratorLewiner> pendingScaffold = nullptr;
 	std::weak_ptr<IContainer> selectedCon;
 	std::weak_ptr<InterfaceSeedGenerator> selectedGen;
-	char buffer[256] = "";
+	std::shared_ptr<IContainer> lockedCon;
+	std::shared_ptr<InterfaceSeedGenerator> lockedGen;
+	std::string name = "";
+	std::string genContainerName = "";
+	std::string genGeneratorName = "";
+	std::chrono::steady_clock::time_point start_time;
 	float thickness = { 0.3f };
 	float openess = { 0.5f };
 	float stretchX = { 1.0f };
@@ -428,6 +436,9 @@ private:
 	float stretchZ = { 1.0f };
 	Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
 	float anisotropyAngle = { 0.0f };
+	std::vector<AnisotropySource> anisotropySources;
+	float backgroundWeight = { 0.1f };
+
 	int foam = 0;
 	std::array<int, 3> resolution = { 100, 100, 100 };
 	float voxelSize{ 0.05f };
@@ -447,6 +458,16 @@ private:
 	float startThickness = 0.3f;
 	float endThickness = 1.0f;
 	float transitionDistance = 20.0f;
+
+	float warningFlashTimer1 = 0.0f;
+	float warningFlashTimer2 = 0.0f;
+
+	void thickness_options();
+	void anisotropy_options();
+	void main_options(
+		std::vector<std::shared_ptr<IContainer>>& containers,
+		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators
+	);
 };
 
 #endif // ! "GENERATOR_LEWINER_H"
