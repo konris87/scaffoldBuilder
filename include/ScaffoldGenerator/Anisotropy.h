@@ -11,15 +11,112 @@ Implement anisotropy enforcement
 #include "Eigen/Dense"
 #include "Math/Vec.h"
 #include "Utils/Utils.h"
+#include "OpenGlRender/Model.h"
+#include "Misc/Imgui_Stdlib.h"
 
-// @brief a struct that contains information for a single source of anisotropy
-struct AnisotropySource {
+// ===================================================================
+// Anisotropy Source Class definition
+// ===================================================================
+
+class AnisotropySource {
+
+public:
+    AnisotropySource(){
+  
+    };
+
     Vec3 origin; // set initially to zero
     Vec3 direction = {1.0f, 0.0f, 0.0f};
     float angle = 0.0f;
     Vec3 stretch = {1.0f, 1.0f, 1.0f};
-    float sigma = 1.0f; // gaussian falloff parameter
+    float sigma = 1.1f; // gaussian falloff parameter
     Eigen::Matrix3f M;
+
+    std::string name = "";
+	float color[4] = {0.0f, 1.0f, 0.0f, 0.4f};
+    bool hidden = false;
+
+    void render_model() {
+        if (!hidden && model) {
+            model->draw();
+        }
+    }
+
+    void render_properties(){
+
+        ImGui::PushID(this);
+
+        bool changedMetric = false;
+        bool changedModel = false;
+
+        ImGui::ColorEdit4("Color", (float*)&color);
+
+        ImGui::InputFloat3("Origin", origin);
+        
+        changedModel |= ImGui::InputFloat(
+            "Sigma (influence radius ≈ 3×sigma)",
+            &sigma, 0.1f, 50.0f, "%.2f");
+
+        changedMetric |= ImGui::InputFloat(
+            "Stretch X",
+            &stretch.x,
+            0.01f, 5.0f, "%.3f"
+        );
+        changedMetric |=ImGui::InputFloat(
+            "Stretch Y",
+            &stretch.y,
+            0.01f, 5.0f, "%.3f"
+        );
+        changedMetric |=ImGui::InputFloat(
+            "Stretch Z",
+            &stretch.z,
+            0.01f, 5.0f, "%.3f"
+        );
+        
+        changedMetric |=ImGui::InputFloat("Angle",
+            &angle, 0.01f, 10.0f, "%.4f");
+        
+        changedMetric |= ImGui::InputFloat3("Rotation Axis", direction);
+        
+        if (changedMetric){
+            update_metric();
+        }
+
+        if (changedModel){
+            update_model();
+        }
+
+        ImGui::PopID();
+
+    };
+
+    ObjectType get_type() const {
+		return ObjectType::AnisoSource;
+	}
+
+    void update_metric() {
+
+        Eigen::Matrix3f rot = rotation_axis_angle(direction, angle);
+        auto safe_sq = [](float val) { return std::max(1e-6f, val * val); };
+        Eigen::Vector3f invSq(1.0f / safe_sq(stretch.x),
+                              1.0f / safe_sq(stretch.y),
+                              1.0f / safe_sq(stretch.z));
+        M = rot.transpose() * invSq.asDiagonal() * rot;
+
+    };
+
+    void update_model(){
+        float radius = 3.0f * sigma;
+        if (!model) {
+            model = std::make_unique<Sphere>(radius, 36, 18);
+        } else {
+            model->update_radius(radius);
+        }
+    };
+
+private:
+
+    std::unique_ptr<Sphere> model;
 };
 
 //@brief function to create the tensor M for a single source
@@ -51,20 +148,20 @@ inline size_t choose_candidate_number(
 
 inline Eigen::Matrix3f blend_metric(
     const Vec3 point, 
-    const std::vector<AnisotropySource>& sources,
+    const std::vector<std::shared_ptr<AnisotropySource>>& sources,
     AnisotropySource& background, 
     float backgroundWeight){
 
         Eigen::Matrix3f M = backgroundWeight * background.M;
         float weightSum = backgroundWeight;
         for(const auto& src: sources){
-            Vec3 d = point - src.origin;
+            Vec3 d = point - src->origin;
             float r2 = d.x * d.x + d.y * d.y + d.z * d.z;
-            if (r2 > 9.0f * src.sigma * src.sigma) continue; 
+            if (r2 > 9.0f * src->sigma * src->sigma) continue; 
 
-            float invSigma = 1.0f / (2.0f * src.sigma * src.sigma);
+            float invSigma = 1.0f / (2.0f * src->sigma * src->sigma);
             float w = std::exp(-r2 * invSigma);
-            M += w * src.M;
+            M += w * src->M;
             weightSum += w;
         }
 

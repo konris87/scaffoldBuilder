@@ -423,11 +423,11 @@ void myGUI::run() {
 		double xPos, yPos;
 		glfwGetCursorPos(window, &xPos, &yPos);
 
-		// -------------------------------------------------------------------------------------------
+		// ==============================================
 		// First pass -> objects without alpha
 
 		glEnable(GL_DEPTH_TEST);
-		glDepthMask(GL_TRUE);     // <--- IMPORTANT: Opaque objects WRITE to depth buffer
+		glDepthMask(GL_TRUE); 
 		glDisable(GL_BLEND);
 		glEnable(GL_CULL_FACE);
 
@@ -781,6 +781,33 @@ void myGUI::run() {
 						con->color[0], con->color[1], con->color[2], con->color[3]);
 					con->render();
 				}
+			}
+		}
+
+		// Anisotropy Sources
+		for (const auto& source : anisoSources) {
+			if (source && !source->hidden && source->color[3] < 1.0f) {
+				boxShader.use();
+				uniManager.setUniform(boxShader, "projection", projection);
+				uniManager.setUniform(boxShader, "view", view);
+				uniManager.setUniform(boxShader,
+					"boxColor",
+					source->color[0],
+					source->color[1],
+					source->color[2],
+					source->color[3]
+				);
+				// change the translation
+				uniManager.setUniform(
+					boxShader, "model", 
+					glm::translate(
+					glm::mat4(1.0),
+					glm::vec3(
+						source->origin.x, 
+						source->origin.y, 
+						source->origin.z 
+					)));
+				source->render_model();
 			}
 		}
 
@@ -1274,6 +1301,8 @@ void myGUI::_render_object_list() {
 		_render_seed_generator_list();
 
 		_render_roi_list();
+
+		_render_anisource_list();
 	}
 
 	ImGui::End();
@@ -1322,6 +1351,11 @@ void myGUI::_render_properties_panel() {
 			}
 			case ObjectType::Roi: {
 				ROI* roi = static_cast<ROI*>(selectedPanelObj.ptr);
+				roi->render_properties();
+				break;
+			}
+			case ObjectType::AnisoSource: {
+				AnisotropySource* roi = static_cast<AnisotropySource*>(selectedPanelObj.ptr);
 				roi->render_properties();
 				break;
 			}
@@ -1420,6 +1454,54 @@ void myGUI::_render_roi_list() {
 				selectedPanelObj.ptr = roi.get();
 				selectedPanelObj.type = roi->type;
 			}
+		}
+
+		ImGui::TreePop();
+	}
+};
+
+void myGUI::_render_anisource_list() {
+	bool open = ImGui::TreeNodeEx("Anisotropy Sources", ImGuiDockNodeFlags_None | ImGuiTreeNodeFlags_DefaultOpen);
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_NoSharedDelay)) {
+		ImGui::SetTooltip("Created Anisotropy Sources");
+	}
+	if (open) {
+
+		static RenameState state;
+
+		for (int i = 0; i < anisoSources.size(); ++i) {
+
+			ImGui::PushID(i);
+
+			auto& source = anisoSources[i];
+
+			bool isSelected = (selectedPanelObj.ptr == source.get());
+
+			ImGui::Selectable(source->name.c_str(), isSelected, ImGuiSelectableFlags_AllowDoubleClick);
+
+			if (ImGui::BeginPopupContextItem()) {
+
+				if (ImGui::MenuItem(!source->hidden ? "Hide" : "Show")) {
+					source->hidden = !source->hidden;
+				}
+				if (ImGui::MenuItem("Delete")) {
+					auto it = anisoSources.erase(
+						anisoSources.begin() + i);
+
+					ImGui::EndPopup();
+					selectedPanelObj.ptr = nullptr;
+					selectedPanelObj.type = ObjectType::NoneType;
+					break;
+				}
+
+				ImGui::EndPopup();
+			}
+			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsItemHovered()) {
+				selectedPanelObj.ptr = source.get();
+				selectedPanelObj.type = source->get_type();
+			}
+
+			ImGui::PopID();
 		}
 
 		ImGui::TreePop();
@@ -1991,6 +2073,23 @@ void myGUI::_render_main_menu_bar() {
 			ImGui::EndMenu();
 		}
 
+		if (ImGui::BeginMenu("Add")) {
+			if (ImGui::MenuItem("Box ROI")) {
+				if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+					logger.log(LogPriority::ERROR, "Selected a scaffold from the panel!");
+				}
+				else {
+					showROICreator = true;
+				}
+			}
+
+			if (ImGui::MenuItem("Add Anisotropy Source")) {
+				showAnisotropySourceCreator = true;
+			}
+
+			ImGui::EndMenu();
+			
+		}
 		if (ImGui::BeginMenu("Tools")) {
 
 			if (ImGui::IsItemHovered()) {
@@ -2008,16 +2107,7 @@ void myGUI::_render_main_menu_bar() {
 					GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 					bounds = gen->get_bounds();
 				}
-			}
-
-			if (ImGui::MenuItem("Create ROI")) {
-				if (selectedPanelObj.type != ObjectType::ScaffoldType) {
-					logger.log(LogPriority::ERROR, "Selected a scaffold from the panel!");
-				}
-				else {
-					showROICreator = true;
-				}
-			}
+			}			
 
 			if (ImGui::MenuItem("Cut With ROI")) { 
 				if (selectedPanelObj.type != ObjectType::ScaffoldType) {
@@ -2071,7 +2161,7 @@ void myGUI::_render_main_menu_bar() {
 			&logger,
 			"Scaffold Creator", showScaffoldCreator,
 			&selectedPanelObj, selectedSceneObj, 
-			scaffolds, containers, seedGenerators
+			scaffolds, containers, seedGenerators, anisoSources
 		);
 	}
 
@@ -2121,6 +2211,10 @@ void myGUI::_render_main_menu_bar() {
 
 	if (showROICreator) {
 		_render_roi_creator("Create a ROI", showROICreator);
+	}
+
+	if (showAnisotropySourceCreator) {
+		_render_aniso_source_creator("Create Anisotropy Source", showAnisotropySourceCreator);
 	}
 
 	if (showROICutter) {
@@ -3645,6 +3739,77 @@ void myGUI::_render_roi_creator(const char* popupName, bool& showPopup) {
 			origin = Vec3{ 0.0f, 0.0f, 0.0f };
 			showPopup = false;
 		};
+		ImGui::EndPopup();
+	}
+};
+
+void myGUI::_render_aniso_source_creator(
+	const char* popupName, bool& showPopup) {
+	
+	if (showPopup) {
+		ImGui::OpenPopup(popupName);
+	}
+
+	// always centered
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (ImGui::BeginPopupModal(popupName, NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		static int selected = -1;
+		static std::vector<std::shared_ptr<AnisotropySource>> tempSources;
+		for (int i{ 0 }; i < tempSources.size(); i++) {
+			std::string name = "Anisotropy Source" + std::to_string(i);
+			if (ImGui::TreeNode(name.c_str())){
+				selected = i;
+				tempSources[i]->render_properties();
+				ImGui::TreePop();
+			}
+			else{
+				selected = -1;
+			}	
+		}
+		
+		ImGui::Separator();
+		
+		if (ImGui::Button("Add")){
+			std::shared_ptr<AnisotropySource> source = 
+			std::make_shared<AnisotropySource>();
+			source->update_metric();
+			source->update_model();
+			if (source->name.empty()){
+				source->name = "Anisotropy Source " + std::to_string(tempSources.size() + 1);
+			}
+			tempSources.push_back(std::move(source));
+			selected = -1;
+		}		
+
+		ImGui::SameLine();
+		if (ImGui::Button("Delete Selected")){
+			if(selected != -1){
+				auto it = tempSources.erase(tempSources.begin() + selected);
+			}
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			tempSources.clear();
+			showPopup = false;
+			selected = -1;
+		};
+
+		// if ok push to the anisosources
+		ImGui::SameLine();
+		if (ImGui::Button("Ok")) {
+			anisoSources.insert(
+				anisoSources.end(),
+				tempSources.begin(),
+				tempSources.end());
+
+			showPopup = false;
+			selected = -1;
+		};
+
 		ImGui::EndPopup();
 	}
 };

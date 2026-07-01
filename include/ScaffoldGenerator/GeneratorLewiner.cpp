@@ -334,7 +334,7 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	// ensure every source's M is up-to-date (GUI edits don't call create_metric)
 	for (auto& src : anisotropySources) {
-		create_metric(src);
+		src->update_metric();
 	}
 
 	// use also the domain volume
@@ -365,9 +365,9 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 	// decide the number k of nn for the kdtree
 	std::vector<float> stretches = {stretchX, stretchY, stretchZ};
 	for (const auto& src: anisotropySources){
-		stretches.push_back(src.stretch.x);
-		stretches.push_back(src.stretch.y);
-		stretches.push_back(src.stretch.z);
+		stretches.push_back(src->stretch.x);
+		stretches.push_back(src->stretch.y);
+		stretches.push_back(src->stretch.z);
 	}
 
 	auto minmax = std::minmax_element(stretches.begin(), stretches.end());
@@ -3175,7 +3175,7 @@ void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* t
 
     const bool mineBusy = task && task->is_running_for(this);
 
-    ImGui::ColorEdit4("Appearance", (float*)&color);   // color isn't touched by the worker
+    ImGui::ColorEdit4("Appearance", (float*)&color);  
 
     if (lockedCon) ImGui::Text("Container: %s", lockedCon->name.c_str());
     if (lockedGen) ImGui::Text("Generator: %s", lockedGen->name.c_str());
@@ -3183,39 +3183,13 @@ void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* t
     // ---- editable parameters: locked while this scaffold is regenerating ----
     ImGui::BeginDisabled(mineBusy);
 
-    ImGui::SeparatorText("Thickness");
-    ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
-    ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
+	ImGui::BeginTabBar("Items");
 
-    if (selectedThicknessOption == 0) {
-        ImGui::SetNextItemWidth(200);
-        ImGui::InputFloat("Thickness", &isoLevel);
-    }
-    else {
-        ImGui::SetNextItemWidth(200); ImGui::InputFloat("Start Thickness", &startThickness);
-        ImGui::SetNextItemWidth(200); ImGui::InputFloat("End Thickness", &endThickness);
-        ImGui::SetNextItemWidth(200); ImGui::InputFloat("Transition Distance", &transitionDistance);
+	thickness_properties();
 
-        ImGui::SeparatorText("Select Distance Function");
-        ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
-        if (selectedDist == 0) {
-            ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Normal", distancePlaneNormal);
-            ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Center", distancePlaneCenter);
-        }
-        ImGui::RadioButton("Distance From Point", &selectedDist, 1);
-        if (selectedDist == 1) {
-            ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Point", distancePoint);
-        }
-        ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+	anisotropy_properties();
 
-        ImGui::SeparatorText("Select Radius Function");
-        ImGui::RadioButton("Linear", &selectedFunc, 0);
-        ImGui::RadioButton("Quadratic", &selectedFunc, 1);
-        ImGui::RadioButton("Constant", &selectedFunc, 2);
-        ImGui::RadioButton("Random", &selectedFunc, 3);
-    }
-
-    ImGui::InputFloat("Voxel Size", &voxelSize);
+	ImGui::EndTabBar();
 
     ImGui::SeparatorText("Parameters");
     ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
@@ -3374,6 +3348,102 @@ void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* t
 
         ImGui::EndPopup();
     }
+}
+
+void GeneratorLewiner::thickness_properties(){
+
+	if (ImGui::BeginTabItem("Thickness")){
+	 	ImGui::RadioButton(
+			"Apply Uniform Thickness", &selectedThicknessOption, 0);
+    	ImGui::RadioButton(
+			"Apply Varied Thickness", &selectedThicknessOption, 1);
+
+		if (selectedThicknessOption == 0) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Thickness", &isoLevel);
+		}
+		else {
+			ImGui::SetNextItemWidth(200); ImGui::InputFloat("Start Thickness", &startThickness);
+			ImGui::SetNextItemWidth(200); ImGui::InputFloat("End Thickness", &endThickness);
+			ImGui::SetNextItemWidth(200); ImGui::InputFloat("Transition Distance", &transitionDistance);
+
+			ImGui::SeparatorText("Select Distance Function");
+			ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
+			if (selectedDist == 0) {
+				ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Normal", distancePlaneNormal);
+				ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Center", distancePlaneCenter);
+			}
+			ImGui::RadioButton("Distance From Point", &selectedDist, 1);
+			if (selectedDist == 1) {
+				ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Point", distancePoint);
+			}
+			ImGui::RadioButton("Distance From Container", &selectedDist, 2);
+
+			ImGui::SeparatorText("Select Radius Function");
+			ImGui::RadioButton("Linear", &selectedFunc, 0);
+			ImGui::RadioButton("Quadratic", &selectedFunc, 1);
+			ImGui::RadioButton("Constant", &selectedFunc, 2);
+			ImGui::RadioButton("Random", &selectedFunc, 3);
+		}
+
+		ImGui::InputFloat("Voxel Size", &voxelSize);
+		ImGui::EndTabItem();
+	}
+}
+
+void GeneratorLewiner::anisotropy_properties(){
+
+	if(ImGui::BeginTabItem("Anisotropy")){
+		ImGui::SeparatorText("Global Background");
+		// ImGui::SetTooltip("Governs metric everywhere; sources add local modifications.");
+		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
+		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
+
+		// add a button to create more anisotropy sources
+		// we have to add a selectable for each anisotropy source
+		for (int i{ 0 }; i < anisotropySources.size(); i++) {
+			std::string name = "Anisotropy Source" + std::to_string(i);
+			if (ImGui::TreeNode(name.c_str())){
+				ImGui::InputFloat(
+					"Stretch X",
+					&anisotropySources[i]->stretch.x,
+					0.01f, 5.0f, "%.3f"
+				);
+				ImGui::InputFloat(
+					"Stretch Y",
+					&anisotropySources[i]->stretch.y,
+					0.01f, 5.0f, "%.3f"
+				);
+				ImGui::InputFloat(
+					"Stretch Z",
+					&anisotropySources[i]->stretch.z,
+					0.01f, 5.0f, "%.3f"
+				);
+				ImGui::InputFloat3(
+					"Origin", 
+					anisotropySources[i]->origin);
+				ImGui::InputFloat3(
+					"Rotation Axis", anisotropySources[i]->direction);
+				ImGui::InputFloat("Angle",
+					&anisotropySources[i]->angle, 0.01f, 10.0f, "%.4f");
+				ImGui::InputFloat("Sigma (influence radius ≈ 3×sigma)",
+					&anisotropySources[i]->sigma, 0.1f, 50.0f, "%.2f");
+				ImGui::TreePop();
+			}	
+		}
+		
+		if (ImGui::Button("Add Anisotropy Source")){
+			std::shared_ptr<AnisotropySource> source = std::make_shared<AnisotropySource>();
+			source->stretch = Vec3(1.0f, 1.0f, 1.0f);
+			source->sigma = 5.0f;  // default covers ~15 units; tune to domain size
+			anisotropySources.push_back(std::move(source));
+		}
+		ImGui::EndTabItem();
+	}
 }
 
 void GeneratorLewiner::estimate_metrics(const IContainer& container) {
@@ -5545,8 +5615,13 @@ void ScaffoldFactory::gui_draw(
 	SelectedObject* selectedPanelObj, void*& selectedSceneObj,
 	std::vector<std::unique_ptr<GeneratorLewiner>>& scaffoldList,
 	std::vector<std::shared_ptr<IContainer>>& containers,
-	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators) {
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators,
+	std::vector<std::shared_ptr<AnisotropySource>>& anisoSources
+) {
 	
+	// set to already created sources
+	anisotropySources = anisoSources;
+
 	if (showPopup) {
 		ImGui::OpenPopup(popupName);
 	}
@@ -5762,35 +5837,37 @@ void ScaffoldFactory::anisotropy_options(){
 			if (ImGui::TreeNode(name.c_str())){
 				ImGui::InputFloat(
 					"Stretch X",
-					&anisotropySources[i].stretch.x,
+					&anisotropySources[i]->stretch.x,
 					0.01f, 5.0f, "%.3f"
 				);
 				ImGui::InputFloat(
 					"Stretch Y",
-					&anisotropySources[i].stretch.y,
+					&anisotropySources[i]->stretch.y,
 					0.01f, 5.0f, "%.3f"
 				);
 				ImGui::InputFloat(
 					"Stretch Z",
-					&anisotropySources[i].stretch.z,
+					&anisotropySources[i]->stretch.z,
 					0.01f, 5.0f, "%.3f"
 				);
-				ImGui::InputFloat3("Origin", anisotropySources[i].origin);
 				ImGui::InputFloat3(
-					"Rotation Axis", anisotropySources[i].direction);
+					"Origin", 
+					anisotropySources[i]->origin);
+				ImGui::InputFloat3(
+					"Rotation Axis", anisotropySources[i]->direction);
 				ImGui::InputFloat("Angle",
-					&anisotropySources[i].angle, 0.01f, 10.0f, "%.4f");
+					&anisotropySources[i]->angle, 0.01f, 10.0f, "%.4f");
 				ImGui::InputFloat("Sigma (influence radius ≈ 3×sigma)",
-					&anisotropySources[i].sigma, 0.1f, 50.0f, "%.2f");
+					&anisotropySources[i]->sigma, 0.1f, 50.0f, "%.2f");
 				ImGui::TreePop();
 			}	
 		}
 		
 		if (ImGui::Button("Add Anisotropy Source")){
-			AnisotropySource source;
-			source.stretch = Vec3(1.0f, 1.0f, 1.0f);
-			source.sigma = 5.0f;  // default covers ~15 units; tune to domain size
-			anisotropySources.push_back(source);
+			std::shared_ptr<AnisotropySource> source = std::make_shared<AnisotropySource>();
+			source->stretch = Vec3(1.0f, 1.0f, 1.0f);
+			source->sigma = 5.0f;  // default covers ~15 units; tune to domain size
+			anisotropySources.push_back(std::move(source));
 		}
 		ImGui::EndTabItem();
 	};

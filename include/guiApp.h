@@ -112,7 +112,11 @@ public:
 
 	std::vector<std::shared_ptr<ROI>> rois;
 
-	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>();
+	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>
+	();
+	
+	std::vector<std::shared_ptr<AnisotropySource>> anisoSources;
+	
 	// create a generation task for the scaffold thread
 	std::unique_ptr<GenerationTask> gTask = std::make_unique<GenerationTask>();
 
@@ -182,6 +186,7 @@ public:
 	bool showScaffoldCreator{ false };
 	bool showProperties{ false };
 	bool showROICreator{ false };
+	bool showAnisotropySourceCreator{false};
 	bool showROICutter{ false };
 	bool measureThickness{ false };
 	bool measureSeparation{ false };
@@ -374,6 +379,8 @@ private:
 	void _render_container_list();
 
 	void _render_roi_list();
+	
+	void _render_anisource_list();
 
 	void _render_object_list();
 
@@ -462,6 +469,8 @@ private:
 	void _render_translate_panel(const char* popupName, bool& showPopup);
 
 	void _render_roi_creator(const char* popupName, bool& showPopup);
+
+	void _render_aniso_source_creator(const char* popupName, bool& showPopup);
 
 	void _render_roi_cutter(const char* popupName, bool& showPopup);
 

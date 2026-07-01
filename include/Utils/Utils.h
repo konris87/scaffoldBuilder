@@ -28,6 +28,7 @@ enum ObjectType {
 	VariedGeneratorType,
 	ScaffoldType,
 	Roi,
+	AnisoSource,
 	NoneType
 };
 

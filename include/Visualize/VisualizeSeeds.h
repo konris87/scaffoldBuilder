@@ -31,7 +31,6 @@ public:
 		for (unsigned int i{ 0 }; i < seedCoords.size(); i++) {
 			glm::mat4 model = glm::mat4(1.0f);
 			model = glm::translate(model, glm::vec3(seedCoords[i].x, seedCoords[i].y, seedCoords[i].z));
-			// NO SCALING HERE! Leave it to the shader.
 			modelMatrices.push_back(model);
 		}
 

@@ -281,6 +281,9 @@ private:
 	std::vector<uint8_t> get_image_field(
 		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false, uint8_t solidValue = 1);
 
+	void thickness_properties();
+	void anisotropy_properties();
+
 	//-------------------------------
 	// rendering
 	void _setup_mesh();
@@ -327,7 +330,7 @@ public:
 	Vec3 anisotropyVec{ 1.0f, 0.0f, 0.0f };
 	float anisotropyAngle{ 0.0f };
 	std::unique_ptr<Ellipsoid> ellipsoidModel;
-	std::vector<AnisotropySource> anisotropySources;
+	std::vector<std::shared_ptr<AnisotropySource>> anisotropySources;
 	// Weight of the background (global) metric in the blended metric.
 	// Far from all sources this is the only metric; near a source the source
 	// metric dominates.  Raise this value to blend the background into
@@ -417,7 +420,9 @@ public:
 		SelectedObject* selectedPanelObj, void*& selectedSceneObj,
 		std::vector<std::unique_ptr<GeneratorLewiner>>& scaffoldList,
 		std::vector<std::shared_ptr<IContainer>>& containers,
-		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators);
+		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators,
+		std::vector<std::shared_ptr<AnisotropySource>>& anisoSources
+	);
 
 private:
 	std::unique_ptr<GeneratorLewiner> pendingScaffold = nullptr;
@@ -436,7 +441,7 @@ private:
 	float stretchZ = { 1.0f };
 	Vec3 anisotropyVec = { 1.0f, 0.0f, 0.0f };
 	float anisotropyAngle = { 0.0f };
-	std::vector<AnisotropySource> anisotropySources;
+	std::vector<std::shared_ptr<AnisotropySource>> anisotropySources;
 	float backgroundWeight = { 0.1f };
 
 	int foam = 0;
