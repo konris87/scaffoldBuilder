@@ -1734,7 +1734,8 @@ Eigen::Matrix3f rotation_axis_angle(const Vec3& dir, float angle) {
 	return Eigen::AngleAxisf(angleRad, k).toRotationMatrix();
 };
 
-Eigen::Matrix3f rotation_from_direction(const Vec3& dir, float angle, float stretchX, float stretchY, float stretchZ) {
+Eigen::Matrix3f rotation_from_direction(
+	const Vec3& dir, float stretchX, float stretchY, float stretchZ) {
 
 	// ensure direction is normalized
 	Vec3 nDir = dir.normalized();
@@ -1751,15 +1752,38 @@ Eigen::Matrix3f rotation_from_direction(const Vec3& dir, float angle, float stre
 		defaultAxis = Eigen::Vector3f::UnitX(); // X is the main stretch
 	}
 
-	Eigen::Quaternionf quat = Eigen::Quaternionf::FromTwoVectors(defaultAxis, targetDir);
-
-	if (std::abs(angle) > 1e-5f) {
-		float rollRad = angle * (M_PI / 180.0f);
-		Eigen::Quaternionf rollQuat(Eigen::AngleAxisf(rollRad, targetDir));
-		quat = rollQuat * quat;
-	}
+	Eigen::Quaternionf quat = Eigen::Quaternionf::FromTwoVectors(
+		targetDir, defaultAxis);
 
 	return quat.toRotationMatrix();
 };
 
+Eigen::Matrix3f rotation_from_direction_roll(
+	const Vec3& dir, float rollAngle
+) {
+    
+	// convert to radians
+	float rollRadians = rollAngle * (3.14159265359f / 180.0f);
+
+    Eigen::Vector3f targetDir(dir.x, dir.y, dir.z);
+    
+    // Fallback to X-axis if the user inputs a zero-vector (0,0,0)
+    if (targetDir.norm() < 1e-6f) {
+        targetDir = Eigen::Vector3f::UnitX();
+    } else {
+        targetDir.normalize();
+    }
+
+    // 1. Point the Local X-axis toward the Target Direction
+    Eigen::Quaternionf alignQuat = Eigen::Quaternionf::FromTwoVectors(targetDir, Eigen::Vector3f::UnitX());
+    
+    // 2. Roll around the Local X-axis
+    Eigen::Quaternionf rollQuat(Eigen::AngleAxisf(
+		rollRadians, Eigen::Vector3f::UnitX()));
+    
+    // 3. Combine (Roll in local space, then point to global space)
+    Eigen::Quaternionf finalQuat = alignQuat * rollQuat;
+    
+    return finalQuat.toRotationMatrix();
+}
 

@@ -68,6 +68,8 @@ public:
 	void gui_setup() override {
 		bool dimensionsChanged = false;
 
+		ImGui::ColorEdit4("Color", (float*)&color);
+
 		ImGui::SeparatorText("Dimensions");
 
 		ImGui::SetNextItemWidth(200);

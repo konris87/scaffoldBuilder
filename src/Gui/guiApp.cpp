@@ -636,6 +636,14 @@ void myGUI::run() {
 					uniManager.setUniform(boxShader, "projection", projection);
 					uniManager.setUniform(boxShader, "view", view);
 					uniManager.setUniform(boxShader, "model", model);
+					uniManager.setUniform(
+						boxShader,
+						"boxColor",
+						con->color[0],
+						con->color[1],
+						con->color[2],
+						con->color[3]
+					);
 					con->render();
 				}
 			}
@@ -790,13 +798,6 @@ void myGUI::run() {
 				boxShader.use();
 				uniManager.setUniform(boxShader, "projection", projection);
 				uniManager.setUniform(boxShader, "view", view);
-				uniManager.setUniform(boxShader,
-					"boxColor",
-					source->color[0],
-					source->color[1],
-					source->color[2],
-					source->color[3]
-				);
 				// change the translation
 				uniManager.setUniform(
 					boxShader, "model", 
@@ -807,7 +808,23 @@ void myGUI::run() {
 						source->origin.y, 
 						source->origin.z 
 					)));
-				source->render_model();
+				uniManager.setUniform(boxShader,
+					"boxColor",
+					source->color[0],
+					source->color[1],
+					source->color[2],
+					source->color[3]
+				);
+				source->render_sphere_model();
+				uniManager.setUniform(boxShader, "view", view);
+				uniManager.setUniform(boxShader,
+					"boxColor",
+					source->lineColor[0],
+					source->lineColor[1],
+					source->lineColor[2],
+					source->lineColor[3]
+				);
+				source->render_line_model();
 			}
 		}
 
@@ -1146,7 +1163,8 @@ void myGUI::_render_settings_panel() {
 			scaffold->set_logger(&logger);
 			scaffold->name = p.stem().string();
 
-			scaffold->load_scaf(filePath, containers, seedGenerators);
+			scaffold->load_scaf(
+				filePath, containers, seedGenerators, anisoSources);
 			
 			scaffold->update_render();
 
@@ -1346,7 +1364,8 @@ void myGUI::_render_properties_panel() {
 			}
 			case ObjectType::ScaffoldType: {
 				GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
-				scaffold->render_properties(updateScaffold, gTask.get());
+				scaffold->render_properties(
+					updateScaffold, gTask.get(), anisoSources);
 				break;
 			}
 			case ObjectType::Roi: {
@@ -1756,6 +1775,20 @@ void myGUI::_reset_camera() {
 	cameraUpdate = false;
 };
 
+void myGUI::_reset_scene(){
+	seedGenerators.clear();
+	containers.clear();
+	scaffolds.clear();
+	anisoSources.clear();
+	rois.clear();
+	cutPlane.reset();
+	box.reset();
+	_reset_camera();
+	selectedSceneObj = nullptr;
+	selectedPanelObj.ptr = nullptr;
+	selectedPanelObj.type = ObjectType::NoneType;
+}
+
 void myGUI::_render_mesh_settings() {
 
 	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
@@ -2007,6 +2040,10 @@ void myGUI::_render_main_menu_bar() {
 
 			if (ImGui::MenuItem("Show Axes Lines", NULL, showAxesLines)) {
 				showAxesLines = !showAxesLines;
+			}
+
+			if (ImGui::MenuItem("Reset Scene")){
+				_reset_scene();
 			}
 
 			ImGui::EndMenu();
@@ -3759,7 +3796,7 @@ void myGUI::_render_aniso_source_creator(
 		static int selected = -1;
 		static std::vector<std::shared_ptr<AnisotropySource>> tempSources;
 		for (int i{ 0 }; i < tempSources.size(); i++) {
-			std::string name = "Anisotropy Source" + std::to_string(i);
+			std::string name = "Anisotropy Source" + std::to_string(i + 1);
 			if (ImGui::TreeNode(name.c_str())){
 				selected = i;
 				tempSources[i]->render_properties();

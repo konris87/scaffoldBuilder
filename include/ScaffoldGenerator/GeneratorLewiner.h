@@ -186,14 +186,18 @@ public:
 	bool load_scaf(
 		const std::string& fileName,
 		std::vector<std::shared_ptr<IContainer>>& containerList,
-		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generatorList
+		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generatorList,
+		std::vector<std::shared_ptr<AnisotropySource>>& globalSources
 	);
 
 	//--------------------------------
 	// rendering
 	void draw();
 	void draw_edges();
-	void render_properties(bool& updateScaffold, GenerationTask* task);
+	void render_properties(
+		bool& updateScaffold, GenerationTask* task,
+		std::vector<std::shared_ptr<AnisotropySource>>& globalSources
+	);
 	void render_metrics();
 	void draw_tortuosity_path();
 	void apply_scale();
@@ -282,7 +286,8 @@ private:
 		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false, uint8_t solidValue = 1);
 
 	void thickness_properties();
-	void anisotropy_properties();
+	void anisotropy_properties(
+		std::vector<std::shared_ptr<AnisotropySource>>& globalSources);
 
 	//-------------------------------
 	// rendering
@@ -468,7 +473,8 @@ private:
 	float warningFlashTimer2 = 0.0f;
 
 	void thickness_options();
-	void anisotropy_options();
+	void anisotropy_options(
+		std::vector<std::shared_ptr<AnisotropySource>>& globalSources);
 	void main_options(
 		std::vector<std::shared_ptr<IContainer>>& containers,
 		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators

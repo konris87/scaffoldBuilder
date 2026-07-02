@@ -327,7 +327,6 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	// we use the general anisotropy tensor as a background
 	AnisotropySource background;
-	background.angle = anisotropyAngle;
 	background.direction = anisotropyVec;
 	background.stretch = Vec3(stretchX, stretchY, stretchZ);
 	create_metric(background);
@@ -342,7 +341,9 @@ void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 	update_steps();
 
-	Eigen::Matrix3f rot = rotation_axis_angle(anisotropyVec, anisotropyAngle);
+	// Eigen::Matrix3f rot = rotation_axis_angle(anisotropyVec, anisotropyAngle);
+	Eigen::Matrix3f rot = rotation_from_direction_roll(
+		anisotropyVec, anisotropyAngle);
 
 	Vec3 center = con.compute_bounds().center;
 
@@ -3168,7 +3169,11 @@ void GeneratorLewiner::validate_topology() {
 // 	}
 // };
 
-void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* task)
+void GeneratorLewiner::render_properties(
+	bool& updateScaffold,
+	 GenerationTask* task,
+	 std::vector<std::shared_ptr<AnisotropySource>>& globalSources
+)
 {
     std::shared_ptr<IContainer> lockedCon = container.lock();
     std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
@@ -3187,7 +3192,7 @@ void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* t
 
 	thickness_properties();
 
-	anisotropy_properties();
+	anisotropy_properties(globalSources);
 
 	ImGui::EndTabBar();
 
@@ -3219,31 +3224,6 @@ void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* t
             ImGui::TableNextColumn(); ImGui::Text("Source");
             ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
         }
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::Text("Openess");
-        ImGui::TableNextColumn(); ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::Text("Stretch X");
-        ImGui::TableNextColumn(); ImGui::InputFloat("##Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::Text("Stretch Y");
-        ImGui::TableNextColumn(); ImGui::InputFloat("##Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::Text("Stretch Z");
-        ImGui::TableNextColumn(); ImGui::InputFloat("##Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::Text("Material Direction");
-        ImGui::TableNextColumn(); ImGui::SetNextItemWidth(200.0f);
-        ImGui::InputFloat3("##Material Direction", anisotropyVec, "%.4f");
-
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn(); ImGui::Text("Angle");
-        ImGui::TableNextColumn(); ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
 
         ImGui::EndTable();
     }
@@ -3387,62 +3367,76 @@ void GeneratorLewiner::thickness_properties(){
 		}
 
 		ImGui::InputFloat("Voxel Size", &voxelSize);
+		ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
 		ImGui::EndTabItem();
 	}
 }
 
-void GeneratorLewiner::anisotropy_properties(){
+void GeneratorLewiner::anisotropy_properties(
+	std::vector<std::shared_ptr<AnisotropySource>>& globalSources
+){
 
+	static int selectedIdx = -1;
 	if(ImGui::BeginTabItem("Anisotropy")){
+		
 		ImGui::SeparatorText("Global Background");
-		// ImGui::SetTooltip("Governs metric everywhere; sources add local modifications.");
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
-		ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
 		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+		ImGui::InputFloat3("Direction (Local X)", anisotropyVec, "%.3f");
+		
+		ImGui::SameLine();
+		if (ImGui::Button("Normalize")) {
+			float len = std::sqrt(
+				anisotropyVec.x*anisotropyVec.x + 
+				anisotropyVec.y*anisotropyVec.y + 
+				anisotropyVec.z*anisotropyVec.z);
+			if (len > 1e-6f) {
+				anisotropyVec.x /= len;
+				anisotropyVec.y /= len;
+				anisotropyVec.z /= len;
+			}
+		}
 		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
 
-		// add a button to create more anisotropy sources
-		// we have to add a selectable for each anisotropy source
-		for (int i{ 0 }; i < anisotropySources.size(); i++) {
-			std::string name = "Anisotropy Source" + std::to_string(i);
-			if (ImGui::TreeNode(name.c_str())){
-				ImGui::InputFloat(
-					"Stretch X",
-					&anisotropySources[i]->stretch.x,
-					0.01f, 5.0f, "%.3f"
-				);
-				ImGui::InputFloat(
-					"Stretch Y",
-					&anisotropySources[i]->stretch.y,
-					0.01f, 5.0f, "%.3f"
-				);
-				ImGui::InputFloat(
-					"Stretch Z",
-					&anisotropySources[i]->stretch.z,
-					0.01f, 5.0f, "%.3f"
-				);
-				ImGui::InputFloat3(
-					"Origin", 
-					anisotropySources[i]->origin);
-				ImGui::InputFloat3(
-					"Rotation Axis", anisotropySources[i]->direction);
-				ImGui::InputFloat("Angle",
-					&anisotropySources[i]->angle, 0.01f, 10.0f, "%.4f");
-				ImGui::InputFloat("Sigma (influence radius ≈ 3×sigma)",
-					&anisotropySources[i]->sigma, 0.1f, 50.0f, "%.2f");
+		for (int i{ 0 }; i < (int)anisotropySources.size(); i++) {
+			std::string label = anisotropySources[i]->name.empty()
+				? "Anisotropy Source " + std::to_string(i + 1)
+				: anisotropySources[i]->name;
+			if (ImGui::TreeNode(label.c_str())) {
+				anisotropySources[i]->render_properties();
+				selectedIdx = i;
 				ImGui::TreePop();
-			}	
+			}
 		}
-		
+
 		if (ImGui::Button("Add Anisotropy Source")){
+
 			std::shared_ptr<AnisotropySource> source = std::make_shared<AnisotropySource>();
 			source->stretch = Vec3(1.0f, 1.0f, 1.0f);
-			source->sigma = 5.0f;  // default covers ~15 units; tune to domain size
-			anisotropySources.push_back(std::move(source));
+			source->sigma = 5.0f;
+			source->update_metric();
+			source->update_model();
+			anisotropySources.push_back(source);
+			globalSources.push_back(source);
 		}
+
+		ImGui::SameLine();
+
+		if(ImGui::Button("Delete Selected")){
+			anisotropySources.erase(
+				anisotropySources.begin() + selectedIdx
+			);
+			globalSources.erase(
+				globalSources.begin() + selectedIdx
+			);
+		}
+
 		ImGui::EndTabItem();
+	}
+	else{
+		selectedIdx = -1;
 	}
 }
 
@@ -4114,6 +4108,19 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 
 	out.write(reinterpret_cast<const char*>(&renderMode), sizeof(renderMode));
 
+	// Anisotropy Sources Block
+	uint32_t numSources = static_cast<uint32_t>(anisotropySources.size());
+    out.write(reinterpret_cast<const char*>(&numSources), sizeof(numSources));
+    
+    for (const auto& src : anisotropySources) {
+        // Write the properties required to reconstruct the source
+        out.write(reinterpret_cast<const char*>(&src->origin.x), sizeof(float) * 3);
+        out.write(reinterpret_cast<const char*>(&src->direction.x), sizeof(float) * 3);
+        out.write(reinterpret_cast<const char*>(&src->stretch.x), sizeof(float) * 3);
+        out.write(reinterpret_cast<const char*>(&src->sigma), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&src->angle), sizeof(float));         
+    }
+
 	// 3. Container Context Block
 	std::shared_ptr<IContainer> lockedCon = container.lock();
 	int32_t containerTypeID = 0;
@@ -4245,7 +4252,8 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 
 bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	std::vector<std::shared_ptr<IContainer>>& containerList,
-	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generatorList
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generatorList,
+	std::vector<std::shared_ptr<AnisotropySource>>& globalSources
 ) {
 	std::ifstream in(fileName, std::ios::in | std::ios::binary);
 	if (!in.is_open()) {
@@ -4283,12 +4291,39 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	in.read(reinterpret_cast<char*>(&stretchZ), sizeof(stretchZ));
 	in.read(reinterpret_cast<char*>(&anisotropyAngle), sizeof(anisotropyAngle));
 
-	// FIXED: Explicit element parsing for Vec3 elements
+	// Explicit element parsing for Vec3 elements
 	in.read(reinterpret_cast<char*>(&anisotropyVec.x), sizeof(float));
 	in.read(reinterpret_cast<char*>(&anisotropyVec.y), sizeof(float));
 	in.read(reinterpret_cast<char*>(&anisotropyVec.z), sizeof(float));
 
 	in.read(reinterpret_cast<char*>(&renderMode), sizeof(renderMode));
+
+	// Load Anisotropy Sources
+	anisotropySources.clear();
+
+    uint32_t numSources = 0;
+	in.read(reinterpret_cast<char*>(&numSources), sizeof(numSources));
+	
+	for (uint32_t i = 0; i < numSources; ++i) {
+		auto src = std::make_shared<AnisotropySource>();
+		
+		in.read(reinterpret_cast<char*>(&src->origin.x), sizeof(float) * 3);
+		in.read(reinterpret_cast<char*>(&src->direction.x), sizeof(float) * 3);
+		in.read(reinterpret_cast<char*>(&src->stretch.x), sizeof(float) * 3);
+		in.read(reinterpret_cast<char*>(&src->sigma), sizeof(float));
+		
+		// Read angle if you kept it in the export
+		in.read(reinterpret_cast<char*>(&src->angle), sizeof(float));
+		
+		src->name = "Anisotropy Source " + std::to_string(i + 1);
+		
+		// Rebuild the math tensor and the visual geometry
+		src->update_metric();
+		src->update_model();
+		
+		anisotropySources.push_back(src);
+		globalSources.push_back(src);
+	}
 
 	// Load Container Context Block
 	int32_t containerTypeID = 0;
@@ -5641,7 +5676,7 @@ void ScaffoldFactory::gui_draw(
 
 			thickness_options();
 
-			anisotropy_options();
+			anisotropy_options(anisoSources);
 
 			ImGui::EndTabBar();
 		}
@@ -5706,8 +5741,8 @@ void ScaffoldFactory::gui_draw(
                 scaffold->set_stretch(stretchX, stretchY, stretchZ);
                 scaffold->anisotropyAngle = anisotropyAngle;
                 scaffold->anisotropyVec   = anisotropyVec;
-				scaffold->anisotropySources = anisotropySources;
 				scaffold->backgroundWeight  = backgroundWeight;
+				scaffold->anisotropySources = anisoSources;
                 scaffold->container = lockedCon;
                 scaffold->generator = lockedGen;
                 if (foam == 1) scaffold->foam = true;
@@ -5818,56 +5853,54 @@ void ScaffoldFactory::thickness_options(){
 	}
 };
 
-void ScaffoldFactory::anisotropy_options(){
+void ScaffoldFactory::anisotropy_options(
+	std::vector<std::shared_ptr<AnisotropySource>>& globalSources
+){
 
 	if(ImGui::BeginTabItem("Anisotropy")){
 		ImGui::SeparatorText("Global Background");
-		// ImGui::SetTooltip("Governs metric everywhere; sources add local modifications.");
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
-		ImGui::InputFloat3("Rotation Axis", anisotropyVec, "%.4f");
-		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
-		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
-
-		// add a button to create more anisotropy sources
-		// we have to add a selectable for each anisotropy source
-		for (int i{ 0 }; i < anisotropySources.size(); i++) {
-			std::string name = "Anisotropy Source" + std::to_string(i);
-			if (ImGui::TreeNode(name.c_str())){
-				ImGui::InputFloat(
-					"Stretch X",
-					&anisotropySources[i]->stretch.x,
-					0.01f, 5.0f, "%.3f"
-				);
-				ImGui::InputFloat(
-					"Stretch Y",
-					&anisotropySources[i]->stretch.y,
-					0.01f, 5.0f, "%.3f"
-				);
-				ImGui::InputFloat(
-					"Stretch Z",
-					&anisotropySources[i]->stretch.z,
-					0.01f, 5.0f, "%.3f"
-				);
-				ImGui::InputFloat3(
-					"Origin", 
-					anisotropySources[i]->origin);
-				ImGui::InputFloat3(
-					"Rotation Axis", anisotropySources[i]->direction);
-				ImGui::InputFloat("Angle",
-					&anisotropySources[i]->angle, 0.01f, 10.0f, "%.4f");
-				ImGui::InputFloat("Sigma (influence radius ≈ 3×sigma)",
-					&anisotropySources[i]->sigma, 0.1f, 50.0f, "%.2f");
-				ImGui::TreePop();
-			}	
+		ImGui::InputFloat3("Stretch Direction", anisotropyVec, "%.3f");
+		
+		ImGui::SameLine();
+		if (ImGui::Button("Normalize")) {
+			float len = std::sqrt(anisotropyVec.x*anisotropyVec.x + 
+								anisotropyVec.y*anisotropyVec.y + 
+								anisotropyVec.z*anisotropyVec.z);
+			if (len > 1e-6f) {
+				anisotropyVec.x /= len;
+				anisotropyVec.y /= len;
+				anisotropyVec.z /= len;
+			}
 		}
 		
+		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
+
+		for (int i{ 0 }; i < (int)anisotropySources.size(); i++) {
+			std::string label = anisotropySources[i]->name.empty()
+				? "Anisotropy Source " + std::to_string(i + 1)
+				: anisotropySources[i]->name;
+			if (ImGui::TreeNode(label.c_str())) {
+				anisotropySources[i]->render_properties();
+				ImGui::TreePop();
+			}
+		}
+
 		if (ImGui::Button("Add Anisotropy Source")){
 			std::shared_ptr<AnisotropySource> source = std::make_shared<AnisotropySource>();
-			source->stretch = Vec3(1.0f, 1.0f, 1.0f);
-			source->sigma = 5.0f;  // default covers ~15 units; tune to domain size
-			anisotropySources.push_back(std::move(source));
+
+			if(source->name.empty()){
+				source->name = "Anisotropy Source" + std::to_string(
+					globalSources.size() + 1
+				);
+			}
+
+			source->update_metric();
+			source->update_model();
+			anisotropySources.push_back(source);
+			globalSources.push_back(source);
 		}
 		ImGui::EndTabItem();
 	};

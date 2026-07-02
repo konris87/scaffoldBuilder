@@ -492,6 +492,8 @@ private:
 	};
 
 	void _render_visualizer();
+
+	void _reset_scene();
 };
 
 bool create_single_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled=true);

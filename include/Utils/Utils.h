@@ -301,9 +301,15 @@ Vec3 closest_triangle_point(const Vec3& pt, const Triangle& tri);
 
 Eigen::Matrix3f rotation_axis_angle(const Vec3& dir, float angle);
 
-Eigen::Matrix3f rotation_from_direction(const Vec3& dir, float angle, float stretchX, float stretchY, float stretchZ);
+Eigen::Matrix3f rotation_from_direction(
+	const Vec3& dir,
+	float stretchX, 
+	float stretchY,
+	float stretchZ);
 
-// --------------------------------------------------------------------------------------------------------------
+Eigen::Matrix3f rotation_from_direction_roll(const Vec3& dir, float rollAngle);
+
+// ===================================================================
 // create a node struct
 class Node {
 

@@ -21,9 +21,13 @@ Implement anisotropy enforcement
 class AnisotropySource {
 
 public:
-    AnisotropySource(){
-  
-    };
+    AnisotropySource(
+        Vec3 center = {0.0f, 0.0f, 0.0f},
+        Vec3 direction = {1.0f, 0.0f, 0.0f},
+        float angle = 0.0f,
+        Vec3 stretch = {1.0f, 1.0f, 1.0f},
+        float sigma = 1.1f
+    ){};
 
     Vec3 origin; // set initially to zero
     Vec3 direction = {1.0f, 0.0f, 0.0f};
@@ -34,11 +38,17 @@ public:
 
     std::string name = "";
 	float color[4] = {0.0f, 1.0f, 0.0f, 0.4f};
+	float lineColor[4] = {1.0f, 0.0f, 0.0f, 0.9f};
     bool hidden = false;
 
-    void render_model() {
+    void render_sphere_model() {
         if (!hidden && model) {
             model->draw();
+        }
+    }
+    void render_line_model() {
+        if (!hidden && model) {
+            directionModel->draw();
         }
     }
 
@@ -46,43 +56,54 @@ public:
 
         ImGui::PushID(this);
 
+        bool changedRadius = false;
         bool changedMetric = false;
-        bool changedModel = false;
+        bool changedDirection = false;
 
         ImGui::ColorEdit4("Color", (float*)&color);
+        ImGui::ColorEdit4("Line Color", (float*)&lineColor);
 
-        ImGui::InputFloat3("Origin", origin);
+        changedDirection |= ImGui::InputFloat3("Origin", origin);
         
-        changedModel |= ImGui::InputFloat(
+        changedRadius |= ImGui::InputFloat(
             "Sigma (influence radius ≈ 3×sigma)",
             &sigma, 0.1f, 50.0f, "%.2f");
 
         changedMetric |= ImGui::InputFloat(
-            "Stretch X",
+            "Stretch X (along Dir)",
             &stretch.x,
             0.01f, 5.0f, "%.3f"
         );
         changedMetric |=ImGui::InputFloat(
-            "Stretch Y",
+            "Stretch Y (transverse)",
             &stretch.y,
             0.01f, 5.0f, "%.3f"
         );
         changedMetric |=ImGui::InputFloat(
-            "Stretch Z",
+            "Stretch Z (transverse)",
             &stretch.z,
             0.01f, 5.0f, "%.3f"
         );
         
-        changedMetric |=ImGui::InputFloat("Angle",
-            &angle, 0.01f, 10.0f, "%.4f");
+        changedDirection |= ImGui::InputFloat(
+            "Roll Angle", &angle, 0.01f, 10.0f, "%.4f");
         
-        changedMetric |= ImGui::InputFloat3("Rotation Axis", direction);
+            ImGui::InputFloat3(
+            "Material Direction (local X)", direction);
         
-        if (changedMetric){
+        ImGui::SameLine();
+        if (ImGui::Button("Normalize")){
+            if (direction.norm() > 1e-5f){
+                direction.normalize();
+                changedDirection = true;
+            }
+        }
+        
+        if (changedMetric || changedDirection){
             update_metric();
         }
 
-        if (changedModel){
+        if (changedRadius || changedDirection){
             update_model();
         }
 
@@ -96,7 +117,11 @@ public:
 
     void update_metric() {
 
-        Eigen::Matrix3f rot = rotation_axis_angle(direction, angle);
+        Eigen::Matrix3f rot = rotation_from_direction_roll(
+            direction, 
+            angle
+        );
+        
         auto safe_sq = [](float val) { return std::max(1e-6f, val * val); };
         Eigen::Vector3f invSq(1.0f / safe_sq(stretch.x),
                               1.0f / safe_sq(stretch.y),
@@ -107,23 +132,29 @@ public:
 
     void update_model(){
         float radius = 3.0f * sigma;
+        Vec3 end = radius * direction;
         if (!model) {
             model = std::make_unique<Sphere>(radius, 36, 18);
+            directionModel = std::make_unique<LineModel>(
+                Vec3{0.0f, 0.0f, 0.f}, end);
         } else {
             model->update_radius(radius);
+            directionModel = std::make_unique<LineModel>(
+                Vec3{0.0f, 0.0f, 0.f}, end);
         }
     };
 
 private:
-
     std::unique_ptr<Sphere> model;
+    std::unique_ptr<LineModel> directionModel;
 };
 
 //@brief function to create the tensor M for a single source
 inline void create_metric(AnisotropySource& source){
-    // rotation matrix
-    Eigen::Matrix3f rot = rotation_axis_angle(
-        source.direction, source.angle);
+    // rotation matrix is using the applied direction
+    Eigen::Matrix3f rot = rotation_from_direction_roll(
+        source.direction, source.angle
+    );
     
     // S^-2 matrix diagonal
     Eigen::Vector3f invSq(1.0f / (source.stretch.x * source.stretch.x),
