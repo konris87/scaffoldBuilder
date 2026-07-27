@@ -61,6 +61,15 @@ struct ContainerModel {
 	std::array<float, 3> center = { 0.0, 0.0, 0.0 };
 };
 
+struct ScaffoldLoadTask {
+	GenerationTask task;
+	std::atomic<int> stage{0};
+	std::unique_ptr<GeneratorLewiner> scaffold;
+	std::vector<std::shared_ptr<IContainer>> newContainers;
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>> newGenerators;
+	std::vector<std::shared_ptr<AnisotropySource>> newAnisoSources;
+};
+
 //// seed generator properties
 //enum SeedGeneratorType {
 //	Box, Cylinder, Mesh, None
@@ -120,6 +129,9 @@ public:
 	// create a generation task for the scaffold thread
 	std::unique_ptr<GenerationTask> gTask = std::make_unique<GenerationTask>();
 
+	// active load task (null when idle)
+	std::unique_ptr<ScaffoldLoadTask> loadTask;
+
 	std::vector<poreNetworkObject> poreNetworkList;
 	int activePoreNetworkIndex{ -1 };
 
@@ -162,7 +174,7 @@ public:
 	bool showNormals{ false };
 	bool showEdges{ false };
 	bool showGrid{ false };
-	bool showAxesLines{ false };
+	bool showAxesLines{ true };
 	bool showScaffold{ true };
 	bool showContainer{ false };
 	bool showPoreNetwork{ true };
@@ -196,6 +208,7 @@ public:
 	bool estimateAnisotropy = { false };
 	bool estimateConnectivityDensity = { false };
 	bool estimateTrabecularNr = { false };
+	bool estimateSmi = {false};
 
 	bool updateScaffold = { false };
 	bool translateScaffold = { false };
@@ -386,6 +399,8 @@ private:
 
 	void _render_properties_panel();
 
+	void _render_tool_panel();
+
 	void _render_active_model_metrics();
 
 	void write_settings();
@@ -460,6 +475,8 @@ private:
 
 	void _action_estimate_pore_network();
 
+	void _action_estimate_smi();
+
 	void _render_cutting_plane_settings(const char* popupName, bool& showPopup);
 
 	void _render_scale_panel(const char* popupName, bool& showPopup);
@@ -494,6 +511,8 @@ private:
 	void _render_visualizer();
 
 	void _reset_scene();
+
+	void _finalize_scaffold_load();
 };
 
 bool create_single_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled=true);

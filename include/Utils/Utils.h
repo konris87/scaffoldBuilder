@@ -38,7 +38,7 @@ struct SelectedObject {
 };
 
 struct Bounds {
-	double xMin, xMax, yMin, yMax, zMin, zMax;
+	double xMin{ 0 }, xMax{ 0 }, yMin{ 0 }, yMax{ 0 }, zMin{ 0 }, zMax{ 0 };
 	Vec3 center;
 };
 

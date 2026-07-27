@@ -1,18 +1,20 @@
 #include "SeedGenerator.h"
 #include <random>
 
-// ==========================================================================================
+// =============================================================================
 // Random Generator Class Implementation
-// ==========================================================================================
+// =============================================================================
 void Random::run(const IContainer& adapter) {
 
+	containerType = adapter.get_type();
 	seeds.clear();
 	seeds.reserve(seedNr);
 
 	bounds = adapter.compute_bounds();
 
-	std::random_device rd;
-	std::mt19937 gen(rd());
+	// rngSeed == 0 -> a fresh random_device draw (a new realization every run);
+	// rngSeed != 0 -> reproducible. See InterfaceSeedGenerator::rngSeed.
+	std::mt19937 gen(resolve_seed());
 	std::uniform_real_distribution<> disX(bounds.xMin + 0.1, bounds.xMax - 0.1);
 	std::uniform_real_distribution<> disY(bounds.yMin + 0.1, bounds.yMax - 0.1);
 	std::uniform_real_distribution<> disZ(bounds.zMin + 0.1, bounds.zMax - 0.1);
@@ -50,10 +52,12 @@ void Random::update_model() {
 };
 
 
-// ==========================================================================================
+// =============================================================================
 // Poisson 3D Generator Class Implementation
-// ==========================================================================================
+// =============================================================================
 void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
+
+	containerType = adapter.get_type();
 
 	config = cfg;
 	isUniform = false;
@@ -62,18 +66,24 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 	radii.clear();
 	grid.clear();
 
-	// define root
-	Bounds bounds = adapter.compute_bounds();
+	// define root. Assign the MEMBER 'bounds' (not a local) so update_model()
+	// below reads the real container extents; a local here would shadow the
+	// member, leaving it uninitialized and giving the seed spheres a garbage
+	// scale (huge or invisibly tiny).
+	bounds = adapter.compute_bounds();
 	root = bounds.center;
 
 	// in the case it is the center of a sphere it will destroy the min distance from sdf
 	// we can a add a small noise
 	root += Vec3(1e-5f, 1e-5f, 1e-5f);
 
-	// if the root is not inside randomly create it 
+	// One RNG stream for the whole run, so the root fallback and the candidate
+	// sampling below draw from the same sequence and a given rngSeed reproduces
+	// the entire seed cloud exactly. rngSeed == 0 -> fresh random_device draw.
+	std::mt19937 gen(resolve_seed());
+
+	// if the root is not inside randomly create it
 	if (!adapter.is_inside(root)) {
-		std::random_device rd;
-		std::mt19937 gen(rd());
 		std::uniform_real_distribution<> disX(bounds.xMin + 0.1, bounds.xMax - 0.1);
 		std::uniform_real_distribution<> disY(bounds.yMin + 0.1, bounds.yMax - 0.1);
 		std::uniform_real_distribution<> disZ(bounds.zMin + 0.1, bounds.zMax - 0.1);
@@ -101,9 +111,7 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 	};
 
 	// generate k uniformly random points inside the spherical annulus
-	std::random_device rd;
-	std::mt19937 gen(rd());
-
+	// (reuses the single 'gen' stream seeded at the top of this run)
 	std::uniform_real_distribution<> disx(0.0, 1.0);
 	std::uniform_real_distribution<> disphi(0.0, 2 * PI);
 	std::uniform_real_distribution<> distheta(-1.0, 1.0);
@@ -128,10 +136,28 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 		// finally push in the neighbors the index of the seed! 
 		// The number of neighbors is determined
 		// based on the corresponding radius
+		// Stochastic-radius draw: truncated normal N(rMean, radiusStd) on
+		// [rMin, rMax]. Rejection (bounded tries, then clamp) keeps the Gaussian
+		// shape instead of piling mass at the bounds. Draws from the same seeded
+		// 'gen' stream, so the whole cloud (positions AND radii) reproduces for a
+		// given rngSeed. rMean <= 0 defaults to the range midpoint.
+		const double rMean = (radiusMean > 0.0) ? radiusMean : 0.5 * (rMin + rMax);
+		auto draw_radius = [&]() -> double {
+			std::normal_distribution<double> nd(rMean, std::max(0.0, radiusStd));
+			for (int t = 0; t < 16; ++t) {
+				double r = nd(gen);
+				if (r >= rMin && r <= rMax) return r;
+			}
+			return std::clamp(nd(gen), rMin, rMax);
+		};
+
 		double rxi;
 
-		// if there is a distance function use this
-		if (cfg.dist) {
+		// stochastic radius ignores any distance field; else use the graded function
+		if (stochasticRadius) {
+			rxi = draw_radius();
+		}
+		else if (cfg.dist) {
 			const float d = std::abs(cfg.dist->compute_distance(root));
 			rxi = cfg.rad->estimate_radius(d, rMin, rMax);
 		}
@@ -148,7 +174,9 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 		while (!active.empty()) {
 
 			// step 1: chose randomly an index from the active list
-			int randomIndex = rand() % active.size();
+			// Draw from the seeded 'gen' stream (NOT the unseeded global rand(),
+			// which made the seed cloud non-reproducible even at a fixed rngSeed).
+			int randomIndex = std::uniform_int_distribution<int>(0, static_cast<int>(active.size()) - 1)(gen);
 			int idx = active[randomIndex];
 
 			// step 2: identify the poisson disc parameter for the point,
@@ -162,7 +190,12 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 			// we need the absolute value
 			double rxi = 0.0f;
 
-			if (cfg.dist) {
+			if (stochasticRadius) {
+				// reuse this seed's already-assigned radius so its territory (the
+				// candidate annulus) is stable across revisits, not re-drawn.
+				rxi = radii[idx + currSize];
+			}
+			else if (cfg.dist) {
 				const float d = std::abs(cfg.dist->compute_distance(xi));
 				rxi = cfg.rad->estimate_radius(d, rMin, rMax);
 			}
@@ -211,7 +244,12 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 
 				double ryi = 0.0f;
 
-				if (cfg.dist) {
+				if (stochasticRadius) {
+					// each candidate draws its own constraint; if accepted it is
+					// stored below and becomes this seed's fixed radius.
+					ryi = draw_radius();
+				}
+				else if (cfg.dist) {
 					//std::cout << "check distance" << std::endl;
 					double dFromSurf = std::abs(cfg.dist->compute_distance(pt));
 					//std::cout << "get radius" << std::endl;
@@ -289,6 +327,8 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 
 void Poisson3D::run(const IContainer& adapter) {
 
+	containerType = adapter.get_type();
+
 	seeds.clear();
 	radii.clear();
 	grid.clear();
@@ -297,18 +337,24 @@ void Poisson3D::run(const IContainer& adapter) {
 	rMax = rMin;
 	isUniform = true;
 
-	// define root
-	Bounds bounds = adapter.compute_bounds();
+	// define root. Assign the MEMBER 'bounds' (not a local) so update_model()
+	// below reads the real container extents; a local here would shadow the
+	// member, leaving it uninitialized and giving the seed spheres a garbage
+	// scale (huge or invisibly tiny).
+	bounds = adapter.compute_bounds();
 
 	root = bounds.center;
 	// in the case it is the center of a sphere it will destroy the min distance from sdf
 	// we can a add a small noise
 	//root += Vec3(100.f, 100.f, 100.f);
 
-	// if the root is not inside randomly create it 
+	// One RNG stream for the whole run, so the root fallback and the candidate
+	// sampling below draw from the same sequence and a given rngSeed reproduces
+	// the entire seed cloud exactly. rngSeed == 0 -> fresh random_device draw.
+	std::mt19937 gen(resolve_seed());
+
+	// if the root is not inside randomly create it
 	if (!adapter.is_inside(root)) {
-		std::random_device rd;
-		std::mt19937 gen(rd());
 		std::uniform_real_distribution<> disX(bounds.xMin + 0.1, bounds.xMax - 0.1);
 		std::uniform_real_distribution<> disY(bounds.yMin + 0.1, bounds.yMax - 0.1);
 		std::uniform_real_distribution<> disZ(bounds.zMin + 0.1, bounds.zMax - 0.1);
@@ -335,9 +381,7 @@ void Poisson3D::run(const IContainer& adapter) {
 	};
 
 	// generate k uniformly random points inside the spherical annulus
-	std::random_device rd;
-	std::mt19937 gen(rd());
-
+	// (reuses the single 'gen' stream seeded at the top of this run)
 	std::uniform_real_distribution<> disx(0.0, 1.0);
 	std::uniform_real_distribution<> disphi(0.0, 2 * PI);
 	std::uniform_real_distribution<> distheta(-1.0, 1.0);
@@ -372,7 +416,9 @@ void Poisson3D::run(const IContainer& adapter) {
 		while (!active.empty()) {
 
 			// step 1: chose randomly an index from the active list
-			int randomIndex = rand() % active.size();
+			// Draw from the seeded 'gen' stream (NOT the unseeded global rand(),
+			// which made the seed cloud non-reproducible even at a fixed rngSeed).
+			int randomIndex = std::uniform_int_distribution<int>(0, static_cast<int>(active.size()) - 1)(gen);
 			int idx = active[randomIndex];
 
 			// step 2: identify the poisson disc parameter for the point,
@@ -497,6 +543,21 @@ void Poisson3D::render_gui() {
 		ImGui::Separator();
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputDouble("Radius", &rMin, 0.001, 1.0, "%.3f");
+
+		ImGui::Checkbox("Fit", &fit);
+		if (fit){
+			ImGui::InputDouble("Tb.Sp.", &targetSp);
+			ImGui::InputDouble("Tb.Th.", &targetTh);
+			ImGui::InputDouble("Offset", &offset);
+
+			// check the container
+			if (containerType == ObjectType::BoxContainerType){
+				rMin = (targetSp + targetTh + offset) / 1.61;
+			}
+			else if (containerType == ObjectType::CylinderContainerType){
+				rMin = (targetSp + targetTh + offset) / 1.084;
+			}
+		}
 	}
 
 	else if (type == ObjectType::VariedGeneratorType) {
@@ -511,9 +572,24 @@ void Poisson3D::render_gui() {
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputDouble("Maximum Radius", &rMax, 0.001, 1.0, "%.3f");
 
-		ImGui::SeparatorText("");
+		ImGui::Checkbox("Fit", &fit);
+		if (fit){
+			ImGui::InputDouble("Tb.Sp.", &targetSp);
+			ImGui::InputDouble("Tb.Th.", &targetTh);
+			ImGui::InputDouble("Offset", &offset);
 
-		ImGui::SeparatorText("");
+			// check the container
+			if (containerType == ObjectType::BoxContainerType){
+				double rt = (targetSp - 0.35) / 1.61;
+				double c0 = rt / (0.5 * (rMin + rMax));
+
+				rMin = c0 * rMin;
+				rMax = c0 * rMax;
+			}
+			else if (containerType == ObjectType::CylinderContainerType){
+
+			}
+		}
 	}
 };
 

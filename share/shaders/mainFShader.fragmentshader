@@ -19,7 +19,15 @@ out vec4 FragColor;
 
 void main()
 {
-	
+    if (cutPlane) {
+        // Correct Math: (Normal dot Point) - Offset
+        float dist = dot(cutPlaneCoeffs.xyz, vertexPosWorld.xyz) - cutPlaneCoeffs.w;
+        
+        if (dist < 0.0) {
+            discard; // Instantly kill the pixel. No lighting math runs!
+        }
+    }
+    
     // Ambient
     vec3 ambient = Ka * lightColor;
 
@@ -29,7 +37,7 @@ void main()
     float cosTheta = max(dot(N, L), 0.0);
     vec3 diffuse = lightColor * cosTheta;
 
-    // Specular (optional, using camera position (0,0,0,1) in view space)
+    // Specular (using camera position (0,0,0) in view space)
     vec3 V = normalize(-vertexPosCamera.xyz);
     vec3 R = reflect(-L, N);
     float cosAlpha = max(dot(V, R), 0.0);
@@ -37,15 +45,5 @@ void main()
 
     vec3 lighting = ambient + diffuse + specular;
     FragColor = vec4(lighting, 1.0) * objectColor;
-	
-	if (cutPlane){
-		float d = dot(cutPlaneCoeffs, vertexPosWorld);
-	
-		if (d < 0){
-			
-			discard;
-		
-		}
-	}
 	
 }

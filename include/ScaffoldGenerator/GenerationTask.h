@@ -22,6 +22,7 @@ public:
         // update the atomics
         done_.store(false);
         progress_.store(0.0f);
+        cancel_.store(false);
         running_.store(true);
 
         // create the thread passing the function
@@ -55,12 +56,20 @@ public:
     }
     void set_progress(float f){progress_.store(f, std::memory_order_relaxed);}
 
+    //@brief cooperative cancellation: the UI thread requests it, the worker
+    // polls is_cancel_requested() at its checkpoints and returns early. The
+    // thread is still joined normally by poll() (no detach, so no data race on
+    // the shared generator state). Cleared on the next start().
+    void request_cancel(){ cancel_.store(true, std::memory_order_relaxed); }
+    bool is_cancel_requested() const { return cancel_.load(std::memory_order_relaxed); }
+
 private:
     const void* owner_{nullptr};
     std::thread thread_;
-    std::atomic<float> progress_{0.0f}; 
+    std::atomic<float> progress_{0.0f};
     std::atomic<bool> done_{false};
     std::atomic<bool> running_{false};
+    std::atomic<bool> cancel_{false};
 
 };
 

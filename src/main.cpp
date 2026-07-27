@@ -92,7 +92,7 @@ int main(){
             };
             // create the model using the thickness
             std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>(
-                seeds, bounds, resolution, &logger, openess, 0.3, 0, false
+                seeds, bounds, resolution, &logger, openess, 0.3, false
             );
 
             // varied thickness
@@ -109,21 +109,21 @@ int main(){
 
             scaffold->stretchY = stretchY;
 
-            // create the scaffold
-            scaffold->compute_scalar_field(*container);
+            // create the scaffold; skip the rest of the pipeline on failure
+            if (!scaffold->compute_scalar_field(*container)) continue;
 
-            scaffold->marching_cubes();
+            if (!scaffold->marching_cubes()) continue;
 
             scaffold->estimate_metrics(*container);
 
-            scaffold->estimate_anisotropy(2000, 10000, 3);
+            scaffold->estimate_anisotropy(voxelSize, 2000, 10000, 3);
 
             scaffold->estimate_local_thickness(voxelSize, bounds);
 
             // estimate separation
             scaffold->estimate_local_thickness(voxelSize, bounds, 1);
 
-            scaffold->estimate_trabecular_number();
+            scaffold->estimate_trabecular_number(voxelSize);
 
             scaffold->estimate_connectivity_density();
 

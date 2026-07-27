@@ -7,3 +7,4 @@ install_commands.txt
 /_CPack_Packages
 /*.zip
 .vscode/
+/doc/paper/

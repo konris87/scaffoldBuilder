@@ -1782,7 +1782,7 @@ Eigen::Matrix3f rotation_from_direction_roll(
 		rollRadians, Eigen::Vector3f::UnitX()));
     
     // 3. Combine (Roll in local space, then point to global space)
-    Eigen::Quaternionf finalQuat = alignQuat * rollQuat;
+    Eigen::Quaternionf finalQuat = rollQuat * alignQuat;
     
     return finalQuat.toRotationMatrix();
 }

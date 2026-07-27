@@ -5,6 +5,7 @@
 #include <vector>
 #include <functional>
 #include <optional>
+#include <random>
 #include "Utils/Utils.h"
 #include <Visualize/VisualizeSeeds.h>
 #include "Container.h"
@@ -39,6 +40,32 @@ public:
 
 	void set_renderMode(bool render) { renderMode = render; };
 
+	// RNG seed for the stochastic seed placement.
+	//   non-zero (DEFAULT 1) -> deterministic: the same value reproduces the exact
+	//                  same seed cloud, so regenerating at identical parameters
+	//                  gives an identical scaffold (and identical metrics, incl.
+	//                  DA). Distinct values give independent realizations
+	//                  (use 1..N for N replicates).
+	//   0 -> opt-in non-deterministic: a fresh std::random_device draw per run, so
+	//                  every run is a different realization.
+	// The Poisson radius fixes the MINIMUM SPACING; this fixes WHICH of the many
+	// valid arrangements at that spacing you get.
+	//
+	// The default is a FIXED seed (not 0) so the GUI - which does not expose this -
+	// is reproducible by default: a deterministic modelling tool should map
+	// identical inputs to identical output. For a distribution of realizations use
+	// the profiler (--replicates / --seed), which sets this explicitly.
+	uint32_t rngSeed = 1;
+
+	void set_rng_seed(uint32_t s) { rngSeed = s; };
+
+	// Resolves the seed actually handed to the generator for one run.
+	uint32_t resolve_seed() const {
+		if (rngSeed != 0) return rngSeed;
+		std::random_device rd;
+		return static_cast<uint32_t>(rd());
+	};
+
 	std::vector<Vec3> get_seeds() { return seeds; };
 
 	virtual void set_seeds(const std::vector<Vec3>& newSeeds) { 
@@ -48,10 +75,9 @@ public:
 	std::string name = "";
 	bool hidden = false;
 	ObjectType type = ObjectType::NoneType;
+	ObjectType containerType = ObjectType::NoneType;
 
-	// keep a pointer to the container
 	IContainer* container = nullptr;
-
 	uint32_t version = 1;
 	float modelSeedSize = 1.0f;
 
@@ -146,16 +172,33 @@ public:
 	// keep here the indices for distance and radius function
 	int radiusIdx = 0;
 	int distIdx = 0;
+	double rMin{ 0.0 }, rMax{ 0.0 };
+
+	// Stochastic-radius mode (a third varied-Poisson option, no distance field):
+	// each seed draws its own minimum-distance constraint from a truncated normal
+	// N(radiusMean, radiusStd) clamped to [rMin, rMax]. This injects INTRA-sample
+	// spacing heterogeneity (a spread of cell sizes) for structural realism, e.g.
+	// to approach a literature Tb.Sp distribution. The draws come from the run's
+	// single seeded RNG stream, so a given rngSeed still reproduces the whole cloud.
+	// NOTE: input radiusStd is NOT the output Tb.Sp std (the packing regularises the
+	// variance and radius->Tb.Sp is a monotone transfer, not identity) - use the
+	// profiler radius-std sweep to map it. radiusMean <= 0 defaults to (rMin+rMax)/2.
+	bool stochasticRadius = false;
+	double radiusMean = 0.0;
+	double radiusStd = 0.0;
 
 private:
 	Vec3 root{ 0.0, 0.0, 0.0 };
-	double rMin{ 0.0 }, rMax{ 0.0 };
 	std::vector<float> radii;
 	std::unordered_map < std::array<int, 3>, Cell, GridHashFunc> grid;
 	int neighNr{ 30 };
 	float PI = 3.14159265358979323846f;
 	RunConfig config;
 	bool isUniform = true;
+	bool fit = false;
+	double targetSp = 1.0;
+	double targetTh = 0.4;
+	double offset = 0.35;
 
 	// protected functions
 	void pushIdxs(const int& n, const std::array<int, 3> cellIdx, const int& N) {

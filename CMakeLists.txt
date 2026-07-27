@@ -45,6 +45,7 @@ set(CORE_SOURCES
 	include/Math/Vec.cpp
 	include/Math/AabbTree.cpp
 	include/Math/Matrix.cpp
+	include/Math/Bfgs.cpp
 	#src/Visualize/visualize.cpp
 	#src/Visualize/loadMesh.cpp
 	src/OpenGlSetup/simpleCamera.cpp

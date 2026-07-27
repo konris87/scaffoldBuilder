@@ -22,9 +22,8 @@ GeneratorLewiner::GeneratorLewiner(
 	Logger* uiLogger,
 	const float threshold,
 	const float isoLevel,
-	const int foam,
 	const bool renderMode
-	) : seeds(seeds), bounds(bounds), blockDims(dims), logger(uiLogger), threshold(threshold), isoLevel(isoLevel), foam(foam), renderMode(renderMode) {
+	) : seeds(seeds), bounds(bounds), blockDims(dims), logger(uiLogger), threshold(threshold), isoLevel(isoLevel), renderMode(renderMode) {
 
 	// setup opengl
 	if (renderMode) {
@@ -126,6 +125,15 @@ GeneratorLewiner::GeneratorLewiner(
 	}
 	// update axis aligned bounding box
 	_update_bounding_box();
+
+	// for a scaffold loaded from STL the mesh AABB is the only geometry we
+	// have, so it intentionally also becomes the grid/domain definition
+	bounds[0] = aabb.pMin.x;
+	bounds[1] = aabb.pMax.x;
+	bounds[2] = aabb.pMin.y;
+	bounds[3] = aabb.pMax.y;
+	bounds[4] = aabb.pMin.z;
+	bounds[5] = aabb.pMax.z;
 
 	isLoadedFromFile = true;
 
@@ -320,378 +328,496 @@ std::vector<GeneratorLewiner::NarrowBandClass> GeneratorLewiner::classify_contai
  *    cheap coarse pre-pass, skipping (1) entirely for those voxels and
  *    falling back to the real query only in a thin band around the surface.
  */
-void GeneratorLewiner::compute_scalar_field(const IContainer& con) {
+bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
-	// we have to control the number of anisotropy sources. 
-	const bool variedAnisotropy = anisotropySources.size() >= 1;
-
-	// we use the general anisotropy tensor as a background
-	AnisotropySource background;
-	background.direction = anisotropyVec;
-	background.stretch = Vec3(stretchX, stretchY, stretchZ);
-	create_metric(background);
-
-	// ensure every source's M is up-to-date (GUI edits don't call create_metric)
-	for (auto& src : anisotropySources) {
-		src->update_metric();
+	if (seeds.size() < 3) {
+		if (logger) logger->log(LogPriority::ERROR, "We need at least three seeds!");
+		return false;
 	}
 
-	// use also the domain volume
-	domainVolume = con.get_volume();
-
-	update_steps();
-
-	// Eigen::Matrix3f rot = rotation_axis_angle(anisotropyVec, anisotropyAngle);
-	Eigen::Matrix3f rot = rotation_from_direction_roll(
-		anisotropyVec, anisotropyAngle);
-
-	Vec3 center = con.compute_bounds().center;
-
-	std::vector<Vec3> warpedSeeds = this->seeds;
-
-	if (!variedAnisotropy){
-		for (auto& seed : warpedSeeds) {
-			Vec3 local = seed - center;
-			Vec3 rotated = Vec3(rot * Eigen::Vector3f{ local.x, local.y, local.z });
-
-			seed.x = rotated.x / stretchX;
-			seed.y = rotated.y / stretchY;
-			seed.z = rotated.z / stretchZ;
-		}
+	// The iso-level is the wall/strut half-thickness anchor; a non-positive
+	// value produces a field that never crosses the surface, i.e. an empty
+	// mesh. Reject it here rather than silently generating nothing.
+	if (isoLevel <= 0.0f) {
+		if (logger) logger->log(LogPriority::ERROR,
+			"Thickness (iso-level) must be positive; got " + std::to_string(isoLevel) + ".");
+		return false;
 	}
 
-	// first populate the kdtree with the seeds (warped in case of uniform anisotropy, unwarped in case of varied anisotropy)
-	std::unique_ptr<Kdtree>kdtree = std::make_unique<Kdtree>(warpedSeeds);
+    // Control the number of anisotropy sources
+    const bool variedAnisotropy = anisotropySources.size() >= 1;
 
-	// decide the number k of nn for the kdtree
-	std::vector<float> stretches = {stretchX, stretchY, stretchZ};
-	for (const auto& src: anisotropySources){
-		stretches.push_back(src->stretch.x);
-		stretches.push_back(src->stretch.y);
-		stretches.push_back(src->stretch.z);
-	}
+    // Use the general anisotropy tensor as a background
+    AnisotropySource background;
+    background.direction = anisotropyVec;
+	background.angle = anisotropyAngle;
+    background.stretch = Vec3(stretchX, stretchY, stretchZ);
+    create_metric(background); 
 
-	auto minmax = std::minmax_element(stretches.begin(), stretches.end());
-	float sMin = *minmax.first;
-	float sMax = *minmax.second;
+    // Ensure every source's Metric is up-to-date 
+    for (auto& src : anisotropySources) {
+        src->update_metric();
+    }
 
-	size_t Kn = variedAnisotropy ? choose_candidate_number(
-		sMin, sMax, seeds.size()) : 3;
+    domainVolume = con.get_volume();
+    update_steps();
 
-	// update scalar field
-	scalarField.clear();
+    Eigen::Matrix3f rot = rotation_from_direction_roll(anisotropyVec, anisotropyAngle);
+    Vec3 center = con.compute_bounds().center;
 
-	// it will be more efficient to reserve the size of the scalar field vector before filling it, 
-	// since we know the size of the grid in advance
-	size_t totalVoxels = static_cast<size_t>(blockDims[0]) *
-		static_cast<size_t>(blockDims[1]) *
-		static_cast<size_t>(blockDims[2]);
+    std::vector<Vec3> warpedSeeds = this->seeds;
 
-	std::cout << "Voxel Nr: " << totalVoxels << std::endl;
+    if (!variedAnisotropy) {
+        for (auto& seed : warpedSeeds) {
+            Vec3 local = seed - center;
+            Vec3 rotated = Vec3(rot * Eigen::Vector3f{ local.x, local.y, local.z });
 
-	scalarField.resize(totalVoxels, 9999.9f);
+            seed.x = rotated.x / stretchX;
+            seed.y = rotated.y / stretchY;
+            seed.z = rotated.z / stretchZ;
+        }
+    }
 
-	// cache the container distance computed in the first pass so the
-	// boundary-clamp pass below doesn't have to query the SDF a second time
-	std::vector<float> containerDistField(totalVoxels);
+    // Populate the kdtree with the seeds (warped if uniform, unwarped if varied)
+    std::unique_ptr<Kdtree> kdtree = std::make_unique<Kdtree>(warpedSeeds);
 
-	// "more than this far outside, don't bother" margin for the early-out /
-	// boundary-clamp use of the container distance
-	const float surfaceMargin = 2.0f;
+    // Decide the number 'k' of nearest neighbors for the kdtree
+    std::vector<float> stretches = { stretchX, stretchY, stretchZ };
+    for (const auto& src : anisotropySources) {
+        stretches.push_back(src->stretch.x);
+        stretches.push_back(src->stretch.y);
+        stretches.push_back(src->stretch.z);
+    }
 
-	// When "distance from container" varied thickness is active, the
-	// thickness lookup below reuses this same container distance and needs
-	// it to be meaningful out to transitionDistance, not just surfaceMargin.
-	// If the narrow-band classification's placeholder for "Inside" voxels
-	// only guaranteed >surfaceMargin (e.g. 2mm) while transitionDistance is
-	// larger (e.g. 5mm), every voxel between those two depths would be fed
-	// the same fixed placeholder instead of its real distance, collapsing
-	// the intended smooth thickness taper into a wrong constant with a
-	// discontinuity at the surfaceMargin shell. Classifying against the
-	// larger of the two margins keeps the placeholder valid for both uses
-	// (narrower/cheaper when thickness doesn't depend on it, conservatively
-	// wider - more voxels fall back to exact evaluation - when it does).
-	const bool thicknessReusesContainerSDF =
-		thicknessFunction && thicknessSDF && (thicknessSDF.get() == con.sdf.get());
-	const float classificationMargin = thicknessReusesContainerSDF
-		? std::max(surfaceMargin, transitionDistance)
-		: surfaceMargin;
+    auto minmax = std::minmax_element(stretches.begin(), stretches.end());
+    float sMin = *minmax.first;
+    float sMax = *minmax.second;
 
-	const auto fillStart = std::chrono::steady_clock::now();
+    size_t Kn = variedAnisotropy ? choose_candidate_number(sMin, sMax, seeds.size()) : 3;
 
-	std::vector<NarrowBandClass> narrowBand = classify_container_narrow_band(con, classificationMargin);
+    // Update scalar field capacity
+    scalarField.clear();
+    size_t totalVoxels = static_cast<size_t>(blockDims[0]) *
+                         static_cast<size_t>(blockDims[1]) *
+                         static_cast<size_t>(blockDims[2]);
 
-	const auto classifyEnd = std::chrono::steady_clock::now();
-	std::cout << "  [compute_scalar_field] narrow-band classification: "
-		<< std::chrono::duration<double>(classifyEnd - fillStart).count() << " s" << std::endl;
+    std::cout << "Voxel Nr: " << totalVoxels << std::endl;
+    scalarField.resize(totalVoxels, 9999.9f);
 
-	#pragma omp parallel for collapse(3)
-	// create the grid points based on the bounds and block dimensions
-	for (int i{ 0 }; i < blockDims[0]; i++) {
-		for (int j{ 0 }; j < blockDims[1]; j++) {
-			for (int k{ 0 }; k < blockDims[2]; k++) {
+    std::vector<float> containerDistField(totalVoxels);
 
-				size_t idx = find_vertex_index(i, j, k);
-				float x = bounds[0] + i * stepX;
-				float y = bounds[2] + j * stepY;
-				float z = bounds[4] + k * stepZ;
-				Vec3 point(x, y, z);
+    // Numerical bands are expressed in grid spacings (voxels), not absolute
+    // millimetres, so they track the model scale and resolution automatically.
+    // surfaceMargin is the thin shell of valid lattice field kept just outside
+    // the container wall so the boundary clamp, Taubin smoothing and marching
+    // cubes all see a smooth gradient across the surface. Three voxels keeps it
+    // strictly wider than the air-skin band (air_skip_level, two voxels).
+    const float hMax = std::max(stepX, std::max(stepY, stepZ));
+    const float surfaceMargin = 3.0f * hMax;
 
-				// for voxels the narrow-band classification has already
-				// proven are well clear of the surface, skip the real
-				// (possibly expensive) SDF call entirely and use a placeholder
-				// that behaves identically to a real value of that magnitude
-				// for every downstream use (early-out, thickness lookup,
-				// boundary clamp)
-				float containerDist;
-				switch (narrowBand[idx]) {
-				case NarrowBandClass::Outside:
-					containerDist = classificationMargin + 1.0f;
-					break;
-				case NarrowBandClass::Inside:
-					containerDist = -(classificationMargin + 1.0f);
-					break;
-				default:
-					containerDist = con.sdf->compute_distance(point);
-					break;
-				}
+    const bool thicknessReusesContainerSDF = thicknessFunction && thicknessSDF && (thicknessSDF.get() == con.sdf.get());
+    const float classificationMargin = thicknessReusesContainerSDF 
+                                       ? std::max(surfaceMargin, transitionDistance) 
+                                       : surfaceMargin;
 
-				containerDistField[idx] = containerDist;
-				if (containerDist > surfaceMargin) { // If it's more than surfaceMargin outside, don't bother
-					scalarField[idx] = isoLevel + 1.0f;
-					continue; // scalarField[idx] remains 9999.9f
-				}
+    // Narrow-Band Classification Phase
+    const auto fillStart = std::chrono::steady_clock::now();
+    std::vector<NarrowBandClass> narrowBand = classify_container_narrow_band(con, classificationMargin);
+    const auto classifyEnd = std::chrono::steady_clock::now();
+    std::cout << "  [compute_scalar_field] narrow-band classification: "
+              << std::chrono::duration<double>(classifyEnd - fillStart).count() << " s" << std::endl;
 
-				// evaluate distance and radius function
-				float localIsoLevel = isoLevel;
+	// Lambda for face hash
+	auto stable_face_hash = [](size_t a, size_t b){
+		size_t u = std::min(a, b);
+		size_t v = std::max(a, b);
+		
+		// Simple pairing and bit-mixing (e.g., Murmur3 style integer hash)
+		uint64_t hash = u;
+		hash ^= v + 0x9e3779b97f4a7c15ULL + (hash << 6) + (hash >> 2);
+		hash ^= hash >> 33;
+		hash *= 0xff51afd7ed558ccdULL;
+		hash ^= hash >> 33;
+		hash *= 0xc4ceb9fe1a85ec53ULL;
+		hash ^= hash >> 33;
 
-				if (thicknessFunction && thicknessSDF) {
+		// this returns a value [0, 1.0], the probability of the face (a, b)
+		return static_cast<float>(hash >> 40) * (1.0f / 16777216.0f);  
+	};
 
-					// "distance from container" thickness mode reuses the
-					// container's own SDF; reuse the value just computed above
-					// instead of paying for a second identical BVH+raycast query
-					double rawDist = (thicknessSDF.get() == con.sdf.get())
-						? containerDist
-						: thicknessSDF->compute_distance(point);
+    // Primary Voxel Evaluation Loop
+    #pragma omp parallel for collapse(3)
+    for (int i = 0; i < blockDims[0]; i++) {
+        for (int j = 0; j < blockDims[1]; j++) {
+            for (int k = 0; k < blockDims[2]; k++) {
 
-					// convert to unsigned
-					rawDist = std::abs(rawDist);
+                size_t idx = find_vertex_index(i, j, k);
+                float x = bounds[0] + i * stepX;
+                float y = bounds[2] + j * stepY;
+                float z = bounds[4] + k * stepZ;
+                Vec3 point(x, y, z);
 
-					localIsoLevel = static_cast<float>(
-						thicknessFunction->estimate_radius(rawDist, startThickness, endThickness));
-				}
-				float d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
-				Vec3 grad1, grad2, grad3;
+                // --- 1. Evaluate Container Boundary ---
+                float containerDist;
+                switch (narrowBand[idx]) {
+                    case NarrowBandClass::Outside:
+                        // any value safely past the classification band; sign is
+                        // what matters (positive => outside, excluded from the
+                        // domain and killed by the early-out below)
+                        containerDist = classificationMargin + hMax;
+                        break;
+                    case NarrowBandClass::Inside:
+                        // safely negative and beyond the thickness-grading
+                        // transition, so graded thickness saturates correctly
+                        containerDist = -(classificationMargin + hMax);
+                        break;
+                    default:
+                        containerDist = con.sdf->compute_distance(point);
+                        break;
+                }
 
-				if(variedAnisotropy){
-					
-					// estimate the blended metric
-					Eigen::Matrix3f M = blend_metric(
-						point, anisotropySources, background, backgroundWeight);
+                containerDistField[idx] = containerDist;
+                
+                if (containerDist > surfaceMargin) {
+                    scalarField[idx] = air_skip_level();
+                    continue;
+                }
 
-					// use the estimated candidate number to find knn
-					auto cand = kdtree->knn(
-						point, Kn,
-						[](const Vec3& a, const Vec3& b){
-       						Vec3 v = b - a; return double(v.x*v.x + v.y*v.y + v.z*v.z);   // Euclidean
-   						}
-					);
+                // --- 2. Dynamic Thickness Evaluation ---
+                float localIsoLevel = isoLevel;
+                if (thicknessFunction && thicknessSDF) {
+                    double rawDist = (thicknessSDF.get() == con.sdf.get())
+                        ? containerDist
+                        : thicknessSDF->compute_distance(point);
 
-					// re-rank them
-					// first change the distance of each candidate to anisotropic
-					for (auto& c : cand){
-						c.second = aniso_distance_sq(M, point, seeds[c.first]);
-					}
-					std::partial_sort(
+                    rawDist = std::abs(rawDist);
+                    localIsoLevel = static_cast<float>(
+                        thicknessFunction->estimate_radius(rawDist, startThickness, endThickness));
+                }
+
+                float d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
+                Vec3 grad1, grad2, grad3;
+				size_t id1 = 0, id2 = 0;
+
+                // --- 3. Gather Anisotropic Nearest Neighbors ---
+                if (variedAnisotropy) {
+                    // Estimate the blended metric
+                    Eigen::Matrix3f M = blend_metric(point, anisotropySources, background, backgroundWeight);
+
+                    auto cand = kdtree->knn(point, Kn, [](const Vec3& a, const Vec3& b) {
+                        Vec3 v = b - a; 
+                        return double(v.x * v.x + v.y * v.y + v.z * v.z);
+                    });
+
+                    // Re-rank using local anisotropic metric
+                    for (auto& c : cand) {
+                        c.second = aniso_distance_sq(M, point, seeds[c.first]);
+                    }
+                    
+                    std::partial_sort(
 						cand.begin(), cand.begin() + 3, cand.end(),
-						[](const auto& a, const auto& b){ return a.second < b.second; });
-					
-					d1 = std::sqrt((float)cand[0].second);
-					d2 = std::sqrt((float)cand[1].second);
-					d3 = std::sqrt((float)cand[2].second);
-					Vec3 p1 = seeds[cand[0].first];  
-					Vec3 p2 = seeds[cand[1].first];
-					Vec3 p3 = seeds[cand[2].first];
-					grad1 = aniso_distance_grad(M, point, p1, d1);
-					grad2 = aniso_distance_grad(M, point, p2, d2);
-					grad3 = aniso_distance_grad(M, point, p3, d3);
-				}
-				else{
-					Vec3 localPt = point - center;
+						[](const auto& a, const auto& b) { return a.second < b.second; });
 
-					Vec3 rotatedPt = Vec3(rot * Eigen::Vector3f{ localPt.x, localPt.y, localPt.z });
+					id1 = cand[0].first;
+					id2 = cand[1].first;
 
-					// wrap the point
-					//Vec3 wrapped(point.x / stretchX, point.y / stretchY, point.z / stretchZ);
-					Vec3 wrapped(rotatedPt.x / stretchX, rotatedPt.y / stretchY, rotatedPt.z / stretchZ);
+                    d1 = std::sqrt((float)cand[0].second);
+                    d2 = std::sqrt((float)cand[1].second);
+                    d3 = std::sqrt((float)cand[2].second);
+                    
+                    Vec3 p1 = seeds[cand[0].first];  
+                    Vec3 p2 = seeds[cand[1].first];
+                    Vec3 p3 = seeds[cand[2].first];
+                    
+                    grad1 = aniso_distance_grad(M, point, p1, d1);
+                    grad2 = aniso_distance_grad(M, point, p2, d2);
+                    grad3 = aniso_distance_grad(M, point, p3, d3);
+                }
+                else {
+                    Vec3 localPt = point - center;
+                    Vec3 rotatedPt = Vec3(rot * Eigen::Vector3f{ localPt.x, localPt.y, localPt.z });
+                    Vec3 wrapped(rotatedPt.x / stretchX, rotatedPt.y / stretchY, rotatedPt.z / stretchZ);
 
-					// we need to find the two nearest seeds to the point, and compute the distance to the nearest seed, and the distance to the second nearest seed
-					auto neighbors = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
-						// apply the formula (p - q)^T M (p - q), where M = diag(stretchX,stretchY,stretchZ)
-						Vec3 v = p2 - p1;
-						return (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
-					});
+                    auto cand = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
+                        Vec3 v = p2 - p1;
+                        return (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
+                    });
 
-					// get_distances of three closest seeds
-					d1 = (float)std::sqrt(neighbors[0].second);
-					d2 = (float)std::sqrt(neighbors[1].second);
-					d3 = (float)std::sqrt(neighbors[2].second);
+					id1 = cand[0].first;
+					id2 = cand[1].first;
 
-					//float kf = 0.5f; // Smoothing radius (tunable)
-					//float smoothd1 = smin(d1, d2, kf);
-					//float smoothd2 = smin(d2, d3, kf);
+                    d1 = (float)std::sqrt(cand[0].second);
+                    d2 = (float)std::sqrt(cand[1].second);
+                    d3 = (float)std::sqrt(cand[2].second);
 
-					//float value = 0.0;
-					//if (foam) {
-					//	//value = (smoothd2 - smoothd1) + threshold * (d3 - d2);
-					//	value = d2 - d1;
-					//}
-					//else {
-					//	//value = (d3 - d1) + threshold * (smoothd2 - smoothd1);
-					//	value = (d3 - d1) + threshold * (d2 - d1);
-					//}
+                    Vec3 p1 = warpedSeeds[cand[0].first];
+                    Vec3 p2 = warpedSeeds[cand[1].first];
+                    Vec3 p3 = warpedSeeds[cand[2].first];
 
-					//scalarField[idx] = value;
-					
-					// Retrieve the actual warped seed coordinates using the indices
-					//Vec3 p1 = seeds[neighbors[0].first];
-					//Vec3 p2 = seeds[neighbors[1].first];
-					//Vec3 p3 = seeds[neighbors[2].first];
-					Vec3 p1 = warpedSeeds[neighbors[0].first];
-					Vec3 p2 = warpedSeeds[neighbors[1].first];
-					Vec3 p3 = warpedSeeds[neighbors[2].first];
+                    auto calc_grad = [&](const Vec3& p, float d) -> Vec3 {
+                        if (d < 1e-6f) return Vec3(0.0f, 0.0f, 0.0f); 
+                        Vec3 local(
+                            (wrapped.x - p.x) / (d * stretchX),
+                            (wrapped.y - p.y) / (d * stretchY),
+                            (wrapped.z - p.z) / (d * stretchZ)
+                        );
+                        return Vec3(rot.transpose() * Eigen::Vector3f(local.x, local.y, local.z));
+                    };
 
-					// Lambda to calculate the exact analytical gradient of a single distance
-					auto calc_grad = [&](const Vec3& p, float d) -> Vec3 {
-						if (d < 1e-6f) return Vec3(0.0f, 0.0f, 0.0f); // Prevent division by zero at the exact seed center
-						
-						Vec3 local(
-							(wrapped.x - p.x) / (d * stretchX),
-							(wrapped.y - p.y) / (d * stretchY),
-							(wrapped.z - p.z) / (d * stretchZ)
-						);
+                    grad1 = calc_grad(p1, d1);
+                    grad2 = calc_grad(p2, d2);
+                    grad3 = calc_grad(p3, d3);
+                }
 
-						Vec3 res = Vec3(rot.transpose() * Eigen::Vector3f(local.x, local.y, local.z));
+			// 2. The two geometric extremes for this voxel.
+			// wallVal vanishes on the Voronoi FACES (bisector of the nearest two
+			// seeds) -> thickening it gives plates.
+			// strutVal vanishes on the Voronoi EDGES (nearest three equidistant)
+			// -> thickening it gives rods. Note wallVal <= strutVal always.
+			float wallVal = d2 - d1;
+			Vec3 wallGrad = grad2 - grad1;
 
-						return res;
-					};
+			float strutVal = d3 - d1;
+			Vec3 strutGrad = grad3 - grad1;
 
-					// Calculate the individual distance gradients
-					grad1 = calc_grad(p1, d1);
-					grad2 = calc_grad(p2, d2);
-					grad3 = calc_grad(p3, d3);
-				}
-				float value = 0.0f;
-				Vec3 gradValue;
+			// 3. Per-face fenestration.
+			// A Voronoi face is identified by its nearest seed PAIR, so hashing
+			// that pair gives every face a fixed pseudo-random value in [0,1)
+			// that all voxels near the face agree on. That makes each plate a
+			// coherent membrane rather than speckle, needs no storage, and is
+			// thread-safe and reproducible.
+			size_t a = std::min(id1, id2);
+			size_t b = std::max(id1, id2);
 
-				// Combine the values and gradients analytically
-				if (foam) {
-					value = d2 - d1;
-					gradValue = grad2 - grad1;
-				}
-				else {
-					value = (d3 - d1) + (1.0 - threshold) * (d2 - d1);
-					gradValue = (grad3 - grad1) + (grad2 - grad1) * (1.0 - threshold);
-					//value = (d2 - d1) + threshold * (d3 - d1);
-					//gradValue = (grad2 - grad1) + (grad3 - grad1) * threshold;
-				}
+			float faceP = stable_face_hash(a, b);
 
-				// normalize the gradient
-				float gradMag = gradValue.norm();
+			// Each face gets its OWN openness, centred on the global threshold:
+			//
+			//   threshold ("openness") = MEAN openness of the structure.
+			//        0 -> foam (solid plates on every face)
+			//        1 -> lattice (bare rods on the Voronoi edges)
+			//        It drives how much material there is, i.e. BV/TV.
+			//
+			//   spread = per-face DIVERSITY of that openness (rod/plate mixture).
+			//        0 -> every face identical: the plain uniform morph, where
+			//             all plates are fenestrated to the same degree.
+			//        1 -> faces range from near-full plate to bare rod, i.e.
+			//             genuine rod-and-plate coexistence like real trabecular bone, where some trabeculae are plate-like and others
+			//             rod-like.
+			//
+			// An intermediate localTau eats a plate back toward its bounding
+			// edges: that is a FENESTRATED plate. Different faces therefore end
+			// up perforated to different degrees.
+			//
+			// E[localTau] = threshold exactly (faceP is uniform on [0,1)), so
+			// 'spread' reshapes the rod/plate mixture without shifting the mean
+			// openness. It is, however, NOT neutral for BV/TV: material is
+			// nonlinear in tau, so spreading tau about a fixed mean nets more
+			// solid (Jensen) - expect porosity to fall as spread rises, and
+			// re-tune 'threshold' after changing it.
+			//
+			// Measured behaviour (4mm box, thickness 0.13, threshold 0.5):
+			//   spread 0.0 -> 0.8 leaves Tb.Th within 0.2% (0.1357 -> 0.1360),
+			//   while porosity drops 0.878 -> 0.855 and Conn.D 3.95 -> 3.02.
+			//   So spread is orthogonal to thickness but not to BV/TV.
+			// At MATCHED porosity (openness re-calibrated to compensate the leak),
+			// spread is a genuine rod/plate control: SMI +49% (0.50 -> 0.75) over
+			// spread 0 -> 1 with Tb.Th flat. openness + spread jointly span the
+			// (porosity, SMI) plane - openness alone traces the perforation curve
+			// where SMI and BV/TV are locked; spread moves off it. See §8.4.
+			float localTau = std::clamp(threshold + spread * (faceP - 0.5f), 0.0f, 1.0f);
 
-				// this is the local raw value
-				float localRaw = (gradMag > 1e-5f) ? (value / gradMag * 2.0f) : value;
+			// 4. Exact geometric interpolation for this face.
+			// This is a linear blend, not a min()/union, so there is no crease to fillet: a smin here would only fatten the rod-plate junctions, and the local-thickness metric amplifies that via junction bleeding.
+			// The field stays continuous across Voronoi edges even though
+			// localTau jumps between faces: at an edge d1=d2=d3, so wallVal and
+			// strutVal both vanish and value=0 regardless of localTau.
+			float value = (1.0f - localTau) * wallVal + localTau * strutVal;
+			Vec3 gradValue = (1.0f - localTau) * wallGrad + localTau * strutGrad;
 
-				// shift the scalar field based on the local iso level, if no distance functions
-				// it will keep the global iso level
-				scalarField[idx] = localRaw - localIsoLevel + isoLevel;
+			// Optional junction smoothing. The linear blend above is crease-free
+			// but its rod-plate junctions are sharp; a smooth-min with the strut
+			// field fillets (and slightly fattens) them, giving the organic,
+			// thickened nodes of real trabecular bone. 'value' (the linear blend)
+			// <= the shifted strut field, and their gap -> 0 near Voronoi edges,
+			// so the fillet appears exactly at the junctions. Reduces to the
+			// linear blend as smoothK -> 0. The Tb.Th inflation this causes is
+			// absorbed by calibrate_thickness. See §8 (smoothness).
+			if (smoothJunctions && smoothK > 1e-6f) {
+				float rodField = strutVal + (1.0f - localTau) * (strutVal - wallVal);
+				SmoothDist sd = smin_gradient(value, rodField, gradValue, strutGrad, smoothK);
+				value = sd.val;
+				gradValue = sd.grad;
 			}
-		}
-	}
 
-	const auto fillEnd = std::chrono::steady_clock::now();
-	std::cout << "  [compute_scalar_field] fill loop (container SDF + seed kdtree): "
-		<< std::chrono::duration<double>(fillEnd - fillStart).count() << " s" << std::endl;
+			// // Legacy: single global openness, no per-face variation.
+			// // Equivalent to the above with spread = 0.
+			// // threshold = 0.0 -> Pure Walls (Foam)
+			// // threshold = 1.0 -> Pure Struts (Lattice)
+			// float value = (1.0f - threshold) * wallVal + threshold * strutVal;
+			// Vec3 gradValue = (1.0f - threshold) * wallGrad + threshold * strutGrad;
 
-	smooth_scalar_field();
+			// 4. Safe Normalization
+			float gradMag = gradValue.norm();
 
-	const auto smoothEnd = std::chrono::steady_clock::now();
-	std::cout << "  [compute_scalar_field] smoothing: "
-		<< std::chrono::duration<double>(smoothEnd - fillEnd).count() << " s" << std::endl;
-
-	#pragma omp parallel for collapse(3)
-	for (int i = 0; i < blockDims[0]; i++) {
-		for (int j = 0; j < blockDims[1]; j++) {
-			for (int k = 0; k < blockDims[2]; k++) {
-
-				int idx = find_vertex_index(i, j, k);
-
-				float mappedContainer = containerDistField[idx] + isoLevel;
-
-				// Intersection: Take the maximum (most "Air-like") value
-				scalarField[idx] = std::max(scalarField[idx], mappedContainer);
+			// Use a slightly larger epsilon to protect against gradient cancellation at nodes.
+			// If the gradient cancels, fallback to the raw value to maintain topology.
+			float localRaw = value;
+			if (gradMag > 1e-4f) {
+				localRaw = (value / gradMag) * 2.0f; 
 			}
-		}
-	}
 
-	const auto clampEnd = std::chrono::steady_clock::now();
-	std::cout << "  [compute_scalar_field] boundary clamp (cached SDF lookup): "
-		<< std::chrono::duration<double>(clampEnd - smoothEnd).count() << " s" << std::endl;
+			// 5. Shift the scalar field
+			scalarField[idx] = localRaw - localIsoLevel + isoLevel;
+            }
+        }
+    }
 
-	if (!isROI) {
-		remove_isolated_islands();
-	}
+    const auto fillEnd = std::chrono::steady_clock::now();
+    std::cout << "  [compute_scalar_field] fill loop (container SDF + seed kdtree): "
+              << std::chrono::duration<double>(fillEnd - fillStart).count() << " s" << std::endl;
 
-	seal_grid_boundaries();
+    // --- 5. Post-Processing ---
+	// smooth_scalar_field();
 
-	const auto cleanupEnd = std::chrono::steady_clock::now();
-	std::cout << "  [compute_scalar_field] island removal + seal: "
-		<< std::chrono::duration<double>(cleanupEnd - clampEnd).count() << " s" << std::endl;
+	smooth_scalar_field_taubin(iter, lambda, mu);
 
-	size_t solidVoxels = 0;
-	for (float val : scalarField) {
-		if (val < isoLevel) {
-			solidVoxels++;
-		}
-	}
+    // Boundary Clamp (Cached SDF Lookup)
+    #pragma omp parallel for collapse(3)
+    for (int i = 0; i < blockDims[0]; i++) {
+        for (int j = 0; j < blockDims[1]; j++) {
+            for (int k = 0; k < blockDims[2]; k++) {
+                int idx = find_vertex_index(i, j, k);
+                float mappedContainer = containerDistField[idx] + isoLevel;
+                // Intersection: Take the maximum (most "Air-like") value
+                scalarField[idx] = std::max(scalarField[idx], mappedContainer);
+            }
+        }
+    }
+
+    const auto clampEnd = std::chrono::steady_clock::now();
+    std::cout << "  [compute_scalar_field] boundary clamp (cached SDF lookup): "
+              << std::chrono::duration<double>(clampEnd - fillEnd).count() << " s" << std::endl;
+
+    if (!isROI) {
+        remove_isolated_islands();
+    }
+
+    seal_grid_boundaries();
+
+    // Voxel-based porosity: solid and domain fractions are counted on the
+    // SAME grid, so the discretization bias cancels between numerator and
+    // denominator. The mesh-based estimate (see estimate_metrics) always
+    // overestimates porosity because the extracted mesh can never reach the
+    // container surface (sealed outer shell + sub-voxel marching-cubes inset).
+    long long solidVoxels = 0;
+    long long domainVoxels = 0;
+    #pragma omp parallel for reduction(+:solidVoxels, domainVoxels)
+    for (long long v = 0; v < static_cast<long long>(totalVoxels); v++) {
+        if (containerDistField[v] <= 0.0f) {
+            domainVoxels++;
+            if (scalarField[v] < isoLevel) solidVoxels++;
+        }
+    }
+    if (domainVoxels > 0) {
+        porosity = 1.0f - static_cast<float>(solidVoxels) / static_cast<float>(domainVoxels);
+    }
+
+    const auto cleanupEnd = std::chrono::steady_clock::now();
+    std::cout << "  [compute_scalar_field] island removal + seal: "
+              << std::chrono::duration<double>(cleanupEnd - clampEnd).count() << " s" << std::endl;
+
+    return true;
 }
 
+// void GeneratorLewiner::smooth_scalar_field() {
+// 	std::vector<float> smoothed = scalarField; // Copy
+
+// 	// Simple 3x3x3 Box Blur
+// 	#pragma omp parallel for collapse(3)
+// 	for (int z = 1; z < blockDims[2] - 1; z++) {
+// 		for (int y = 1; y < blockDims[1] - 1; y++) {
+// 			for (int x = 1; x < blockDims[0] - 1; x++) {
+
+// 				float sum = 0.0;
+// 				int count = 0;
+
+// 				size_t centerIdx = find_vertex_index(x, y, z);
+// 				if (scalarField[centerIdx] > isoLevel + 0.5f) {
+// 					// It's safely outside the container and the boundary margin, skip smoothing
+// 					continue;
+// 				}
+
+// 				// Average neighbors
+// 				for (int kz = -1; kz <= 1; kz++) {
+// 					for (int ky = -1; ky <= 1; ky++) {
+// 						for (int kx = -1; kx <= 1; kx++) {
+// 							size_t idx = find_vertex_index(x + kx, y + ky, z + kz);
+// 							sum += scalarField[idx];
+// 							count++;
+// 						}
+// 					}
+// 				}
+
+// 				smoothed[find_vertex_index(x, y, z)] = sum / count;
+
+// 			}
+// 		}
+// 	}
+
+// 	scalarField = smoothed; // Swap back
+// }
+
 void GeneratorLewiner::smooth_scalar_field() {
-	std::vector<float> smoothed = scalarField; // Copy
+    std::vector<float> smoothed = scalarField; // Copy
 
-	// Simple 3x3x3 Box Blur
-	#pragma omp parallel for collapse(3)
-	for (int z = 1; z < blockDims[2] - 1; z++) {
-		for (int y = 1; y < blockDims[1] - 1; y++) {
-			for (int x = 1; x < blockDims[0] - 1; x++) {
+    // 3D Binomial/Gaussian Filter (1-2-1 kernel)
+    // The sum of all weights in this 3x3x3 kernel is exactly 64.
+    const float invWeight = 1.0f / 64.0f;
 
-				float sum = 0.0;
-				int count = 0;
+    // scale-relative air-skip band, identical to the value stamped into
+    // exterior voxels by compute_scalar_field
+    const float skipLevel = air_skip_level();
 
-				size_t centerIdx = find_vertex_index(x, y, z);
-				if (scalarField[centerIdx] > isoLevel + 0.5f) {
-					// It's safely outside the container and the boundary margin, skip smoothing
-					continue;
-				}
+    #pragma omp parallel for collapse(3)
+    for (int z = 1; z < blockDims[2] - 1; z++) {
+        for (int y = 1; y < blockDims[1] - 1; y++) {
+            for (int x = 1; x < blockDims[0] - 1; x++) {
 
-				// Average neighbors
-				for (int kz = -1; kz <= 1; kz++) {
-					for (int ky = -1; ky <= 1; ky++) {
-						for (int kx = -1; kx <= 1; kx++) {
-							size_t idx = find_vertex_index(x + kx, y + ky, z + kz);
-							sum += scalarField[idx];
-							count++;
-						}
-					}
-				}
+                size_t centerIdx = find_vertex_index(x, y, z);
 
-				smoothed[find_vertex_index(x, y, z)] = sum / count;
+                // If the voxel is safely outside the surface margin, skip it to save massive CPU time
+                // (>= because exterior voxels are set to exactly air_skip_level())
+                if (scalarField[centerIdx] >= skipLevel) {
+                    continue;
+                }
 
-			}
-		}
-	}
+                float sum = 0.0f;
 
-	scalarField = smoothed; // Swap back
+                // Convolve with the 1-2-1 weighted kernel
+                for (int kz = -1; kz <= 1; kz++) {
+                    int wz = (kz == 0) ? 2 : 1;
+                    
+                    for (int ky = -1; ky <= 1; ky++) {
+                        int wy = (ky == 0) ? 2 : 1;
+                        
+                        for (int kx = -1; kx <= 1; kx++) {
+                            int wx = (kx == 0) ? 2 : 1;
+                            
+                            int weight = wx * wy * wz;
+                            size_t idx = find_vertex_index(x + kx, y + ky, z + kz);
+                            
+                            sum += scalarField[idx] * weight;
+                        }
+                    }
+                }
+
+                smoothed[centerIdx] = sum * invWeight;
+            }
+        }
+    }
+
+    scalarField = smoothed; // Swap back
 }
 
 void GeneratorLewiner::remove_isolated_islands() {
@@ -779,7 +905,16 @@ void GeneratorLewiner::remove_isolated_islands() {
 
 //-----------------------------------------------------------------------------
 
-void GeneratorLewiner::marching_cubes() {
+bool GeneratorLewiner::marching_cubes(bool supress) {
+
+	size_t expectedVoxels = static_cast<size_t>(blockDims[0]) *
+		static_cast<size_t>(blockDims[1]) *
+		static_cast<size_t>(blockDims[2]);
+	if (scalarField.size() != expectedVoxels) {
+		if (logger) logger->log(LogPriority::ERROR,
+			"Cannot run marching cubes: scalar field is empty or does not match the grid!");
+		return false;
+	}
 
 	meshVertices.clear();
 	meshTriangles.clear();
@@ -924,7 +1059,7 @@ void GeneratorLewiner::marching_cubes() {
 	meshVertices.resize(vertexCount);
 	meshTriangles.resize(triangleCount);
 
-	validate_topology();
+	validate_topology(true);
 
 	// build adjacency
 	build_topology();
@@ -940,6 +1075,8 @@ void GeneratorLewiner::marching_cubes() {
 		<< std::chrono::duration<double>(topoEnd - cubesEnd).count() << " s" << std::endl;
 	std::cout << "  [marching_cubes] TOTAL: "
 		<< std::chrono::duration<double>(topoEnd - start).count() << " s" << std::endl;
+
+	return true;
 };
 
 void GeneratorLewiner::_update_bounding_box() {
@@ -961,14 +1098,12 @@ void GeneratorLewiner::_update_bounding_box() {
 		aabb.pMin.z = std::min(aabb.pMin.z, v.z);
 		aabb.pMax.z = std::max(aabb.pMax.z, v.z);
 	}
-	
-	bounds[0] = aabb.pMin.x;
-	bounds[1] = aabb.pMax.x;
-	bounds[2] = aabb.pMin.y;
-	bounds[3] = aabb.pMax.y;
-	bounds[4] = aabb.pMin.z;
-	bounds[5] = aabb.pMax.z;
 
+	// NOTE: 'bounds' (the generation-grid definition) is deliberately NOT
+	// touched here. The mesh AABB is always strictly inside the container
+	// (sealed shell + sub-voxel marching-cubes inset), so copying it into
+	// 'bounds' shrank the sampling domain on every regeneration.
+	// External callers that want the tight mesh box use get_bounds()/get_aabb().
 };
 
 void GeneratorLewiner::compute_intersection_points() {
@@ -2564,21 +2699,51 @@ void GeneratorLewiner::seal_grid_boundaries() {
 
 //@brief function to compute a smooth minimum between two values, 
 // this is used to create a smooth transition between the distance fields of the seeds,
-// and to create a smoother mesh
+// and to create a smoother mesh. [Inigo Quilez]
 //@param a: the first value
 //@param b: the second value
-//@param k: the smoothing factor, higher values create a sharper transition,
-// lower values create a smoother transition
+//@param k: the fillet radius (in field units). Blending is active only where
+// |a-b| < k, so LARGER k gives a WIDER, smoother transition and k -> 0 reduces
+// exactly to the hard min (a sharp crease).
 //@returns the smooth minimum between a and b
-float GeneratorLewiner::smin(float a, float b, float k) {
-	float h = std::max(k - std::abs(a - b), 0.0f) / k;
-	return std::min(a, b) - h * h * h * k * (1.0f / 6.0f);
+	SmoothDist GeneratorLewiner::smin_gradient(	
+		float a, float b, 
+		const Vec3& gradA, const Vec3& gradB, float k) {
+
+	float diff = std::abs(a-b);
+
+	if (diff >= k){
+		if (a < b) return {a , gradA};
+		else return {b, gradB};
+
+	}
+
+	float h = (k - diff) / k;
+	float m = 0.5f * h * h;
+
+	SmoothDist result;
+	result.val = std::min(a, b) - h * h * h * k * (1.0f / 6.0f);
+
+	// estimate gradient
+	if (a < b) 	result.grad = gradA * (1.0f - m) + gradB * m;
+	else result.grad = m * gradA + (1.0f - m) * gradB;
+
+	return result;
 }
 
 void GeneratorLewiner::update_steps() {
 	stepX = (bounds[1] - bounds[0]) / (blockDims[0] - 1);
 	stepY = (bounds[3] - bounds[2]) / (blockDims[1] - 1);
 	stepZ = (bounds[5] - bounds[4]) / (blockDims[2] - 1);
+}
+
+float GeneratorLewiner::air_skip_level() const {
+	// Two voxels above the iso-level: wide enough to cover the reach of the
+	// 6-/26-neighbour smoothing stencils, narrow enough not to erode the
+	// solid. Scales with the grid spacing so it behaves the same whether the
+	// model is 0.5 mm or 500 mm across.
+	const float hMax = std::max(stepX, std::max(stepY, stepZ));
+	return isoLevel + 2.0f * hMax;
 }
 
 void GeneratorLewiner::_setup_mesh() {
@@ -2872,15 +3037,16 @@ void GeneratorLewiner::export_stl(std::string fileName) {
 	out.close();
 	logger->log(LogPriority::SUCCESS, "Exported stl as " + fileName);
 	
-	std::filesystem::path parent = std::filesystem::path(fileName).parent_path();
-	std::string stlName = std::filesystem::path(fileName).stem().string();
-	std::string parameterFileName = stlName + "_parameters.csv";
-	std::filesystem::path parameterPath = parent / parameterFileName;
+	// std::filesystem::path parent = std::filesystem::path(fileName).parent_path();
+	// std::string stlName = std::filesystem::path(fileName).stem().string();
+	// std::string parameterFileName = stlName + "_parameters.csv";
+	// std::filesystem::path parameterPath = parent / parameterFileName;
 
-	export_parameters(parameterPath.string());
+	// export_parameters(parameterPath.string());
+	// export_metrics(parameterPath)
 };
 
-void GeneratorLewiner::validate_topology() {
+void GeneratorLewiner::validate_topology(bool supress) {
 
 	// Map to count how many faces share each edge
 	std::map<std::pair<int, int>, int> edgeCounts;
@@ -2921,6 +3087,7 @@ void GeneratorLewiner::validate_topology() {
 	//std::cout << "Boundary Edges (Holes): " << boundaryEdges << std::endl;
 	//std::cout << "Non-Manifold Edges: " << nonManifoldEdges << std::endl;
 
+	if (supress) return;
 	if (boundaryEdges == 0 && nonManifoldEdges == 0) {
 		logger->log(LogPriority::SUCCESS, "Mesh is 100% Watertight and 2-Manifold!");
 	}
@@ -3181,18 +3348,26 @@ void GeneratorLewiner::render_properties(
     const bool mineBusy = task && task->is_running_for(this);
 
     ImGui::ColorEdit4("Appearance", (float*)&color);  
+	ImGui::InputFloat("Voxel Size", &voxelSize);
 
+	ImGui::SeparatorText("Container & Generator");
     if (lockedCon) ImGui::Text("Container: %s", lockedCon->name.c_str());
     if (lockedGen) ImGui::Text("Generator: %s", lockedGen->name.c_str());
+
+	ImGui::SeparatorText("Settings");
 
     // ---- editable parameters: locked while this scaffold is regenerating ----
     ImGui::BeginDisabled(mineBusy);
 
 	ImGui::BeginTabBar("Items");
 
+	calibration_properties();
+
 	thickness_properties();
 
 	anisotropy_properties(globalSources);
+
+	smooth_properties();
 
 	ImGui::EndTabBar();
 
@@ -3243,6 +3418,16 @@ void GeneratorLewiner::render_properties(
     if (updateScaffold) {
         updateScaffold = false;  // consume the trigger immediately
 
+		logger->log(LogPriority::INFO,
+			"update: calT=" + std::to_string(calibrateThickness) +
+			" calP=" + std::to_string(calibratePorosity) +
+			" targetTh=" + std::to_string(targetThickness) +
+			" targetPor%=" + std::to_string(targetPorosity) +
+			" con=" + std::to_string((bool)lockedCon) +
+			" gen=" + std::to_string((bool)lockedGen) +
+			" voxel=" + std::to_string(voxelSize) +
+			" measVoxel=" + std::to_string(measurementVoxelSize));
+
         if (mineBusy) {
             // already regenerating this scaffold; ignore
         }
@@ -3267,8 +3452,8 @@ void GeneratorLewiner::render_properties(
                 switch (selectedFunc) {
                     case 0: thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);    break;
                     case 1: thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance); break;
-                    case 2: thicknessFunction = std::make_shared<ConstantRadiusFunction>();              break;
-                    case 3: thicknessFunction = std::make_shared<RandomRadiusFunction>();                break;
+                    case 2: thicknessFunction = std::make_shared<SmoothStep>(); break;
+                    case 3: thicknessFunction = std::make_shared<ConstantRadiusFunction>();              break;
                 }
                 switch (selectedDist) {
                     case 0: thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal); break;
@@ -3289,14 +3474,101 @@ void GeneratorLewiner::render_properties(
             // keep the container alive for the whole job; capture `this` for the compute
             auto conShared = lockedCon;
             GeneratorLewiner* self = this;
+            // wire cooperative cancellation to the running task's cancel flag
+            self->cancelRequested = [task]{ return task->is_cancel_requested(); };
             start_time = std::chrono::steady_clock::now();
 
-            task->start([self, conShared, t = task]() {
-                t->set_progress(0.00f);  self->compute_scalar_field(*conShared);
-                t->set_progress(0.50f);  self->marching_cubes();           // CPU only — no GL
-                t->set_progress(0.90f);  self->estimate_metrics(*conShared);
+			auto targetTh = targetThickness;
+			auto targetP = targetPorosity * 0.01f;
+
+			if(selectedThicknessOption == 1){
+				// varied thickness: calibrate the MEAN of the graded range 
+				targetThickness = (startThickness + endThickness) * 0.5f;
+			}
+
+			if (calibrateThickness && !calibratePorosity){
+				// reset isoLevel to the target thickness at the start
+				isoLevel = targetThickness;
+
+				// calibrate at the measurement voxel
+				auto cStep = measurementVoxelSize;   
+				auto cTol = calibrationTol;
+				auto cIter = calibrationIter;
+				task->start(
+					[self, conShared, targetTh, cStep, cTol, cIter, t=task]() {
+					t->set_progress(0.00f);
+					bool ok = self->calibrate_thickness(
+						*conShared, targetTh, cStep, cTol, cIter,
+						[t](float p) { t->set_progress(0.05f + 0.90f * p); });
+					if (ok) {
+						self->estimate_metrics(*conShared);
+					}
+					t->set_progress(1.00f);
+				}, this);
+			}
+			// 2 knob
+			else if (calibrateThickness && calibratePorosity){
+
+				 // calibrate at the measurement voxel
+				auto cStep = measurementVoxelSize;  
+				auto cTol = calibrationTol;
+				auto cIter = calibrationIter;
+
+				task->start(
+					[self, conShared, targetTh, targetP,
+						cStep, cTol, cIter, t=task]() {
+					t->set_progress(0.00f);
+					bool ok = self->two_knob_calibration(
+						*conShared, targetTh,
+						targetP, cStep, cTol, cIter,
+						[t](float p) { t->set_progress(0.05f + 0.90f * p); });
+					if (ok) {
+						self->estimate_metrics(*conShared);
+					}
+					t->set_progress(1.00f);
+				}, this);
+			}
+			// porosity only: openness re-calibrated at the already-calibrated
+			// thickness (isoLevel persists). This is the path taken after a
+			// thickness-calibrated scaffold is updated - previously it fell
+			// through to the plain regeneration and silently dropped the porosity
+			// target. calibrate_openness leaves only the field, so run marching
+			// cubes before estimate_metrics.
+			else if (!calibrateThickness && calibratePorosity){
+
+				auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
+				auto cTol = calibrationTol;
+				auto cIter = calibrationIter;
+
+				task->start(
+					[self, conShared, targetP, cStep, cTol, cIter, t=task]() {
+					t->set_progress(0.00f);
+					bool ok = self->calibrate_openness(
+						*conShared, targetP, cStep, cTol, cIter,
+						[t](float p) { t->set_progress(0.05f + 0.85f * p); });
+					if (ok && self->marching_cubes()) {
+						t->set_progress(0.95f);
+						self->estimate_metrics(*conShared);
+					}
+					t->set_progress(1.00f);
+				}, this);
+			}
+			else
+			{
+ 			task->start([self, conShared, t = task]() {
+                // each stage runs only if the previous one succeeded and no cancel
+                t->set_progress(0.00f);
+                if (!t->is_cancel_requested() && self->compute_scalar_field(*conShared)) {
+                    t->set_progress(0.50f);
+                    if (!t->is_cancel_requested() && self->marching_cubes()) {   // CPU only — no GL
+                        t->set_progress(0.90f);
+                        if (!t->is_cancel_requested()) self->estimate_metrics(*conShared);
+                    }
+                }
                 t->set_progress(1.00f);
-            }, this);                      
+            }, this);
+			}
+                                 
 			ImGui::OpenPopup("Updating Scaffold..."); // open the progress bar
 		}
     }
@@ -3311,28 +3583,70 @@ void GeneratorLewiner::render_properties(
         ImGui::Dummy(ImVec2(0.0f, 5.0f)); // Small spacer
         
         // Fixed width for the progress bar looks better in a floating window
-        ImGui::ProgressBar(task->get_progress(), ImVec2(300.0f, 0.0f)); 
+        ImGui::ProgressBar(task->get_progress(), ImVec2(300.0f, 0.0f));
+
+        // ---- cancel: request cooperative cancellation of the worker ----
+        ImGui::Dummy(ImVec2(0.0f, 5.0f));
+        const bool cancelling = task && task->is_cancel_requested();
+        ImGui::BeginDisabled(cancelling);
+        if (ImGui::Button(cancelling ? "Cancelling..." : "Cancel", ImVec2(300.0f, 0.0f))) {
+            if (task) task->request_cancel();
+        }
+        ImGui::EndDisabled();
 
         // ---- completion (main thread: GL upload + log) ----
         if (task && task->poll(this)) {
             update_render();                               // GPU upload, GL thread
 
-            auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start_time);
-            std::ostringstream oss;
-            oss << std::fixed << std::setprecision(3) << dur.count() / 1000.0 << " seconds!";
-            logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
+            if (task->is_cancel_requested()) {
+                logger->log(LogPriority::WARNING,
+                    "Scaffold update cancelled; showing the last valid state.");
+            }
+            else {
+                auto dur = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start_time);
+                std::ostringstream oss;
+                oss << std::fixed << std::setprecision(3) << dur.count() / 1000.0 << " seconds!";
+                logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
+            }
 
-            ImGui::CloseCurrentPopup(); 
+            ImGui::CloseCurrentPopup();
         }
 
         ImGui::EndPopup();
     }
 }
 
+void GeneratorLewiner::calibration_properties(){
+
+	if (ImGui::BeginTabItem("Calibration")){
+
+		ImGui::SeparatorText("Thickness Calibration");
+		ImGui::Checkbox("Calibrate Thickness", &calibrateThickness);
+		ImGui::Checkbox("Calibrate Porosity", &calibratePorosity);
+		ImGui::SetItemTooltip("Calibrate SMI at fixed porosity!");
+		
+		if (calibrateThickness){
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Target Thickness (mm)", &targetThickness);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Measurement Voxel Size", &measurementVoxelSize);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Tolerance", &calibrationTol);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputInt("Max Iters", &calibrationIter);
+		}
+		if (calibratePorosity){
+			ImGui::InputFloat("Target Porosity", &targetPorosity);
+		}
+		ImGui::EndTabItem();
+	}
+};
+
 void GeneratorLewiner::thickness_properties(){
 
 	if (ImGui::BeginTabItem("Thickness")){
+
 	 	ImGui::RadioButton(
 			"Apply Uniform Thickness", &selectedThicknessOption, 0);
     	ImGui::RadioButton(
@@ -3366,8 +3680,8 @@ void GeneratorLewiner::thickness_properties(){
 			ImGui::RadioButton("Random", &selectedFunc, 3);
 		}
 
-		ImGui::InputFloat("Voxel Size", &voxelSize);
-		ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Spread", &spread, 0.0f, 1.0f, "%.3f");
 		ImGui::EndTabItem();
 	}
 }
@@ -3384,6 +3698,7 @@ void GeneratorLewiner::anisotropy_properties(
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
+		ImGui::InputFloat("Background Weight", &backgroundWeight, 0.01f, 0.5f, "%.3f");
 		ImGui::InputFloat3("Direction (Local X)", anisotropyVec, "%.3f");
 		
 		ImGui::SameLine();
@@ -3398,7 +3713,6 @@ void GeneratorLewiner::anisotropy_properties(
 				anisotropyVec.z /= len;
 			}
 		}
-		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
 
 		for (int i{ 0 }; i < (int)anisotropySources.size(); i++) {
 			std::string label = anisotropySources[i]->name.empty()
@@ -3440,6 +3754,31 @@ void GeneratorLewiner::anisotropy_properties(
 	}
 }
 
+void GeneratorLewiner::smooth_properties(){
+
+	if (ImGui::BeginTabItem("Smoothness")){
+
+		ImGui::SeparatorText("Mesh smoothing (Taubin)");
+		ImGui::InputInt("Iterations", &iter, 1);
+
+		ImGui::InputFloat("Lambda", &lambda, 0.01f, 10.0f);
+
+		ImGui::InputFloat("Mu", &mu, 0.01f, 10.0f);
+
+		ImGui::SeparatorText("Junction smoothing");
+		ImGui::Checkbox("Smooth rod-plate junctions", &smoothJunctions);
+		ImGui::SetItemTooltip("Fillet/fatten the trabecular nodes (more organic, "
+			"bone-like). Tb.Th inflation is absorbed by thickness calibration.");
+		if (smoothJunctions) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Junction k", &smoothK, 0.001f, 0.1f, "%.4f");
+		}
+
+		ImGui::EndTabItem();
+	}
+
+};
+
 void GeneratorLewiner::estimate_metrics(const IContainer& container) {
 
 	surfaceArea = 0.0f;
@@ -3467,11 +3806,102 @@ void GeneratorLewiner::estimate_metrics(const IContainer& container) {
 	// we need to divide the volume by 1/6
 	volume = std::abs(signedVolume) / 6.0f;
 
-	// get the domain volume to update the porosity
+	// mesh-based (legacy) porosity: mesh volume vs analytic container volume.
+	// Overestimates porosity systematically - the mesh can never reach the
+	// container surface. The primary 'porosity' is the voxel-based estimate
+	// set by compute_scalar_field().
 	float domainVolume = container.get_volume();
-	porosity = (1 - volume / domainVolume);
+	porosityMesh = (1 - volume / domainVolume);
 
+	// scaffolds loaded from STL have no scalar field, so the mesh estimate
+	// is the only porosity available for them
+	if (scalarField.empty()) {
+		porosity = porosityMesh;
+	}
+
+	// Two distinct normalizations, both standard (Parfitt/ASBMR). Do not mix
+	// them up when comparing against uCT literature - they differ by BV/TV,
+	// roughly an order of magnitude:
+	//   BS/BV  surface per BONE volume. ~2/Tb.Th (plates) .. ~4/Tb.Th (rods).
+	//   BS/TV  surface per TOTAL sample volume = (BS/BV) * (BV/TV).
 	surfaceToVolume = surfaceArea / volume;
+	surfaceToTotalVolume = (domainVolume > 0.0f) ? (surfaceArea / domainVolume) : 0.0f;
+};
+
+float GeneratorLewiner::estimate_smi(float dilation) {
+
+	// Structure Model Index (Hildebrand & Ruegsegger 1997):
+	//     SMI = 6 * (BS' * BV) / BS^2
+	// BS' = dBS/dr is the rate at which the surface area grows when the surface
+	// is dilated. The intuition: dilating a PLATE barely changes its area (the
+	// two faces just move apart), so BS' ~ 0 -> SMI ~ 0. Dilating a ROD grows
+	// its lateral area in proportion to the radius, so BS' > 0 -> SMI ~ 3.
+	// A sphere gives ~4.
+	//
+	// BS' is estimated by a forward difference: push every vertex a small step
+	// along its (already normalized) vertex normal and re-measure the area.
+	if (meshTriangles.empty() || meshVertices.empty()) {
+		if (logger) logger->log(LogPriority::ERROR, "Cannot estimate SMI: no mesh.");
+		smi = 0.0f;
+		return smi;
+	}
+
+	// A scale-relative default: a fraction of a voxel. Too large and the
+	// dilation is no longer a derivative; too small and it drowns in float
+	// noise. Must be well below the strut thickness.
+	if (dilation <= 0.0f) {
+		dilation = 0.05f * std::max(stepX, std::max(stepY, stepZ));
+	}
+
+	auto surface_area_of = [&](float offset) -> double {
+		double area = 0.0;
+		#pragma omp parallel for reduction(+:area)
+		for (long long t = 0; t < static_cast<long long>(meshTriangles.size()); ++t) {
+			const LTriangle& tri = meshTriangles[t];
+			const LVertex& a = meshVertices[tri.v1];
+			const LVertex& b = meshVertices[tri.v2];
+			const LVertex& c = meshVertices[tri.v3];
+
+			// displace each vertex along its own normal
+			Vec3 p1(a.x + a.nx * offset, a.y + a.ny * offset, a.z + a.nz * offset);
+			Vec3 p2(b.x + b.nx * offset, b.y + b.ny * offset, b.z + b.nz * offset);
+			Vec3 p3(c.x + c.nx * offset, c.y + c.ny * offset, c.z + c.nz * offset);
+
+			area += 0.5 * (p2 - p1).cross(p3 - p1).norm();
+		}
+		return area;
+	};
+
+	const double bs = surface_area_of(0.0f);
+	const double bsDilated = surface_area_of(dilation);
+	const double bsPrime = (bsDilated - bs) / static_cast<double>(dilation);
+
+	// volume/surfaceArea are filled by estimate_metrics(); recompute the volume
+	// here only if it has not been measured yet.
+	double bv = static_cast<double>(volume);
+	if (bv <= 0.0) {
+		double signedVolume = 0.0;
+		for (const auto& tri : meshTriangles) {
+			const LVertex& v1 = meshVertices[tri.v1];
+			const LVertex& v2 = meshVertices[tri.v2];
+			const LVertex& v3 = meshVertices[tri.v3];
+			signedVolume += Vec3(v1.x, v1.y, v1.z).dot(
+				Vec3(v2.x, v2.y, v2.z).cross(Vec3(v3.x, v3.y, v3.z)));
+		}
+		bv = std::abs(signedVolume) / 6.0;
+	}
+
+	smi = (bs > 1e-12) ? static_cast<float>(6.0 * bsPrime * bv / (bs * bs)) : 0.0f;
+
+	smiVersion = meshVersion;
+
+	if (logger) {
+		std::ostringstream oss;
+		oss << "Estimated SMI = " << smi << " (0=plate, 3=rod)";
+		logger->log(LogPriority::SUCCESS, oss.str());
+	}
+
+	return smi;
 };
 
 void GeneratorLewiner::render_metrics() {
@@ -3502,12 +3932,22 @@ void GeneratorLewiner::render_metrics() {
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceArea);
 
 		ImGui::TableNextRow();
-		ImGui::TableNextColumn(); ImGui::Text("Surface to Volume Ratio (1/mm)");
+		ImGui::TableNextColumn(); ImGui::Text("BS/BV - surface / bone vol (1/mm)");
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceToVolume);
+		ImGui::SetItemTooltip("Bone surface per BONE volume. ~2/Tb.Th for plates, ~4/Tb.Th for rods.");
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("BS/TV - surface / total vol (1/mm)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", surfaceToTotalVolume);
+		ImGui::SetItemTooltip("Bone surface per TOTAL sample volume = (BS/BV) * (BV/TV).\nThis is the 'BS/TV' reported in the uCT literature.");
 
 		ImGui::TableNextRow();
 		ImGui::TableNextColumn(); ImGui::Text("Porosity (%%)");
 		ImGui::TableNextColumn(); ImGui::Text("%.4f", porosity * 100.0f);
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Porosity - mesh, legacy (%%)");
+		ImGui::TableNextColumn(); ImGui::Text("%.4f", porosityMesh * 100.0f);
 
 		draw_metric_row("Local Thickness (mm)", thicknessVersion, [&]() {
 			ImGui::Text("%.4f std: %.4f", localThickness, localThicknessStd);
@@ -3533,6 +3973,10 @@ void GeneratorLewiner::render_metrics() {
 			ImGui::Text("%.4f", anisotropyDegree);
 		});
 
+		draw_metric_row("Structure Model Index", smiVersion, [&]() {
+			ImGui::Text("%.4f", smi);
+		});
+
 		ImGui::EndTable();
 	};
 };
@@ -3549,11 +3993,16 @@ void GeneratorLewiner::set_thickness_functions(
 	transitionDistance = distance;
 };
 
-void GeneratorLewiner::set_options_from_factory(int distOption, int distFunc, int thicknessOption, float voxSize) {
+void GeneratorLewiner::set_options_from_factory(
+	int distOption, 
+	int distFunc, int thicknessOption, 
+	float voxSize, 
+	float measureVoxel) {
 	selectedDist = distOption;
 	selectedFunc = distFunc;
 	selectedThicknessOption = thicknessOption;
 	voxelSize = voxSize;
+	measurementVoxelSize = measureVoxel;
 };
 
 void GeneratorLewiner::set_distance_plane_options(Vec3 center, Vec3 normal) {
@@ -3591,13 +4040,22 @@ void GeneratorLewiner::set_thickness(float newThickness) {
 };
 
 std::array<float, 6> GeneratorLewiner::get_bounds() const {
+	// Tight bounds around the generated mesh - what every external caller
+	// (camera framing, cut plane, thickness analysis) expects. The internal
+	// 'bounds' member keeps defining the generation grid and is returned
+	// only while no mesh exists yet.
+	if (!meshVertices.empty()) {
+		return { aabb.pMin.x, aabb.pMax.x,
+				 aabb.pMin.y, aabb.pMax.y,
+				 aabb.pMin.z, aabb.pMax.z };
+	}
 	return bounds;
 };
 
 Aabb GeneratorLewiner::get_aabb() const { return aabb; };
 
 void GeneratorLewiner::estimate_local_thickness(
-	float voxelSize, std::array<float, 6>& blockBounds, bool separation) {
+	float voxelSize, std::array<float, 6>& blockBounds, bool separation, bool supress) {
 
 	// we should ensure that the inserted blockbounds are clipped inside the aligned bounding box
 	blockBounds[0] = std::max(blockBounds[0], aabb.pMin.x); // Min X
@@ -3831,10 +4289,11 @@ void GeneratorLewiner::estimate_local_thickness(
 		float diameter = 2.0f * radius;
 		float rSq = radius * radius;
 
-		// get the position of the voxel in the grid
-		int rz = static_cast<int>(ridgeIdx % nz);
-		int ry = static_cast<int>((ridgeIdx / nz) % ny);
-		int rx = static_cast<int>(ridgeIdx / (ny * nz));
+		// decode ridgeIdx to grid coords, matching get_idx()'s layout
+		// idx = x + y*nx + z*nx*ny  (x fastest)
+		int rx = static_cast<int>(ridgeIdx % static_cast<size_t>(nx));
+		int ry = static_cast<int>((ridgeIdx / static_cast<size_t>(nx)) % static_cast<size_t>(ny));
+		int rz = static_cast<int>(ridgeIdx / (static_cast<size_t>(nx) * static_cast<size_t>(ny)));
 
 		// Define a bounding box for the sphere to limit the search
 		int R = (int)std::ceil(radius);
@@ -3891,7 +4350,11 @@ void GeneratorLewiner::estimate_local_thickness(
 
 	float totalThicknessSum = 0.0f;
 	size_t solidVoxelCount = 0;
-	float T_min = 1.5f; // Minimum thickness threshold to avoid surface noise
+	// Average the local thickness over the foreground phase only (field != 0),
+	// matching BoneJ. Gating on thicknessMap > 0 instead would leak the thin
+	// shell of background voxels that ridge spheres over-paint at their
+	// boundary (the sphere of radius r reaches the nearest background voxel at
+	// distance r) into both the mean and the sample count.
 
 	#pragma omp parallel for reduction(+:totalThicknessSum, solidVoxelCount) collapse(3)
 	for (int z = 0; z < nz; z++) {
@@ -3907,13 +4370,10 @@ void GeneratorLewiner::estimate_local_thickness(
 					isInsideROI = con->is_inside(Vec3(px, py, pz));
 				}
 
-				// Only accumulate if the voxel is physically inside the container ROI
-				if (isInsideROI) {
-					float t = thicknessMap[idx];
-					if (t >= T_min) {
-						totalThicknessSum += t;
-						solidVoxelCount++;
-					}
+				// Only accumulate foreground voxels physically inside the container ROI
+				if (isInsideROI && field[idx] != 0) {
+					totalThicknessSum += thicknessMap[idx];
+					solidVoxelCount++;
 				}
 			}
 		}
@@ -3939,12 +4399,9 @@ void GeneratorLewiner::estimate_local_thickness(
 					isInsideROI = con->is_inside(Vec3(px, py, pz));
 				}
 
-				if (isInsideROI) {
-					float t = thicknessMap[idx];
-					if (t >= T_min) {
-						float diff = t - meanThicknessVoxels;
-						deviationSum += (diff * diff);
-					}
+				if (isInsideROI && field[idx] != 0) {
+					float diff = thicknessMap[idx] - meanThicknessVoxels;
+					deviationSum += (diff * diff);
 				}
 			}
 		}
@@ -3965,12 +4422,627 @@ void GeneratorLewiner::estimate_local_thickness(
 
 	if (separation) {
 		separationVersion = meshVersion;
-		logger->log(LogPriority::SUCCESS, "Estimated Local Separation!");
+		if (logger && !supress) logger->log(LogPriority::SUCCESS, "Estimated Local Separation!");
 	}
 	else {
 		thicknessVersion = meshVersion;
-		logger->log(LogPriority::SUCCESS, "Estimated Local Thickness!");
+		if (logger && !supress) logger->log(LogPriority::SUCCESS, "Estimated Local Thickness!");
 	}
+};
+
+void GeneratorLewiner::build_phantom_field(
+	int shape, float feature, float voxelSize, float domainSize) {
+
+	// All phantoms are bounded in ALL three axes: an infinite slab is degenerate
+	// for the separable distance transform (two axes have no background, so the
+	// squared distance overflows). Each shape's feature size is set so its local
+	// thickness equals 'feature' everywhere it is measured.
+	if (domainSize <= 0.0f) {
+		domainSize = std::max(1.0f, 6.0f * feature);
+	}
+
+	bounds = { 0.0f, domainSize, 0.0f, domainSize, 0.0f, domainSize };
+	int n = std::max(4, static_cast<int>(std::ceil(domainSize / voxelSize)) + 1);
+	blockDims = { n, n, n };
+	update_steps();
+
+	const float c = 0.5f * domainSize;   // domain centre
+	const float half = 0.5f * feature;   // feature half-thickness / radius
+
+	// A generous but inset lateral half-extent so ends never dominate the
+	// measured thickness and a background margin exists for the transform.
+	const float latHalf = std::min(0.4f * domainSize, std::max(4.0f * half, 0.3f * domainSize));
+	// Torus: tube radius = half, ring radius a few tube-radii, kept inside.
+	const float majorR = std::min(0.30f * domainSize, std::max(3.0f * half, 0.20f * domainSize));
+
+	std::cout << "lathalf: " << latHalf << " , half: " << half << std::endl; 
+
+	size_t total = static_cast<size_t>(n) * static_cast<size_t>(n) * static_cast<size_t>(n);
+	scalarField.assign(total, 0.0f);
+
+	// SDF-like field: solid where the shape distance is negative. The isoLevel
+	// offset cancels in the get_image_field / marching_cubes threshold.
+	#pragma omp parallel for collapse(3)
+	for (int k = 0; k < n; ++k) {
+		for (int j = 0; j < n; ++j) {
+			for (int i = 0; i < n; ++i) {
+				float x = bounds[0] + i * stepX;
+				float y = bounds[2] + j * stepY;
+				float z = bounds[4] + k * stepZ;
+				float dx = x - c, dy = y - c, dz = z - c;
+
+				float d;
+				switch (shape) {
+					case PHANTOM_CYLINDER: {
+						// axis along z, diameter 'feature'
+						float radial = std::sqrt(dx * dx + dy * dy) - half;
+						float axial = std::fabs(dz) - latHalf;
+						d = std::max(radial, axial);
+						break;
+					}
+					case PHANTOM_SPHERE: {
+						d = std::sqrt(dx * dx + dy * dy + dz * dz) - half;
+						break;
+					}
+					case PHANTOM_TORUS: {
+						// ring in the xy-plane; tube diameter 'feature'
+						float q = std::sqrt(dx * dx + dy * dy) - majorR;
+						d = std::sqrt(q * q + dz * dz) - half;
+						break;
+					}
+					case PHANTOM_SLAB:
+					default: {
+						// finite plate, thin along z
+						float ax = std::fabs(dx) - latHalf;
+						float ay = std::fabs(dy) - latHalf;
+						float az = std::fabs(dz) - half;
+						d = std::max(ax, std::max(ay, az));
+						break;
+					}
+				}
+				scalarField[find_vertex_index(i, j, k)] = isoLevel + d;
+			}
+		}
+	}
+
+	// AABB spans the whole domain so estimators do not clip it, and no container
+	// is attached so every voxel counts as inside the ROI.
+	aabb.pMin = Vec3(0.0f, 0.0f, 0.0f);
+	aabb.pMax = Vec3(domainSize, domainSize, domainSize);
+	container.reset();
+
+	// domainVolume so estimate_connectivity_density_voxel can normalize; volume
+	// reset so estimate_smi recomputes BV from the fresh phantom mesh.
+	domainVolume = domainSize * domainSize * domainSize;
+	volume = 0.0f;
+};
+
+std::array<float, 2> GeneratorLewiner::run_slab_phantom(
+	float slabThickness, float voxelSize, float domainSize) {
+
+	build_phantom_field(PHANTOM_SLAB, slabThickness, voxelSize, domainSize);
+	std::array<float, 6> blockBounds = bounds;
+	estimate_local_thickness(voxelSize, blockBounds, false);
+	return { localThickness, localThicknessStd };
+};
+
+bool GeneratorLewiner::calibrate_thickness(
+	const IContainer& con, float targetThickness, float voxelSize,
+	float tol, int maxIter, const std::function<void(float)>& onProgress) {
+
+	if (targetThickness <= 0.0f) {
+		if (logger) logger->log(LogPriority::ERROR, "Calibration target thickness must be positive.");
+		return false;
+	}
+
+	// UNIFORM thickness: the search variable c IS the iso-level. VARIED thickness
+	// (a graded iso-level from thicknessFunction over [startThickness,endThickness])
+	// ignores isoLevel entirely, so instead c is a multiplicative SCALE on the
+	// whole range - preserving the grading ratio while shifting its magnitude.
+	const bool varied = (thicknessFunction && thicknessSDF);
+	const float start0 = startThickness;
+	const float end0 = endThickness;
+
+	// Generate for search value c and return the resulting MEASURED mean Tb.Th
+	// (mm), or -1 on generation failure. Leaves the generator built at c.
+	auto measure = [&](float c) -> float {
+		if (varied) {
+			set_thickness_functions(thicknessSDF, thicknessFunction,
+				c * start0, c * end0, transitionDistance);
+		}
+		else {
+			set_thickness(c); // isoLevel = c
+		}
+		if (!compute_scalar_field(con)) return -1.0f;
+		if (!marching_cubes(true)) return -1.0f;
+		Aabb bb = get_aabb();
+		std::array<float, 6> blockBounds = {
+			bb.pMin.x, bb.pMax.x, bb.pMin.y, bb.pMax.y, bb.pMin.z, bb.pMax.z
+		};
+		estimate_local_thickness(voxelSize, blockBounds, false, true);
+		return localThickness;
+	};
+
+	auto report = [&](float p) { if (onProgress) onProgress(std::clamp(p, 0.0f, 1.0f)); };
+
+	// First guess. Uniform: the target iso-level itself. Varied: the scale that
+	// puts the mean of the range on the target (c * mean(range) = target).
+	float c;
+	if (varied) {
+		float mean0 = 0.5f * (start0 + end0);
+		c = (std::fabs(mean0) > 1e-6f) ? (targetThickness / mean0) : 1.0f;
+	}
+	else {
+		c = targetThickness;
+	}
+
+	// The c -> Tb.Th map is monotonic increasing, so a secant search over the
+	// actual (re-measured) output converges without a fitted model.
+	float m = measure(c);
+	if (m < 0.0f) {
+		if (logger) logger->log(LogPriority::ERROR, "Calibration aborted: generation failed.");
+		return false;
+	}
+	report(1.0f / (maxIter + 1.0f));
+
+	float cPrev = c, mPrev = m;
+	for (int it = 0; it < maxIter; ++it) {
+		if (cancelRequested && cancelRequested()) {
+			if (logger) logger->log(LogPriority::WARNING, "Thickness calibration cancelled by user.");
+			report(1.0f);
+			return true; // leave the last valid built scaffold
+		}
+		std::ostringstream oss;
+		oss << "Calibrate [" << it << "] " << (varied ? "scale=" : "c_glob=") << c
+			<< " -> Tb.Th=" << m << " (target " << targetThickness << ")";
+		if (logger) logger->log(LogPriority::INFO, oss.str());
+
+		if (std::fabs(m - targetThickness) <= tol) {
+			if (logger) logger->log(LogPriority::SUCCESS, "Thickness calibration converged.");
+			report(1.0f);
+			return true;
+		}
+
+		float cNext;
+		if (it == 0) {
+			// proportional first correction (handles the ~linear-through-origin part)
+			cNext = c * targetThickness / std::max(m, 1e-6f);
+		}
+		else {
+			float denom = m - mPrev;
+
+			if (std::fabs(denom) < 1e-9){
+				float ratio = targetThickness / std::max(m, 1e-6f);
+                ratio = std::clamp(ratio, 0.5f, 2.0f); 
+                cNext = c * ratio;
+
+				if (std::fabs(cNext - c) < 1e-6f) {
+                    cNext = c * ((m < targetThickness) ? 1.1f : 0.9f);
+                }
+			}
+			else{
+				c - (m - targetThickness) * (c - cPrev) / denom;
+			}
+		}
+
+		// keep positive and inside a generous bracket. For uniform c is an
+		// iso-level (~target); for varied c is a dimensionless scale (~1).
+		cNext = varied ? std::clamp(cNext, 0.01f, 100.0f)
+			: std::clamp(cNext, 0.1f * targetThickness, 10.0f * targetThickness);
+
+		cPrev = c; mPrev = m;
+		c = cNext;
+		m = measure(c);
+		if (m < 0.0f) {
+			// restore the last good build so the generator holds a valid scaffold
+			if (logger) logger->log(LogPriority::WARNING,
+				"Calibration step failed; restoring the previous valid scaffold.");
+			bool restored = (measure(cPrev) >= 0.0f);
+			report(1.0f);
+			return restored;
+		}
+		report((it + 2.0f) / (maxIter + 1.0f));
+	}
+
+	if (logger) logger->log(LogPriority::WARNING,
+		"Thickness calibration hit the iteration limit; returning best estimate.");
+	report(1.0f);
+	return true; // generator is left built at this c (last measured)
+};
+
+bool GeneratorLewiner::calibrate_openness(
+	const IContainer& con,
+	float targetPorosity,
+	float voxelSize,
+	float tol, int maxIter,
+	const std::function<void(float)>& onProgress) {
+
+	if (targetPorosity <= 0.0f || targetPorosity >= 1.0f) {
+		if (logger) logger->log(
+			LogPriority::ERROR, "Porosity target must be in (0,1).");
+		return false;
+	}
+
+	// Vary the openness (threshold) at the CURRENT, fixed thickness (iso-level or
+	// graded range). Porosity is the voxel-based estimate that compute_scalar_field
+	// sets, so no marching cubes is needed to measure it. Porosity is monotone
+	// increasing in openness (foam -> lattice), so a secant converges.
+	auto measure = [&](float op) -> float {
+		threshold = std::clamp(op, 0.0f, 1.0f);
+		if (!compute_scalar_field(con)) return -1.0f;
+		return porosity;
+	};
+
+	auto report = [&](float p) { if (onProgress) onProgress(std::clamp(p, 0.0f, 1.0f)); };
+
+	// Start the search from the NEUTRAL midpoint, not the current openness. A
+	// previous calibration may have left threshold pinned at a bound (0 or 1),
+	// from which the secant + "unreachable" guard would fail immediately even
+	// though the target is reachable. 0.5 is a robust, well-conditioned start.
+	float c = 0.5f;
+	float m = measure(c);
+	if (m < 0.0f) {
+		if (logger) logger->log(LogPriority::ERROR, "Openness calibration aborted: generation failed.");
+		return false;
+	}
+	report(1.0f / (maxIter + 1.0f));
+
+	float cPrev = c, mPrev = m;
+	for (int it = 0; it < maxIter; ++it) {
+		if (cancelRequested && cancelRequested()) {
+			if (logger) logger->log(LogPriority::WARNING, "Openness calibration cancelled by user.");
+			report(1.0f);
+			return true; // leave the last valid field
+		}
+		std::ostringstream oss;
+		oss << "Calibrate openness [" << it << "] tau=" << c
+			<< " -> porosity=" << m << " (target " << targetPorosity << ")";
+		if (logger) logger->log(LogPriority::INFO, oss.str());
+
+		if (std::fabs(m - targetPorosity) <= tol) {
+			if (logger) logger->log(LogPriority::SUCCESS, "Openness calibration converged.");
+			report(1.0f);
+			return true;
+		}
+
+		float cNext;
+		if (it == 0) {
+			// nudge in the correct monotone direction (porosity increases with tau)
+			cNext = c + ((targetPorosity > m) ? 0.1f : -0.1f);
+		}
+		else {
+			float denom = m - mPrev;
+			if (std::fabs(denom) < 1e-9f) {
+				float nudge = (targetPorosity > m) ? 0.05f : -0.05f;
+                cNext = c + nudge;
+			}
+			else{
+				cNext = c - (m - targetPorosity) * (c - cPrev) / denom;
+			}
+		}
+		cNext = std::clamp(cNext, 0.0f, 1.0f);   // openness is a fraction in [0,1]
+
+		// If we are pinned at a bound and still off-target, the porosity is
+		// unreachable at this thickness/spacing - stop and report.
+		if (cNext == cPrev && (c == 0.0f || c == 1.0f)) {
+			if (logger) logger->log(LogPriority::WARNING,
+				"Target porosity unreachable within openness [0,1] at this thickness/spacing.");
+			report(1.0f);
+			return true;
+		}
+
+		cPrev = c; mPrev = m;
+		c = cNext;
+		m = measure(c);
+		if (m < 0.0f) {
+			bool restored = (measure(cPrev) >= 0.0f);
+			report(1.0f);
+			return restored;
+		}
+		report((it + 2.0f) / (maxIter + 1.0f));
+	}
+
+	if (logger) logger->log(LogPriority::WARNING,
+		"Openness calibration hit the iteration limit; returning best estimate.");
+	report(1.0f);
+	return true;
+};
+
+namespace {
+// RAII restore of the junction-smoothing knobs (smoothJunctions/smoothK). The
+// joint calibrations may back smoothK off during the thickness solve; on any
+// failure/cancel path the object must return to its pre-call state, but on a
+// SUCCESSFUL calibration the backed-off value is part of the result and must
+// persist (so a later regeneration reproduces the calibrated Tb.Th). Restores on
+// scope exit unless commit() was called. Replaces the hand-written cache/restore
+// that had to be repeated at every early return.
+struct SmoothKnobGuard {
+	bool& jRef; float& kRef; const bool origJ; const float origK; bool committed = false;
+	SmoothKnobGuard(bool& j, float& k) : jRef(j), kRef(k), origJ(j), origK(k) {}
+	SmoothKnobGuard(const SmoothKnobGuard&) = delete;
+	SmoothKnobGuard& operator=(const SmoothKnobGuard&) = delete;
+	void commit() { committed = true; }
+	~SmoothKnobGuard() { if (!committed) { jRef = origJ; kRef = origK; } }
+};
+} // namespace
+
+// Two-knob calibration (Tb.Th, porosity). The (thickness, openness) -> (Tb.Th,
+// porosity) Jacobian is near-triangular (dTb.Th/dopenness ~ 0, measured), so the
+// solve is a back-substitution: calibrate thickness, then openness. The outer
+// loop absorbs the tiny residual coupling (an openness change nudges Tb.Th by
+// ~the noise floor) and normally breaks after one pass.
+bool GeneratorLewiner::two_knob_calibration(
+	const IContainer& con,
+	float targetThickness,
+	float targetPorosity,
+	float voxelSize,
+	float tol, int maxIter,
+	const std::function<void(float)>& onProgress) {
+
+	auto report = [&](float p) { if (onProgress) onProgress(std::clamp(p, 0.0f, 1.0f)); };
+
+	// Restore smoothJunctions/smoothK on any early return; commit() (just before
+	// the final success return) keeps the possibly backed-off values.
+	SmoothKnobGuard knobGuard(smoothJunctions, smoothK);
+
+	// Reset the knobs to neutral so the solve does not inherit a bad state (e.g. openness pinned at a bound) from a previous calibration. Thickness is reset inside calibrate_thickness (first guess = target); reset openness here so the thickness step also runs at a well-conditioned, mid-range openness.
+	threshold = 0.5f;
+
+	// The system is near-triangular (dTb.Th/dopenness ~ 0), so ONE outer pass
+	// suffices; cap at 3 so a tight tolerance can never cause a maxIter-pass
+	// runaway (each pass is ~20 generations).
+	const int outerMax = std::min(3, maxIter);
+	for (int it = 0; it < outerMax; ++it) {
+		if (cancelRequested && cancelRequested()) break; // sub-solves already bailed; stop looping
+
+		if (logger) {
+            std::ostringstream oss;
+            oss << "=== Two-knob search -> Iter " << (it + 1) << " of " << outerMax << " ===";
+            logger->log(LogPriority::INFO, oss.str());
+            logger->log(LogPriority::INFO, "Step 1: Calibrating thickness (iso-level/scale).");
+        }
+
+		// 1. thickness -> Tb.Th (independent of openness); leaves the mesh built.
+		if (!calibrate_thickness(con, targetThickness, voxelSize, tol, 8,
+            [&](float p) { report(0.05f + 0.40f * p); }))
+            return false;   // knobGuard restores
+
+		// Junction smoothing (the smin fillet of radius k = smoothK) fattens the
+		// rod/plate nodes, which raises the MINIMUM Tb.Th the geometry can reach.
+		// If k is too large that floor sits ABOVE the target, so the secant in
+		// calibrate_thickness drives the iso-level down yet Tb.Th stays pinned
+		// high - it "fails" (returns built, but off-target). The cure is to shrink
+		// the fillet: back k off geometrically and recalibrate until Tb.Th is
+		// reachable, or k is effectively zero (the plain linear blend, whose floor
+		// is the lowest achievable). Only runs when smoothing is actually on.
+		const int kBackoffMax = 6;
+		for (int r = 0; smoothJunctions && smoothK > 1e-6f
+			&& std::fabs(localThickness - targetThickness) > tol
+			&& r < kBackoffMax; ++r) {
+
+			const float kPrev = smoothK;
+			smoothK = (0.5f * smoothK > 1e-6f) ? 0.5f * smoothK : 0.0f;
+			if (smoothK == 0.0f) smoothJunctions = false; // fell through to linear blend
+
+			if (logger) {
+                std::ostringstream oss;
+                oss << "Tb.Th target " << targetThickness
+                    << " unreachable at smoothK=" << kPrev << " (measured "
+                    << localThickness << "); reducing k to " << smoothK
+                    << " and recalibrating thickness.";
+                logger->log(LogPriority::WARNING, oss.str());
+            }
+
+			if (!calibrate_thickness(con, targetThickness, voxelSize, tol, 8,
+                [&](float p) { report(0.05f + 0.40f * p); }))
+                return false;   // knobGuard restores
+		}
+
+		if (logger) {
+            logger->log(LogPriority::INFO, "Step 2: Calibrating openness (porosity).");
+        }
+
+		// 2. openness -> porosity at the fixed thickness (field only, no mesh).
+		if (!calibrate_openness(con, targetPorosity, voxelSize, tol, maxIter,
+            [&](float p) { report(0.45f + 0.40f * p); }))
+            return false;   // knobGuard restores
+
+		// 3. re-measure Tb.Th after the openness change to check the coupling.
+		if (!marching_cubes(true)) return false;
+		Aabb bb = get_aabb();
+		std::array<float, 6> bnds = { bb.pMin.x, bb.pMax.x, bb.pMin.y, bb.pMax.y, bb.pMin.z, bb.pMax.z };
+		estimate_local_thickness(voxelSize, bnds, false, true);
+
+		// Break as soon as Tb.Th is on target. calibrate_openness already drove
+		// openness to its optimum for this thickness (converged, or pinned at a
+		// bound if the porosity target is infeasible), so once the thickness drift
+		// is gone another pass would only REPEAT the identical openness/porosity.
+		bool okT = std::fabs(localThickness - targetThickness) <= tol;
+		if (okT) {
+			if (std::fabs(porosity - targetPorosity) > tol && logger)
+				logger->log(LogPriority::WARNING,
+					"two_knob: porosity target not reachable at the calibrated Tb.Th; "
+					"returning best-effort openness.");
+			break;
+		}
+		else if (it + 1 < outerMax) {
+            // LOG: Explain the restart reason
+            if (logger) {
+                std::ostringstream oss;
+                oss << "Coupling drift detected: changing openness shifted Tb.Th to "
+                    << localThickness << " (target " << targetThickness 
+                    << "). Restarting outer loop to correct.";
+                logger->log(LogPriority::INFO, oss.str());
+            }
+        }
+	}
+
+	// If cancelled, skip the heavy final pass; the last valid scaffold is built. knobGuard restores the original knobs (cancel discards the backed-off k).
+	if (cancelRequested && cancelRequested()) {
+        if (logger) logger->log(LogPriority::WARNING, "Two-knob calibration cancelled by user.");
+        report(1.0f);
+        return true;
+    }
+
+	// final: full metric set on the calibrated scaffold.
+	if (!marching_cubes()) return false;   // knobGuard restores
+	estimate_metrics(con);
+	report(1.0f);
+
+	thicknessVersion = meshVersion;
+	// success: keep the calibrated (possibly backed-off) smoothK
+	knobGuard.commit();   
+	return true;
+};
+
+// Three-knob calibration (Tb.Th, porosity, SMI). Thickness is calibrated and
+// frozen (it decouples from openness/spread). The (openness, spread)->(porosity,
+// SMI) block is ILL-CONDITIONED (the knobs move both outputs nearly parallel), so
+// instead of inverting a near-singular 2x2 we solve it NESTED: secant on spread
+// to hit SMI, with openness re-calibrated inside each step to hold porosity. Two
+// robust monotone 1-D solves; porosity is held exactly, SMI is best-effort within
+// its reachable band (see §8.4 - SMI is only weakly controllable at fixed density).
+bool GeneratorLewiner::three_knob_calibration(
+	const IContainer& con,
+	float targetThickness,
+	float targetPorosity,
+	float targetSMI,
+	float voxelSize,
+	float tol, int maxIter,
+	const std::function<void(float)>& onProgress) {
+
+	auto report = [&](float p) { if (onProgress) onProgress(std::clamp(p, 0.0f, 1.0f)); };
+
+	// Restore smoothJunctions/smoothK on any early return; commit() (just before
+	// the final success return) keeps the possibly backed-off values.
+	SmoothKnobGuard knobGuard(smoothJunctions, smoothK);
+
+	// Neutral starting knobs so the solve does not inherit a bad accumulated state.
+	threshold = 0.5f;
+	spread = 0.5f;
+
+	if (logger) {
+		logger->log(LogPriority::INFO, "=== Three-knob search ===");
+		logger->log(LogPriority::INFO, "Step 1: Calibrating thickness (iso-level/scale).");
+	}
+
+	// 1. thickness -> Tb.Th, frozen.
+	if (!calibrate_thickness(con, targetThickness, voxelSize, tol, 8,
+		[&](float p) { report(0.05f + 0.25f * p); }))
+		return false;   // knobGuard restores
+
+	// Junction-fillet back-off (identical to two_knob_calibration): the smin fillet
+	// of radius k = smoothK fattens the nodes and raises the MINIMUM reachable
+	// Tb.Th; if that floor sits above the target, shrink k and recalibrate until the
+	// target is reachable, or k underflows to the plain linear blend.
+	const int kBackoffMax = 6;
+	for (int r = 0; smoothJunctions && smoothK > 1e-6f
+		&& std::fabs(localThickness - targetThickness) > tol
+		&& r < kBackoffMax; ++r) {
+
+		const float kPrev = smoothK;
+		smoothK = (0.5f * smoothK > 1e-6f) ? 0.5f * smoothK : 0.0f;
+		if (smoothK == 0.0f) smoothJunctions = false; // fell through to linear blend
+
+		if (logger) {
+			std::ostringstream oss;
+			oss << "Tb.Th target " << targetThickness
+				<< " unreachable at smoothK=" << kPrev << " (measured "
+				<< localThickness << "); reducing k to " << smoothK
+				<< " and recalibrating thickness.";
+			logger->log(LogPriority::WARNING, oss.str());
+		}
+
+		if (!calibrate_thickness(con, targetThickness, voxelSize, tol, 8,
+			[&](float p) { report(0.05f + 0.25f * p); }))
+			return false;   // knobGuard restores
+	}
+
+	if (logger) logger->log(LogPriority::INFO,
+		"Step 2: Calibrating openness + spread (porosity, SMI).");
+
+	// Step 2: nested 1-D solve, robust to the (openness, spread) ILL-CONDITIONING.
+	// openness and spread move (porosity, SMI) along nearly parallel directions,
+	// so the 2x2 Jacobian is near-singular and a direct Newton/LM overshoots.
+	// Instead we exploit the structure the sensitivity study found: SMI(spread) AT
+	// MATCHED POROSITY is monotone. So we secant on SPREAD to hit SMI, and each
+	// evaluation re-calibrates OPENNESS (1-D, well-conditioned) to hold porosity.
+	// Two nested robust 1-D solves, no matrix inversion; porosity is held EXACTLY
+	// (a firm literature target) and SMI is best-effort within its reachable band.
+	const float tolS = std::max(0.05f, 10.0f * tol);
+
+	// spread -> SMI, with openness re-solved to keep porosity on target. Leaves
+	// the generator built (field + mesh) at the calibrated (openness, spread).
+	auto smi_at_target_porosity = [&](float sp) -> float {
+		spread = std::clamp(sp, 0.0f, 1.0f);
+		if (!calibrate_openness(con, targetPorosity, voxelSize, tol, maxIter, nullptr))
+			return -1e9f;
+		if (!marching_cubes(true)) return -1e9f;
+		estimate_metrics(con);
+		estimate_smi();
+		return smi;
+	};
+
+	float sp = spread;
+	float S = smi_at_target_porosity(sp);
+	if (S < -1e8f) {
+		if (logger) logger->log(LogPriority::ERROR, "three_knob: openness sub-calibration failed.");
+		return false;
+	}
+	report(0.4f);
+
+	float spPrev = sp, SPrev = S;
+	for (int it = 0; it < maxIter; ++it) {
+		if (cancelRequested && cancelRequested()) {
+			if (logger) logger->log(LogPriority::WARNING, "Three-knob calibration cancelled by user.");
+			break;
+		}
+		std::ostringstream oss;
+		oss << "3-knob (nested) [" << it << "] spread=" << sp << " -> SMI=" << S
+			<< " (target " << targetSMI << ", porosity held at " << porosity << ")";
+		if (logger) logger->log(LogPriority::INFO, oss.str());
+
+		if (std::fabs(S - targetSMI) <= tolS) {
+			if (logger) logger->log(LogPriority::SUCCESS, "Three-knob calibration converged.");
+			break;
+		}
+
+		float spNext;
+		if (it == 0) {
+			// SMI increases with spread at matched porosity (measured, see 8.4)
+			spNext = sp + ((targetSMI > S) ? 0.1f : -0.1f);
+		}
+		else {
+			float denom = S - SPrev;
+			spNext = (std::fabs(denom) < 1e-9f)
+				? 0.5f * (sp + spPrev)
+				: sp - (S - targetSMI) * (sp - spPrev) / denom;
+		}
+		spNext = std::clamp(spNext, 0.0f, 1.0f);
+
+		if (spNext == spPrev && (sp == 0.0f || sp == 1.0f)) {
+			if (logger) logger->log(LogPriority::WARNING,
+				"three_knob: target SMI outside the reachable band at this porosity; "
+				"returning closest feasible spread.");
+			break;
+		}
+
+		spPrev = sp; SPrev = S;
+		sp = spNext;
+		S = smi_at_target_porosity(sp);
+		if (S < -1e8f) { smi_at_target_porosity(spPrev); break; }  // restore last good
+		report(0.4f + 0.5f * (it + 1.0f) / maxIter);
+	}
+
+	// generator already holds the calibrated scaffold; final full metric pass so
+	// all reported metrics are consistent (skipped if the user cancelled).
+	// knobGuard restores on cancel/failure; commit() keeps the calibrated knobs.
+	if (cancelRequested && cancelRequested()) { report(1.0f); return true; }
+	if (!marching_cubes()) return false;
+	estimate_metrics(con);
+	report(1.0f);
+	knobGuard.commit();   // success: keep the calibrated (possibly backed-off) smoothK
+	return true;
 };
 
 //@Function to get a subregion of the created mesh to compute the image metrics, we also should add
@@ -4094,19 +5166,24 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 	out.write(reinterpret_cast<const char*>(&transitionDistance), sizeof(transitionDistance));
 	out.write(reinterpret_cast<const char*>(&threshold), sizeof(threshold));
 	out.write(reinterpret_cast<const char*>(&isoLevel), sizeof(isoLevel));
-	out.write(reinterpret_cast<const char*>(&foam), sizeof(foam));
 	out.write(reinterpret_cast<const char*>(&voxelSize), sizeof(voxelSize));
+	
+	// smoothness features
+	out.write(reinterpret_cast<const char*>(&iter), sizeof(iter));
+	out.write(reinterpret_cast<const char*>(&lambda), sizeof(lambda));
+	out.write(reinterpret_cast<const char*>(&mu), sizeof(mu));
+	
 	out.write(reinterpret_cast<const char*>(&stretchX), sizeof(stretchX));
 	out.write(reinterpret_cast<const char*>(&stretchY), sizeof(stretchY));
 	out.write(reinterpret_cast<const char*>(&stretchZ), sizeof(stretchZ));
 	out.write(reinterpret_cast<const char*>(&anisotropyAngle), sizeof(anisotropyAngle));
 
-	// FIXED: Explicitly write components of Vec3 to avoid struct padding offsets
 	out.write(reinterpret_cast<const char*>(&anisotropyVec.x), sizeof(float));
 	out.write(reinterpret_cast<const char*>(&anisotropyVec.y), sizeof(float));
 	out.write(reinterpret_cast<const char*>(&anisotropyVec.z), sizeof(float));
 
 	out.write(reinterpret_cast<const char*>(&renderMode), sizeof(renderMode));
+	out.write(reinterpret_cast<const char*>(&backgroundWeight), sizeof(backgroundWeight));
 
 	// Anisotropy Sources Block
 	uint32_t numSources = static_cast<uint32_t>(anisotropySources.size());
@@ -4157,6 +5234,8 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 			if (pathLength > 0) {
 				out.write(pathStr.data(), pathLength);
 			}
+			float sf = meshContainer->get_scale();
+			out.write(reinterpret_cast<const char*>(&sf), sizeof(sf));
 		}
 
 		std::string conName = lockedCon->name;
@@ -4253,8 +5332,11 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	std::vector<std::shared_ptr<IContainer>>& containerList,
 	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generatorList,
-	std::vector<std::shared_ptr<AnisotropySource>>& globalSources
+	std::vector<std::shared_ptr<AnisotropySource>>& globalSources,
+	std::atomic<int>* stage
 ) {
+	if (stage) stage->store(0, std::memory_order_relaxed);
+
 	std::ifstream in(fileName, std::ios::in | std::ios::binary);
 	if (!in.is_open()) {
 		logger->log(LogPriority::ERROR, "Failed to open file for binary deserialization: " + fileName);
@@ -4270,10 +5352,13 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 
 	uint32_t fileVersion = 0;
 	in.read(reinterpret_cast<char*>(&fileVersion), sizeof(fileVersion));
+	std::cout << fileVersion << std::endl;
 	if (fileVersion != 1) {
 		logger->log(LogPriority::ERROR, "Unsupported file version.");
 		return false;
 	}
+
+	if (stage) stage->store(1, std::memory_order_relaxed);
 
 	// Read Core Parameters Block
 	in.read(reinterpret_cast<char*>(&selectedThicknessOption), sizeof(selectedThicknessOption));
@@ -4284,8 +5369,13 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	in.read(reinterpret_cast<char*>(&transitionDistance), sizeof(transitionDistance));
 	in.read(reinterpret_cast<char*>(&threshold), sizeof(threshold));
 	in.read(reinterpret_cast<char*>(&isoLevel), sizeof(isoLevel));
-	in.read(reinterpret_cast<char*>(&foam), sizeof(foam));
 	in.read(reinterpret_cast<char*>(&voxelSize), sizeof(voxelSize));
+
+	// read smoothness
+	in.read(reinterpret_cast<char*>(&iter), sizeof(iter));
+	in.read(reinterpret_cast<char*>(&lambda), sizeof(lambda));
+	in.read(reinterpret_cast<char*>(&mu), sizeof(mu));
+	
 	in.read(reinterpret_cast<char*>(&stretchX), sizeof(stretchX));
 	in.read(reinterpret_cast<char*>(&stretchY), sizeof(stretchY));
 	in.read(reinterpret_cast<char*>(&stretchZ), sizeof(stretchZ));
@@ -4297,33 +5387,35 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	in.read(reinterpret_cast<char*>(&anisotropyVec.z), sizeof(float));
 
 	in.read(reinterpret_cast<char*>(&renderMode), sizeof(renderMode));
+	in.read(reinterpret_cast<char*>(&backgroundWeight), sizeof(backgroundWeight));
+
+	if (stage) stage->store(2, std::memory_order_relaxed);
 
 	// Load Anisotropy Sources
 	anisotropySources.clear();
 
     uint32_t numSources = 0;
 	in.read(reinterpret_cast<char*>(&numSources), sizeof(numSources));
-	
+
 	for (uint32_t i = 0; i < numSources; ++i) {
 		auto src = std::make_shared<AnisotropySource>();
-		
+
 		in.read(reinterpret_cast<char*>(&src->origin.x), sizeof(float) * 3);
 		in.read(reinterpret_cast<char*>(&src->direction.x), sizeof(float) * 3);
 		in.read(reinterpret_cast<char*>(&src->stretch.x), sizeof(float) * 3);
 		in.read(reinterpret_cast<char*>(&src->sigma), sizeof(float));
-		
-		// Read angle if you kept it in the export
+
 		in.read(reinterpret_cast<char*>(&src->angle), sizeof(float));
-		
+
 		src->name = "Anisotropy Source " + std::to_string(i + 1);
-		
-		// Rebuild the math tensor and the visual geometry
 		src->update_metric();
-		src->update_model();
-		
+		// update_model() (OpenGL) is deferred to the main thread after load completes
+
 		anisotropySources.push_back(src);
 		globalSources.push_back(src);
 	}
+
+	if (stage) stage->store(3, std::memory_order_relaxed);
 
 	// Load Container Context Block
 	int32_t containerTypeID = 0;
@@ -4354,8 +5446,11 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 			pathStr.resize(pathLength);
 			in.read(&pathStr[0], pathLength);
 		}
-		if (std::filesystem::exists(pathStr)) {
+		float scaleFactor = 1.0f;
+		in.read(reinterpret_cast<char*>(&scaleFactor), sizeof(scaleFactor));
+		if (!pathStr.empty() && std::filesystem::exists(pathStr)) {
 			rebuiltContainer = std::make_shared<AbstractContainer>(pathStr);
+			rebuiltContainer->set_scale(scaleFactor);
 		}
 	}
 
@@ -4376,6 +5471,8 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 		containerList.push_back(rebuiltContainer);
 		this->container = rebuiltContainer;
 	}
+
+	if (stage) stage->store(4, std::memory_order_relaxed);
 
 	// Read Generator Context Block
 	int32_t genTypeID = -1;
@@ -4477,13 +5574,16 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 		rebuiltGen->set_seeds(seeds);
 		rebuiltGen->set_renderMode(renderMode);
 
-		if (this->renderMode && !this->seeds.empty()) {
+		// update_model() is an OpenGL call — only safe on the main thread
+		if (!stage && this->renderMode && !this->seeds.empty()) {
 			rebuiltGen->update_model();
 		}
 
 		generatorList.push_back(rebuiltGen);
 		this->generator = rebuiltGen;
 	}
+
+	if (stage) stage->store(5, std::memory_order_relaxed);
 
 	// Read Raw Grid Array Block
 	uint64_t voxelCount = 0;
@@ -4501,8 +5601,15 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 		return false;
 	}
 
-	// 12. Run final level-set boundary tracking reconstruction
-	marching_cubes();
+	if (stage) stage->store(6, std::memory_order_relaxed);
+
+	// Run final level-set boundary tracking reconstruction
+	if (!marching_cubes()) {
+		if (logger) logger->log(LogPriority::ERROR, "SCAF reconstruction failed: invalid scalar field!");
+		return false;
+	}
+
+	if (stage) stage->store(7, std::memory_order_relaxed);
 
 	// Re-snap accurate visual state matches post-marching cubes execution
 	if (thicknessValid)    thicknessVersion = meshVersion;
@@ -4739,7 +5846,7 @@ void GeneratorLewiner::apply_scale() {
 
 }
 
-void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirection, int mode, ROI* roi) {
+void GeneratorLewiner::estimate_anisotropy(float voxelSize, int daDirectionNr, int linesPerDirection, int mode, ROI* roi) {
 
 	std::vector<float> milValues(daDirectionNr, 0.0f);
 
@@ -4754,26 +5861,68 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
 	}
 
-	float boundsVoxel[6];
+	// Resample the structure to a binary image at the requested voxel size, the
+	// same substrate used by local thickness/separation. The MIL rays then walk
+	// this image, so every voxel-based metric shares one sampling resolution.
+	std::array<float, 6> blockBounds = { aabb.pMin.x, aabb.pMax.x, aabb.pMin.y, aabb.pMax.y, aabb.pMin.z, aabb.pMax.z };
 	if (roi) {
 		std::array<float, 6> reqBounds = roi->get_bounds();
-		int min_i = std::max(0, static_cast<int>(std::floor((reqBounds[0] - bounds[0]) / stepX)));
-		int max_i = std::min(blockDims[0] - 1, static_cast<int>(std::ceil((reqBounds[1] - bounds[0]) / stepX)));
-		int min_j = std::max(0, static_cast<int>(std::floor((reqBounds[2] - bounds[2]) / stepY)));
-		int max_j = std::min(blockDims[1] - 1, static_cast<int>(std::ceil((reqBounds[3] - bounds[2]) / stepY)));
-		int min_k = std::max(0, static_cast<int>(std::floor((reqBounds[4] - bounds[4]) / stepZ)));
-		int max_k = std::min(blockDims[2] - 1, static_cast<int>(std::ceil((reqBounds[5] - bounds[4]) / stepZ)));
+		blockBounds[0] = std::max(reqBounds[0], aabb.pMin.x);
+		blockBounds[1] = std::min(reqBounds[1], aabb.pMax.x);
+		blockBounds[2] = std::max(reqBounds[2], aabb.pMin.y);
+		blockBounds[3] = std::min(reqBounds[3], aabb.pMax.y);
+		blockBounds[4] = std::max(reqBounds[4], aabb.pMin.z);
+		blockBounds[5] = std::min(reqBounds[5], aabb.pMax.z);
+	}
 
-		boundsVoxel[0] = static_cast<float>(min_i); boundsVoxel[1] = static_cast<float>(max_i);
-		boundsVoxel[2] = static_cast<float>(min_j); boundsVoxel[3] = static_cast<float>(max_j);
-		boundsVoxel[4] = static_cast<float>(min_k); boundsVoxel[5] = static_cast<float>(max_k);
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds, false);
+	const long nx = static_cast<long>(std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize));
+	const long ny = static_cast<long>(std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize));
+	const long nz = static_cast<long>(std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize));
+
+	auto is_solid = [&](long vx, long vy, long vz) -> bool {
+		return field[static_cast<size_t>(vx) + static_cast<size_t>(vy) * nx +
+			static_cast<size_t>(vz) * nx * ny] != 0;
+	};
+
+	// Container mask on the resampled grid. For a non-box container (e.g. a
+	// cylinder) the AABB corners lie OUTSIDE the wall; their structure-free ray
+	// length would bias each direction's MIL DIFFERENTLY (axial rays skirt the
+	// corners, radial rays plough through them), distorting the fitted ellipsoid
+	// and hence DA. Restrict the intercept length and crossing count to voxels
+	// inside the container - matching the Tb.N MIL path and local thickness.
+	// Because DA is a RATIO of per-direction MIL (normalized by maxMIL below), a
+	// box container - whose mask is all-inside - is left essentially unchanged.
+	auto conMask = container.lock();
+	std::vector<uint8_t> insideField;
+	if (conMask) {
+		insideField.assign(field.size(), 1);
+		#pragma omp parallel for collapse(3)
+		for (long z = 0; z < nz; z++) {
+			for (long y = 0; y < ny; y++) {
+				for (long x = 0; x < nx; x++) {
+					float px = blockBounds[0] + (x + 0.5f) * voxelSize;
+					float py = blockBounds[2] + (y + 0.5f) * voxelSize;
+					float pz = blockBounds[4] + (z + 0.5f) * voxelSize;
+					insideField[static_cast<size_t>(x) + static_cast<size_t>(y) * nx +
+						static_cast<size_t>(z) * nx * ny] =
+						conMask->is_inside(Vec3(px, py, pz)) ? 1 : 0;
+				}
+			}
+		}
 	}
-	else {
-		// Fallback to full grid voxel dimensions
-		boundsVoxel[0] = 0.0f; boundsVoxel[1] = static_cast<float>(blockDims[0]);
-		boundsVoxel[2] = 0.0f; boundsVoxel[3] = static_cast<float>(blockDims[1]);
-		boundsVoxel[4] = 0.0f; boundsVoxel[5] = static_cast<float>(blockDims[2]);
-	}
+	auto is_inside_vox = [&](long vx, long vy, long vz) -> bool {
+		if (insideField.empty()) return true; // no container bound: measure the whole box
+		return insideField[static_cast<size_t>(vx) + static_cast<size_t>(vy) * nx +
+			static_cast<size_t>(vz) * nx * ny] != 0;
+	};
+
+	// ray box spans the whole resampled image (image-voxel coordinates)
+	float boundsVoxel[6] = {
+		0.0f, static_cast<float>(nx),
+		0.0f, static_cast<float>(ny),
+		0.0f, static_cast<float>(nz)
+	};
 
 	Vec3 boxCenter((boundsVoxel[1] + boundsVoxel[0]) * 0.5f,
 		(boundsVoxel[3] + boundsVoxel[2]) * 0.5f,
@@ -4827,10 +5976,10 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 
 					if (hit && tMax > 0.0f) {
 						tMin = std::max(0.0f, tMin);
-						localBoxLen += (tMax - tMin);
 						float startT = tMin + dist(rng) * rayStepSize;
 						long samples = static_cast<long>(std::ceil((tMax - startT) / rayStepSize));
 						bool previousPhase = false;
+						bool previousInside = false;
 
 						for (long s = 0; s < samples; s++) {
 							Vec3 pt = rayOrigin + d * (startT + s * rayStepSize);
@@ -4838,9 +5987,17 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 							long vy = std::clamp<long>(static_cast<long>(pt.y), static_cast<long>(boundsVoxel[2]), static_cast<long>(boundsVoxel[3]) - 1);
 							long vz = std::clamp<long>(static_cast<long>(pt.z), static_cast<long>(boundsVoxel[4]), static_cast<long>(boundsVoxel[5]) - 1);
 
-							bool currentPhase = (get_data(vx, vy, vz) < isoLevel);
-							if (currentPhase != previousPhase) { localTransitions++; }
+							bool currentInside = is_inside_vox(vx, vy, vz);
+							bool currentPhase = is_solid(vx, vy, vz);
+
+							// Count length and crossings only inside the container, so the
+							// empty AABB corners (and the wall itself) never enter the MIL.
+							if (currentInside) {
+								localBoxLen += rayStepSize;
+								if (previousInside && currentPhase != previousPhase) { localTransitions++; }
+							}
 							previousPhase = currentPhase;
+							previousInside = currentInside;
 						}
 					}
 				}
@@ -4933,26 +6090,26 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 
 		switch (mode) {
 		case 0: {
+			// ratio of ellipsoid radii (Lmax/Lmin) = sqrt(lambdaMax/lambdaMin), >= 1
 			float lenMax = (lambdaMin > 1e-9f) ? (1.0f / std::sqrt(lambdaMin)) : 0.0f;
 			float lenMin = (lambdaMax > 1e-9f) ? (1.0f / std::sqrt(lambdaMax)) : 0.0f;
 			anisotropyDegree = (lenMax > 1e-9f) ? (lenMax / lenMin) : 0.0f;
 			break;
 		}
-		case 1: {
-			float lenMax = (lambdaMin > 1e-9f) ? (1.0f / std::sqrt(lambdaMin)) : 0.0f;
-			float lenMin = (lambdaMax > 1e-9f) ? (1.0f / std::sqrt(lambdaMax)) : 0.0f;
-			anisotropyDegree = (lenMax > 1e-9f) ? (1.0f - (lenMax / lenMin)) : 0.0f;
-			break;
-			}
+		// mode 1 (1 - Lmax/Lmin) removed: Lmax/Lmin >= 1 so it is always <= 0,
+		// which is not a meaningful degree of anisotropy.
 		case 2: {
+			// eigenvalue ratio lambdaMin/lambdaMax in (0,1], 1 = isotropic
 			anisotropyDegree = (lambdaMax > 1e-9f) ? static_cast<float>(lambdaMin / lambdaMax) : 0.0f;
 			break;
 		}
-		case 3: {
+		case 3:
+		default: {
+			// 1 - lambdaMin/lambdaMax in [0,1), 0 = isotropic (BoneJ convention)
 			anisotropyDegree = (lambdaMax > 1e-9f) ? static_cast<float>(1.0 - (lambdaMin / lambdaMax)) : 0.0f;
 			break;
 		}
-		}		
+		}
 	}
 
 	// create also the ellipsoid pointcloud
@@ -4976,22 +6133,42 @@ void GeneratorLewiner::estimate_anisotropy(int daDirectionNr, int linesPerDirect
 // Also assumes <random>, <cmath>, <algorithm>, <vector>, and OpenMP are already included.
 //
 // Key changes vs. the original:
-//   1) Removed the spurious "/ 2.0".  Tb.N = S_V/2 and S_V = 2*P_L  ==>  Tb.N = P_L.
-//      The two factors of 2 cancel, so isotropically-averaged transitions/length
-//      already IS Tb.N. No extra division.
+//   1) Tb.N = P_L / 2: the DDA counts every interface crossing, and each
+//      trabecula gives two (entry + exit), so the trabecular count per length
+//      is half the crossing density. (An earlier version dropped this /2 and
+//      read ~2x high vs. reference values.)
 //   2) Replaced the sqrt(3) point-sampling with an exact 3D DDA (Amanatides & Woo)
 //      voxel walk, so no thin strut is ever skipped and the count is step-size-free.
 //   3) Baseline phase is taken from the FIRST voxel, removing the phantom entry transition.
-//   4) Unit conversion unchanged: valid IFF stepX is the physical voxel size in mm/voxel.
+//   4) Rays walk a binary image resampled at the caller's voxelSize, so the
+//      1/voxel -> 1/mm conversion uses that voxelSize (mm/voxel) directly.
 
-void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr, int linesPerDirection, ROI* roi) {
+void GeneratorLewiner::estimate_trabecular_number(
+	float voxelSize, 
+	int formula, 
+	int daDirectionNr, int linesPerDirection, ROI* roi) {
 
-	// this is if the formula is set to use the Tb.N = (BV/TV) / Tb.Th
-	if (formula == 1 && trabecularNrVersion < thicknessVersion) {
+	// this is if the formula is set to use the Tb.N = (BV/TV) / Tb.Th	
+	if (
+		(formula == 0 || formula == 1) && trabecularNrVersion < thicknessVersion){
+		logger->log(LogPriority::WARNING, "The Estimated Trabecular Number is measured with the previously estimated local thickness. If this was estimated inside a ROI, the estimation is wrong. Try creating the scaffold inside the ROI first.");
+	}
+
+	if (formula == 2 && trabecularNrVersion < separationVersion){
+		logger->log(LogPriority::WARNING, "The Estimated Trabecular Number is measured with the previously estimated local separation. If this was estimated inside a ROI, the estimation is wrong. Try creating the scaffold inside the ROI first.");
+	} 
+
+	if (formula == 1) {
 		float bvtv = 1.0f - porosity;
 		trabecularNr = bvtv / localThickness;
 		logger->log(LogPriority::SUCCESS, "Estimated Trabecular Number with Tb.N = (BV/TV) / Tb.Th");
-		logger->log(LogPriority::WARNING, "The Estimated Trabecular Number is measured with the previously estimated local thickness. If this was estimated inside a ROI, the estimation is wrong. Try creating the scaffold inside the ROI first.");
+		trabecularNrVersion = meshVersion;
+		return;
+	}
+
+	if (formula == 2) {
+		trabecularNr = 1.0f / localSeparation;
+		logger->log(LogPriority::SUCCESS, "Estimated Trabecular Number with Tb.N = 1/ Tb.Sp");
 		trabecularNrVersion = meshVersion;
 		return;
 	}
@@ -5006,26 +6183,69 @@ void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr
 		dirs[i] = Vec3(std::sin(phi) * std::cos(theta), std::sin(phi) * std::sin(theta), std::cos(phi));
 	}
 
-	float boundsVoxel[6];
+	// Resample the structure to a binary image at the requested voxel size (the
+	// same substrate as local thickness/separation) and cast the MIL rays over
+	// it, so the trabecular number is measured at the target resolution and the
+	// physical conversion below uses that same voxel size.
+	std::array<float, 6> blockBounds = { aabb.pMin.x, aabb.pMax.x, aabb.pMin.y, aabb.pMax.y, aabb.pMin.z, aabb.pMax.z };
 	if (roi) {
 		std::array<float, 6> reqBounds = roi->get_bounds();
-		int min_i = std::max(0, static_cast<int>(std::floor((reqBounds[0] - bounds[0]) / stepX)));
-		int max_i = std::min(blockDims[0] - 1, static_cast<int>(std::ceil((reqBounds[1] - bounds[0]) / stepX)));
-		int min_j = std::max(0, static_cast<int>(std::floor((reqBounds[2] - bounds[2]) / stepY)));
-		int max_j = std::min(blockDims[1] - 1, static_cast<int>(std::ceil((reqBounds[3] - bounds[2]) / stepY)));
-		int min_k = std::max(0, static_cast<int>(std::floor((reqBounds[4] - bounds[4]) / stepZ)));
-		int max_k = std::min(blockDims[2] - 1, static_cast<int>(std::ceil((reqBounds[5] - bounds[4]) / stepZ)));
+		blockBounds[0] = std::max(reqBounds[0], aabb.pMin.x);
+		blockBounds[1] = std::min(reqBounds[1], aabb.pMax.x);
+		blockBounds[2] = std::max(reqBounds[2], aabb.pMin.y);
+		blockBounds[3] = std::min(reqBounds[3], aabb.pMax.y);
+		blockBounds[4] = std::max(reqBounds[4], aabb.pMin.z);
+		blockBounds[5] = std::min(reqBounds[5], aabb.pMax.z);
+	}
 
-		boundsVoxel[0] = static_cast<float>(min_i); boundsVoxel[1] = static_cast<float>(max_i);
-		boundsVoxel[2] = static_cast<float>(min_j); boundsVoxel[3] = static_cast<float>(max_j);
-		boundsVoxel[4] = static_cast<float>(min_k); boundsVoxel[5] = static_cast<float>(max_k);
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds, false);
+	const long nx = static_cast<long>(std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize));
+	const long ny = static_cast<long>(std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize));
+	const long nz = static_cast<long>(std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize));
+
+	auto is_solid = [&](long vx, long vy, long vz) -> bool {
+		return field[static_cast<size_t>(vx) + static_cast<size_t>(vy) * nx +
+			static_cast<size_t>(vz) * nx * ny] != 0;
+	};
+
+	// Container mask on the SAME resampled grid. For a non-box container (e.g. a
+	// cylinder) the resampled AABB has empty corners OUTSIDE the container wall.
+	// Those corners are structure-free, so counting their ray length in the MIL
+	// denominator (P_L = crossings / length) dilutes P_L and biases Tb.N LOW - for
+	// a cylinder inscribed in its box the box is ~4/pi larger, a ~-21% error.
+	// Restrict both the intercept length and the crossing count to voxels inside
+	// the container, exactly as local thickness / separation / porosity already do.
+	// A box container fills its AABB, so the mask is all-inside and Tb.N is
+	// unchanged for the box case.
+	auto conMask = container.lock();
+	std::vector<uint8_t> insideField;
+	if (conMask) {
+		insideField.assign(field.size(), 1);
+		#pragma omp parallel for collapse(3)
+		for (long z = 0; z < nz; z++) {
+			for (long y = 0; y < ny; y++) {
+				for (long x = 0; x < nx; x++) {
+					float px = blockBounds[0] + (x + 0.5f) * voxelSize;
+					float py = blockBounds[2] + (y + 0.5f) * voxelSize;
+					float pz = blockBounds[4] + (z + 0.5f) * voxelSize;
+					insideField[static_cast<size_t>(x) + static_cast<size_t>(y) * nx +
+						static_cast<size_t>(z) * nx * ny] =
+						conMask->is_inside(Vec3(px, py, pz)) ? 1 : 0;
+				}
+			}
+		}
 	}
-	else {
-		// Fallback to full grid voxel dimensions
-		boundsVoxel[0] = 0.0f; boundsVoxel[1] = static_cast<float>(blockDims[0]);
-		boundsVoxel[2] = 0.0f; boundsVoxel[3] = static_cast<float>(blockDims[1]);
-		boundsVoxel[4] = 0.0f; boundsVoxel[5] = static_cast<float>(blockDims[2]);
-	}
+	auto is_inside_vox = [&](long vx, long vy, long vz) -> bool {
+		if (insideField.empty()) return true; // no container bound: measure the whole box
+		return insideField[static_cast<size_t>(vx) + static_cast<size_t>(vy) * nx +
+			static_cast<size_t>(vz) * nx * ny] != 0;
+	};
+
+	float boundsVoxel[6] = {
+		0.0f, static_cast<float>(nx),
+		0.0f, static_cast<float>(ny),
+		0.0f, static_cast<float>(nz)
+	};
 
 	// Center plane tracks the specific targeted box sub-window
 	Vec3 boxCenter((boundsVoxel[1] + boundsVoxel[0]) * 0.5f,
@@ -5090,7 +6310,6 @@ void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr
 
 					float tEntry = std::max(0.0f, tMin);
 					float tExit = tMax;
-					localBoxLen += (tExit - tEntry);
 
 					// --- Exact 3D DDA Voxel Walk within the Subgrid ---
 					Vec3 p = rayOrigin + d * tEntry;
@@ -5113,11 +6332,21 @@ void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr
 					float tMaxY = (d.y != 0.0f) ? (tEntry + (nextY - p.y) / d.y) : INF;
 					float tMaxZ = (d.z != 0.0f) ? (tEntry + (nextZ - p.z) / d.z) : INF;
 
-					bool previousPhase = (get_data(ix, iy, iz) < isoLevel);
+					float tCur = tEntry;
+					bool previousPhase = is_solid(ix, iy, iz);
+					bool previousInside = is_inside_vox(ix, iy, iz);
 
 					while (true) {
 						float tNext = std::min(tMaxX, std::min(tMaxY, tMaxZ));
+						float segEnd = std::min(tNext, tExit);
+
+						// Length of the ray inside the CURRENT voxel; only count it
+						// toward the MIL denominator when that voxel lies inside the
+						// container (empty AABB corners are excluded).
+						if (previousInside && segEnd > tCur) localBoxLen += (segEnd - tCur);
+
 						if (tNext > tExit) break;
+						tCur = tNext;
 
 						if (tMaxX <= tMaxY && tMaxX <= tMaxZ) { ix += sx; tMaxX += tDeltaX; }
 						else if (tMaxY <= tMaxZ) { iy += sy; tMaxY += tDeltaY; }
@@ -5128,9 +6357,15 @@ void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr
 							iy < static_cast<int>(boundsVoxel[2]) || iy >= static_cast<int>(boundsVoxel[3]) ||
 							iz < static_cast<int>(boundsVoxel[4]) || iz >= static_cast<int>(boundsVoxel[5])) break;
 
-						bool currentPhase = (get_data(ix, iy, iz) < isoLevel);
-						if (currentPhase != previousPhase) localTransitions++;
+						bool currentPhase = is_solid(ix, iy, iz);
+						bool currentInside = is_inside_vox(ix, iy, iz);
+						// Count a solid<->pore interface only when BOTH the entered and
+						// the left voxel are inside the container, so the container wall
+						// (interior solid -> exterior air) is never miscounted as a
+						// trabecular crossing.
+						if (currentInside && previousInside && currentPhase != previousPhase) localTransitions++;
 						previousPhase = currentPhase;
+						previousInside = currentInside;
 					}
 				}
 			}
@@ -5142,9 +6377,11 @@ void GeneratorLewiner::estimate_trabecular_number(int formula, int daDirectionNr
 
 	// final values
 	if (globalBoxLen > 0.0) {
-		double PL_voxels = static_cast<double>(globalTransitions) / globalBoxLen; // intersections / voxel-length
-		double TbN_voxels = PL_voxels;            // Tb.N = P_L  (NO extra /2)
-		trabecularNr = static_cast<float>(TbN_voxels / stepX); // 1/voxel -> 1/mm  (stepX must be mm/voxel)
+		double PL_voxels = static_cast<double>(globalTransitions) / globalBoxLen; // interface crossings / voxel-length
+		// Each trabecula crossed by a test line produces TWO interface crossings
+		// (entry + exit), so the trabecular count per length is P_L / 2.
+		double TbN_voxels = 0.5 * PL_voxels;
+		trabecularNr = static_cast<float>(TbN_voxels / voxelSize); // 1/voxel -> 1/mm  (voxelSize = mm/voxel)
 	}
 	else {
 		trabecularNr = 0.0f;
@@ -5170,9 +6407,6 @@ void GeneratorLewiner::estimate_connectivity_density() {
 	long long E = edgeSet.size();
 	long long eulerCharacteristic = V - E + F;
 
-	//std::cout << eulerCharacteristic << std::endl;
-	//std::cout << domainVolume << std::endl;
-
 	// estimate the genus
 	float genus = 1.0f - (static_cast<float>(eulerCharacteristic) / 2.0f);
 
@@ -5184,6 +6418,89 @@ void GeneratorLewiner::estimate_connectivity_density() {
 	logger->log(LogPriority::SUCCESS, "Estimated Connectivity Density!");
 };
 
+float GeneratorLewiner::estimate_connectivity_density_voxel(float voxelSize, int connectivity) {
+
+	if (connectivity != 6 && logger) {
+		logger->log(LogPriority::WARNING,
+			"Voxel connectivity: only 6-connectivity is implemented; using 6.");
+	}
+
+	// Resample the solid to a binary image at the target voxel size, the same
+	// substrate as thickness / separation / Tb.N / DA.
+	std::array<float, 6> blockBounds = { aabb.pMin.x, aabb.pMax.x, aabb.pMin.y, aabb.pMax.y, aabb.pMin.z, aabb.pMax.z };
+	std::vector<uint8_t> field = get_image_field(voxelSize, blockBounds, false);
+	const long nx = static_cast<long>(std::ceil((blockBounds[1] - blockBounds[0]) / voxelSize));
+	const long ny = static_cast<long>(std::ceil((blockBounds[3] - blockBounds[2]) / voxelSize));
+	const long nz = static_cast<long>(std::ceil((blockBounds[5] - blockBounds[4]) / voxelSize));
+
+	// foreground accessor; out-of-range = background, which closes the object at
+	// the image boundary (implicit one-voxel padding).
+	auto fg = [&](long i, long j, long k) -> int {
+		if (i < 0 || i >= nx || j < 0 || j >= ny || k < 0 || k >= nz) return 0;
+		return field[static_cast<size_t>(i) + static_cast<size_t>(j) * nx +
+			static_cast<size_t>(k) * nx * ny] != 0 ? 1 : 0;
+	};
+
+	// Precompute the per-window Euler contribution for all 256 configurations of
+	// a 2x2x2 voxel block (bit index = dx + 2*dy + 4*dz). Each cubical cell is
+	// attributed to the window whose max corner is the lattice point:
+	//   dchi = vertex - (3 edges) + (3 faces) - cube   [chi = V - E + F - C]
+	int lut[256];
+	for (int code = 0; code < 256; ++code) {
+		auto bit = [&](int dx, int dy, int dz) { return (code >> (dx + 2 * dy + 4 * dz)) & 1; };
+		int v000 = bit(0, 0, 0), v100 = bit(1, 0, 0), v010 = bit(0, 1, 0), v110 = bit(1, 1, 0);
+		int v001 = bit(0, 0, 1), v101 = bit(1, 0, 1), v011 = bit(0, 1, 1), v111 = bit(1, 1, 1);
+
+		int vertex = (code != 0) ? 1 : 0;                       // any of the 8 voxels
+		int edgeX = (v000 | v010 | v001 | v011) ? 1 : 0;        // edge +x: voxels v(0,dy,dz)
+		int edgeY = (v000 | v100 | v001 | v101) ? 1 : 0;        // edge +y: voxels v(dx,0,dz)
+		int edgeZ = (v000 | v100 | v010 | v110) ? 1 : 0;        // edge +z: voxels v(dx,dy,0)
+		int faceX = (v000 | v100) ? 1 : 0;                      // face perp x
+		int faceY = (v000 | v010) ? 1 : 0;                      // face perp y
+		int faceZ = (v000 | v001) ? 1 : 0;                      // face perp z
+		int cube = v000;
+
+		lut[code] = vertex - (edgeX + edgeY + edgeZ) + (faceX + faceY + faceZ) - cube;
+	}
+
+	// Sum the contribution over every lattice window (px,py,pz) in [0,n]. The
+	// window at (px,py,pz) holds the 8 voxels (px-1..px, py-1..py, pz-1..pz).
+	long long chi = 0;
+	#pragma omp parallel for reduction(+:chi)
+	for (long pz = 0; pz <= nz; ++pz) {
+		for (long py = 0; py <= ny; ++py) {
+			for (long px = 0; px <= nx; ++px) {
+				int code = 0;
+				for (int dz = 0; dz < 2; ++dz)
+					for (int dy = 0; dy < 2; ++dy)
+						for (int dx = 0; dx < 2; ++dx)
+							if (fg(px - 1 + dx, py - 1 + dy, pz - 1 + dz))
+								code |= 1 << (dx + 2 * dy + 4 * dz);
+				chi += lut[code];
+			}
+		}
+	}
+
+	// Connectivity = 1 - chi (= beta_1, the number of independent loops, for a
+	// single connected cavity-free object). Density normalizes by the container
+	// volume, matching the reported units of 1/mm^3.
+	double connectivity_beta1 = 1.0 - static_cast<double>(chi);
+	connectivityDensity = (domainVolume > 0.0f)
+		? static_cast<float>(connectivity_beta1 / domainVolume)
+		: 0.0f;
+
+	connectivityVersion = meshVersion;
+
+	if (logger) {
+		std::ostringstream oss;
+		oss << "Estimated voxel Connectivity Density (Euler=" << chi
+			<< ", Conn=" << connectivity_beta1 << "): " << connectivityDensity << " 1/mm^3";
+		logger->log(LogPriority::SUCCESS, oss.str());
+	}
+
+	return connectivityDensity;
+};
+
 void GeneratorLewiner::estimate_connectivity_network() {
 
 	logger->log(LogPriority::ERROR, "Not implemented yet!");
@@ -5193,7 +6510,7 @@ void GeneratorLewiner::estimate_connectivity_network() {
 
 void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 
-	int vertNr = meshVertices.size();
+	size_t vertNr = meshVertices.size();
 
 	std::vector<Vec3> currentVerts(vertNr);
 	std::vector<Vec3> tempVerts(vertNr);
@@ -5261,6 +6578,98 @@ void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 
 };
 
+void GeneratorLewiner::smooth_scalar_field_taubin(int iterations, float lambda, float mu) {
+    
+    std::vector<float> tempField = scalarField;
+
+    // Standard Taubin parameters: lambda > 0 (shrink), mu < 0 (inflate).
+    // The requirement for stability is 0 < lambda < -mu < 1
+    // Example defaults: lambda = 0.5f, mu = -0.53f
+
+    // Per-axis Laplacian weights: with anisotropic voxels
+    // (stepX != stepY != stepZ) a uniform 6-neighbour average smooths more,
+    // in physical units, along the coarser axes. Weighting each axis by
+    // 1/step^2 makes the filter isotropic in world space; for cubic voxels
+    // this reduces exactly to the previous uniform (sum - 6f)/6 average.
+    float wx = 1.0f, wy = 1.0f, wz = 1.0f;
+    if (stepX > 0.0f && stepY > 0.0f && stepZ > 0.0f) {
+        wx = 1.0f / (stepX * stepX);
+        wy = 1.0f / (stepY * stepY);
+        wz = 1.0f / (stepZ * stepZ);
+    }
+    const float wSum = wx + wy + wz;
+    const float invNorm = 1.0f / (2.0f * wSum);
+
+    // Exterior voxels are set to exactly air_skip_level() in
+    // compute_scalar_field, so the skip test below must be >= (a strict >
+    // never fires and the whole exterior gets convolved for nothing). The
+    // band is scale-relative (a few voxels above the iso-level).
+    const float skipLevel = air_skip_level();
+
+    for (int iter = 0; iter < iterations; ++iter) {
+
+        // --- PASS 1: SHRINK (Lambda) ---
+        #pragma omp parallel for collapse(3)
+        for (int z = 1; z < blockDims[2] - 1; z++) {
+            for (int y = 1; y < blockDims[1] - 1; y++) {
+                for (int x = 1; x < blockDims[0] - 1; x++) {
+
+                    size_t idx = find_vertex_index(x, y, z);
+
+                    // Optimization: Skip voxels safely outside the interaction margin
+                    if (scalarField[idx] >= skipLevel) {
+                        tempField[idx] = scalarField[idx];
+                        continue;
+                    }
+
+                    // 3D discrete Laplacian using 6 face-neighbors, weighted per axis
+                    float laplacian =
+                        wx * (scalarField[find_vertex_index(x - 1, y, z)] +
+                              scalarField[find_vertex_index(x + 1, y, z)]) +
+                        wy * (scalarField[find_vertex_index(x, y - 1, z)] +
+                              scalarField[find_vertex_index(x, y + 1, z)]) +
+                        wz * (scalarField[find_vertex_index(x, y, z - 1)] +
+                              scalarField[find_vertex_index(x, y, z + 1)]) -
+                        (2.0f * wSum * scalarField[idx]);
+
+                    // Normalize and apply lambda
+                    laplacian *= invNorm;
+                    tempField[idx] = scalarField[idx] + lambda * laplacian;
+                }
+            }
+        }
+
+        #pragma omp parallel for collapse(3)
+        for (int z = 1; z < blockDims[2] - 1; z++) {
+            for (int y = 1; y < blockDims[1] - 1; y++) {
+                for (int x = 1; x < blockDims[0] - 1; x++) {
+
+                    size_t idx = find_vertex_index(x, y, z);
+
+                    if (tempField[idx] >= skipLevel) {
+                        scalarField[idx] = tempField[idx];
+                        continue;
+                    }
+
+                    // Calculate Laplacian using the tempField from Pass 1
+                    float laplacian =
+                        wx * (tempField[find_vertex_index(x - 1, y, z)] +
+                              tempField[find_vertex_index(x + 1, y, z)]) +
+                        wy * (tempField[find_vertex_index(x, y - 1, z)] +
+                              tempField[find_vertex_index(x, y + 1, z)]) +
+                        wz * (tempField[find_vertex_index(x, y, z - 1)] +
+                              tempField[find_vertex_index(x, y, z + 1)]) -
+                        (2.0f * wSum * tempField[idx]);
+
+                    // Normalize and apply mu
+                    laplacian *= invNorm;
+                    scalarField[idx] = tempField[idx] + mu * laplacian;
+                }
+            }
+        }
+    }
+}
+
 void GeneratorLewiner::build_topology() {
 
 	adjacency.clear();
@@ -5293,10 +6702,10 @@ void GeneratorLewiner::export_metrics(std::string fileName) {
 	fout.open(fileName);
 
 	// add header
-	fout << "Porosity, Volume, TotalSurface, SurfaceToVolume, Connectivity Density, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy, Tortuosity\n";
+	fout << "Porosity, Mesh Porosity, Volume, TotalSurface, SurfaceToVolume, SurfaceToTotalVolume, Connectivity Density, SMI, Local Thickness, Local Thickness Std, Local Separation, Local Separation Std, trabecular Nr, Anisotropy, Tortuosity\n";
 
 	// pass values
-	fout << porosity << "," << volume << "," << surfaceArea << "," << surfaceToVolume << "," << connectivityDensity << "," << localThickness << "," << localThicknessStd << "," << localSeparation << "," << localSeparationStd << "," << trabecularNr << "," << anisotropyDegree << "," << tortuosity << "\n";
+	fout << porosity << "," << porosityMesh << "," << volume << "," << surfaceArea << "," << surfaceToVolume << "," << surfaceToTotalVolume << "," << connectivityDensity << "," << smi << "," << localThickness << "," << localThicknessStd << "," << localSeparation << "," << localSeparationStd << "," << trabecularNr << "," << anisotropyDegree << "," << tortuosity << "\n";
 
 	fout.close();
 
@@ -5366,9 +6775,12 @@ void GeneratorLewiner::read_metrics(const std::string fileName) {
 		}
 
 		if (key == "Porosity") { loadedMetrics.porosity = val; }
+		else if (key == "Mesh Porosity") { loadedMetrics.porosityMesh = val; }
 		else if (key == "Volume") { loadedMetrics.volume = val; }
 		else if (key == "TotalSurface") { loadedMetrics.totalSurface = val; }
 		else if (key == "SurfaceToVolume") { loadedMetrics.surfToVol = val; }
+		else if (key == "SurfaceToTotalVolume") { loadedMetrics.surfToTotalVol = val; }
+		else if (key == "SMI") { loadedMetrics.smi = val; }
 		else if (key == "Connectivity Density") { loadedMetrics.connectivityDensity = val; }
 		else if (key == "Local Thickness") { loadedMetrics.thickness = val; }
 		else if (key == "Local Thickness Std") { loadedMetrics.thicknessStd = val; }
@@ -5381,9 +6793,16 @@ void GeneratorLewiner::read_metrics(const std::string fileName) {
 
 	// 4. Apply the struct values back to your class members
 	porosity = loadedMetrics.porosity;
+	// old metric files have no "Mesh Porosity" column (-1 sentinel stays)
+	if (loadedMetrics.porosityMesh >= 0.0f) {
+		porosityMesh = loadedMetrics.porosityMesh;
+	}
 	volume = loadedMetrics.volume;
 	surfaceArea = loadedMetrics.totalSurface;
 	surfaceToVolume = loadedMetrics.surfToVol;
+	// older metric files predate these columns (-1 sentinel stays)
+	if (loadedMetrics.surfToTotalVol >= 0.0f) surfaceToTotalVolume = loadedMetrics.surfToTotalVol;
+	if (loadedMetrics.smi >= 0.0f) smi = loadedMetrics.smi;
 	connectivityDensity = loadedMetrics.connectivityDensity;
 	localThickness = loadedMetrics.thickness;
 	localThicknessStd = loadedMetrics.thicknessStd;
@@ -5411,9 +6830,14 @@ void GeneratorLewiner::export_parameters(std::string fileName) {
 	// Populate Core Parameters
 	cfg.thicknessOption = selectedThicknessOption;
 	cfg.openess = threshold;
+	cfg.spread = spread;
 	cfg.stretchX = stretchX; cfg.stretchY = stretchY; cfg.stretchZ = stretchZ;
 	cfg.anisotropyAngle = anisotropyAngle;
 	cfg.dirX = anisotropyVec.x; cfg.dirY = anisotropyVec.y; cfg.dirZ = anisotropyVec.z;
+	cfg.backgroundWeight = backgroundWeight;
+	cfg.smoothJunctions = smoothJunctions ? 1 : 0;
+	cfg.smoothK = smoothK;
+	cfg.transitionDistance = transitionDistance;
 
 	// Populate Thickness & Distance Parameters
 	if (selectedThicknessOption == 0) {
@@ -5448,11 +6872,13 @@ void GeneratorLewiner::export_parameters(std::string fileName) {
 		}
 	}
 
-	// Write Fixed Header (Expanded)
+	// Write Fixed Header (Expanded). New columns are appended at the END so files
+	// written by older builds still load (the reader maps by key, not position).
 	fout << "ThicknessOption,UniformThickness,StartThickness,EndThickness,DistFunction,RadFunction,"
 		<< "PlaneOriginX,PlaneOriginY,PlaneOriginZ,PlaneNormalX,PlaneNormalY,PlaneNormalZ,PointX,PointY,PointZ,"
 		<< "GeneratorType,SeedNr,MinRadius,MaxRadius,Openess,StretchX,StretchY,StretchZ,"
-		<< "AnisotropyAngle,DirX,DirY,DirZ\n";
+		<< "AnisotropyAngle,DirX,DirY,DirZ,"
+		<< "Spread,BackgroundWeight,SmoothJunctions,SmoothK,TransitionDistance\n";
 
 	// Write Fixed Data Row
 	fout << cfg.thicknessOption << "," << cfg.uniformThickness << "," << cfg.startThickness << "," << cfg.endThickness << "," << cfg.distFunction << "," << cfg.radFunction << ","
@@ -5461,7 +6887,8 @@ void GeneratorLewiner::export_parameters(std::string fileName) {
 		<< cfg.pointX << "," << cfg.pointY << "," << cfg.pointZ << ","
 		<< cfg.generatorType << "," << cfg.seedNr << "," << cfg.minRadius << "," << cfg.maxRadius << ","
 		<< cfg.openess << "," << cfg.stretchX << "," << cfg.stretchY << "," << cfg.stretchZ << ","
-		<< cfg.anisotropyAngle << "," << cfg.dirX << "," << cfg.dirY << "," << cfg.dirZ << "\n";
+		<< cfg.anisotropyAngle << "," << cfg.dirX << "," << cfg.dirY << "," << cfg.dirZ << ","
+		<< cfg.spread << "," << cfg.backgroundWeight << "," << cfg.smoothJunctions << "," << cfg.smoothK << "," << cfg.transitionDistance << "\n";
 
 	fout.close();
 
@@ -5536,6 +6963,12 @@ void GeneratorLewiner::read_parameters(const std::string fileName) {
 		else if (key == "DirX") { anisotropyVec.x = val; }
 		else if (key == "DirY") { anisotropyVec.y = val; }
 		else if (key == "DirZ") { anisotropyVec.z = val; }
+
+		else if (key == "Spread") { spread = val; }
+		else if (key == "BackgroundWeight") { backgroundWeight = val; }
+		else if (key == "SmoothJunctions") { smoothJunctions = (val != 0.0f); }
+		else if (key == "SmoothK") { smoothK = val; }
+		else if (key == "TransitionDistance") { transitionDistance = val; }
 	}
 
 	logger->log(LogPriority::SUCCESS, "Successfully loaded parameters from " + fileName);
@@ -5584,7 +7017,6 @@ std::unique_ptr<GeneratorLewiner> GeneratorLewiner::extract_from_ROI(ROI* roi) {
 		this->logger,
 		this->threshold,
 		this->isoLevel,
-		this->foam,
 		this->renderMode
 	);
 
@@ -5596,12 +7028,13 @@ std::unique_ptr<GeneratorLewiner> GeneratorLewiner::extract_from_ROI(ROI* roi) {
 	roiScaffold->isROI = true;
 	roiScaffold->name = this->name + " (ROI)";
 
-	// 5. Generate the mesh using the parent's container
+	// Generate the mesh using the parent's container
 	std::shared_ptr<IContainer> parentCon = this->container.lock();
 	if (parentCon) {
-		roiScaffold->compute_scalar_field(*parentCon);
-		roiScaffold->marching_cubes();
-		roiScaffold->estimate_metrics(*parentCon);
+		if (roiScaffold->compute_scalar_field(*parentCon) &&
+			roiScaffold->marching_cubes()) {
+			roiScaffold->estimate_metrics(*parentCon);
+		}
 	}
 
 	return roiScaffold;
@@ -5627,7 +7060,6 @@ void ScaffoldFactory::launch() {
 	anisotropyVec = { 1.0f, 0.0f, 0.0f };
 	anisotropyAngle = { 0.0f };
 	anisotropySources.clear();
-	foam = 0;
 	voxelSize = 0.05f;
 
 	// for thickness function
@@ -5636,6 +7068,10 @@ void ScaffoldFactory::launch() {
 	distancePlaneCenter = { 0.0f, 0.0f, 0.0f };
 	distancePoint = { 0.0f, 0.0f, 0.0f };
 	transitionDistance = 10.0f;
+
+	iter = 15;
+	lambda = 0.5f;
+	mu = -0.53f;
 
 	warningFlashTimer1 = 0.0f;
 	warningFlashTimer2 = 0.0f;
@@ -5669,26 +7105,31 @@ void ScaffoldFactory::gui_draw(
 	if (ImGui::BeginPopupModal("Scaffold Creator", NULL))
 	{
 		
-		ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
-		if (ImGui::BeginTabBar("MyTabBar", tab_bar_flags)){
-
-			main_options(containers, generators);
-
-			thickness_options();
-
-			anisotropy_options(anisoSources);
-
-			ImGui::EndTabBar();
-		}
-
-		ImGui::Separator();
-
         const bool anyBusy = task->get_running();
 		const bool mineBusy = task->is_running_for(this);
 
         // ---------- Generate ----------
         ImGui::BeginDisabled(anyBusy);
-        if (ImGui::Button("Generate")) {
+        
+		ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
+		if (ImGui::BeginTabBar("MyTabBar", tab_bar_flags)){
+
+			main_options(containers, generators);
+
+			calibration_options();
+
+			thickness_options();
+
+			anisotropy_options(anisoSources);
+
+			smooth_options();
+
+			ImGui::EndTabBar();
+		}
+
+		ImGui::Separator();
+		
+		if (ImGui::Button("Generate")) {
             if (!lockedCon) warningFlashTimer1 = 1.5f;
             if (!lockedGen) warningFlashTimer2 = 1.5f;
 
@@ -5696,6 +7137,16 @@ void ScaffoldFactory::gui_draw(
                 auto conShared = lockedCon;                 
                 auto seeds     = lockedGen->get_seeds();    
                 auto bds       = conShared->compute_bounds();
+				auto targetThickness = -1.0f;
+				auto targetP = targetPorosity * 0.01f;
+
+				if(selectedThicknessOption == 0){
+					targetThickness = thickness;
+				}
+				else{
+					// varied thickness: calibrate the MEAN of the graded range 
+					targetThickness = (startThickness + endThickness) * 0.5f;
+				}
 
                 std::array<float, 6> bounds = {
                     bds.xMin, bds.xMax, bds.yMin, bds.yMax, bds.zMin, bds.zMax
@@ -5707,14 +7158,18 @@ void ScaffoldFactory::gui_draw(
                 };
 
                 auto scaffold = std::make_unique<GeneratorLewiner>(
-                    seeds, bounds, resolution, logger, openess, thickness, foam);
+                    seeds, bounds, resolution, logger, openess, thickness);
+
+				scaffold->spread = spread;
+				scaffold->smoothJunctions = smoothJunctions;
+				scaffold->smoothK = smoothK;
 
                 if (selectedThicknessOption == 1) {
                     switch (selectedFunc) {
                         case 0: thicknessRadFunc = std::make_shared<LinearFunction>(transitionDistance);    break;
                         case 1: thicknessRadFunc = std::make_shared<QuadraticFunction>(transitionDistance); break;
-                        case 2: thicknessRadFunc = std::make_shared<ConstantRadiusFunction>();              break;
-                        case 3: thicknessRadFunc = std::make_shared<RandomRadiusFunction>();                break;
+						case 2: thicknessRadFunc = std::make_shared<SmoothStep>(); break;
+                        case 3: thicknessRadFunc = std::make_shared<ConstantRadiusFunction>();              break;
                     }
                     switch (selectedDist) {
                         case 0:
@@ -5734,18 +7189,29 @@ void ScaffoldFactory::gui_draw(
                     thicknessRadFunc.reset();
                 }
 
-                scaffold->set_options_from_factory(selectedDist, selectedFunc, selectedThicknessOption, voxelSize);
+                scaffold->set_options_from_factory(selectedDist, selectedFunc, selectedThicknessOption, voxelSize, measurementVoxelSize);
                 scaffold->set_thickness_functions(
 					thicknessSDF, thicknessRadFunc,
                     startThickness, endThickness, transitionDistance);
                 scaffold->set_stretch(stretchX, stretchY, stretchZ);
+				if(calibrateThickness){
+					scaffold->calibrateThickness = calibrateThickness;
+					scaffold->targetThickness = targetThickness;
+					scaffold->calibrationIter = calibrationIter;
+					scaffold->calibrationTol = calibrationTol;
+				}
+				if(calibratePorosity){
+					scaffold->targetPorosity = targetPorosity;
+				}
                 scaffold->anisotropyAngle = anisotropyAngle;
                 scaffold->anisotropyVec   = anisotropyVec;
-				scaffold->backgroundWeight  = backgroundWeight;
 				scaffold->anisotropySources = anisoSources;
+				scaffold->backgroundWeight = backgroundWeight;
                 scaffold->container = lockedCon;
                 scaffold->generator = lockedGen;
-                if (foam == 1) scaffold->foam = true;
+				scaffold->iter = iter;
+				scaffold->mu = mu;
+				scaffold->lambda = lambda;
 
                 genContainerName = lockedCon->name;   // capture identity now, for the log later
                 genGeneratorName = lockedGen->name;
@@ -5753,25 +7219,103 @@ void ScaffoldFactory::gui_draw(
                 GeneratorLewiner* raw = scaffold.get();
                 pendingScaffold = std::move(scaffold);
 
+                // wire cooperative cancellation to the running task's cancel flag
+                raw->cancelRequested = [task]{ return task->is_cancel_requested(); };
+
                 start_time = std::chrono::steady_clock::now();
-                task->start([raw, conShared, t = task]() {
-                    t->set_progress(0.00f);  
-					raw->compute_scalar_field(*conShared);
-                    t->set_progress(0.50f);  
-					raw->marching_cubes();
-                    t->set_progress(0.90f);
-					raw->estimate_metrics(*conShared);
-                    t->set_progress(1.00f);
-                }, this);
+
+				// calibrate thickness only
+				if (calibrateThickness && !calibratePorosity){
+					auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
+					auto cTol = calibrationTol;
+					auto cIter = calibrationIter;
+
+					task->start(
+						[raw, conShared, targetThickness, cStep, cTol, cIter, t=task]() {
+						t->set_progress(0.00f);
+						bool ok = raw->calibrate_thickness(
+							*conShared, targetThickness, cStep, cTol, cIter,
+							[t](float p) { t->set_progress(0.05f + 0.90f * p); });
+						if (ok) {
+							raw->estimate_metrics(*conShared);
+						}
+						t->set_progress(1.00f);
+					}, this);
+				}
+				// 2 knob
+				else if (calibrateThickness && calibratePorosity){
+					auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
+					auto cTol = calibrationTol;
+					auto cIter = calibrationIter;
+
+					task->start(
+						[raw,
+						 conShared,
+						 targetThickness, targetP,
+						 cStep, cTol, cIter, t=task]() {
+						t->set_progress(0.00f);
+						bool ok = raw->two_knob_calibration(
+							*conShared, targetThickness,
+							targetP, cStep, cTol, cIter,
+							[t](float p) { t->set_progress(0.05f + 0.90f * p); });
+						if (ok) {
+							raw->estimate_metrics(*conShared);
+						}
+						t->set_progress(1.00f);
+					}, this);
+				}
+				// porosity only: openness calibrated at the current thickness.
+				// calibrate_openness leaves only the field, so run marching cubes.
+				else if (!calibrateThickness && calibratePorosity){
+					auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
+					auto cTol = calibrationTol;
+					auto cIter = calibrationIter;
+
+					task->start(
+						[raw, conShared, targetP, cStep, cTol, cIter, t=task]() {
+						t->set_progress(0.00f);
+						bool ok = raw->calibrate_openness(
+							*conShared, targetP, cStep, cTol, cIter,
+							[t](float p) { t->set_progress(0.05f + 0.85f * p); });
+						if (ok && raw->marching_cubes()) {
+							t->set_progress(0.95f);
+							raw->estimate_metrics(*conShared);
+						}
+						t->set_progress(1.00f);
+					}, this);
+				}
+				else{
+					task->start(
+						[raw, conShared, t = task]() {
+						// each stage runs only if the previous one succeeded and no cancel
+						t->set_progress(0.00f);
+						if (!t->is_cancel_requested() && raw->compute_scalar_field(*conShared)) {
+							t->set_progress(0.50f);
+							if (!t->is_cancel_requested() && raw->marching_cubes()) {
+								t->set_progress(0.90f);
+								if (!t->is_cancel_requested()) raw->estimate_metrics(*conShared);
+							}
+						}
+						t->set_progress(1.00f);
+					}, this);
+				}
+                
             }
         }
         ImGui::EndDisabled();
 
 		ImGui::SameLine();
 
-		if (ImGui::Button("Cancel")) {
-			showPopup = false;
+		// While a job is running, Cancel ends the parallel task (the popup stays
+		// open until poll() joins the thread, then discards the partial scaffold).
+		// With nothing running, Cancel just closes the creator dialog.
+		const bool cancelling = mineBusy && task->is_cancel_requested();
+		ImGui::BeginDisabled(cancelling);
+		if (ImGui::Button(cancelling ? "Cancelling..." : "Cancel")) {
+			if (mineBusy) task->request_cancel();
+			else          showPopup = false;
 		};
+		ImGui::EndDisabled();
 
         // ---------- Progress ----------
         if (mineBusy) {
@@ -5784,6 +7328,14 @@ void ScaffoldFactory::gui_draw(
 
         // ---------- Completion (main thread: GL upload + register) ----------
         if (task->poll(this)) {
+          if (task->is_cancel_requested()) {
+            // user cancelled: discard the partial scaffold, do not register it
+            pendingScaffold.reset();
+            logger->log(LogPriority::WARNING, "Scaffold creation cancelled.");
+            showPopup = false;
+            ImGui::CloseCurrentPopup();
+          }
+          else {
             pendingScaffold->update_render();    // GPU upload happens here, on the GL thread
 
             pendingScaffold->name = name.empty()
@@ -5805,13 +7357,40 @@ void ScaffoldFactory::gui_draw(
 
             showPopup = false;
             ImGui::CloseCurrentPopup();
+          }
         }
 		ImGui::EndPopup();
 	}
 };
 
+void ScaffoldFactory::calibration_options(){
+
+	if(ImGui::BeginTabItem("Calibration")){
+
+		ImGui::SeparatorText("Thickness Calibration");
+		ImGui::Checkbox("Calibrate Thickness", &calibrateThickness);
+		ImGui::Checkbox("Calibrate Porosity", &calibratePorosity);
+		// ImGui::SetItemTooltip("Calibrate SMI at fixed porosity!");
+		
+		if (calibrateThickness){
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Measurement Voxel Size", &measurementVoxelSize);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Tolerance", &calibrationTol);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputInt("Max Iters", &calibrationIter);
+		}
+		if (calibratePorosity){
+			ImGui::InputFloat("Target Porosity", &targetPorosity);
+		}
+		ImGui::EndTabItem();
+	}
+};
+
 void ScaffoldFactory::thickness_options(){
 	if (ImGui::BeginTabItem("Thickness")){
+
+		ImGui::Separator();
 		ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
 		ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
@@ -5848,7 +7427,8 @@ void ScaffoldFactory::thickness_options(){
 			ImGui::RadioButton("Random", &selectedFunc, 3);
 		}
 
-		ImGui::SliderFloat("Openess", &openess, 0.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Openess", &openess, 0.0f, 1.0f);
+		ImGui::SliderFloat("Spread", &spread, 0.0f, 1.0f);
 		ImGui::EndTabItem();
 	}
 };
@@ -5862,6 +7442,8 @@ void ScaffoldFactory::anisotropy_options(
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Z", &stretchZ, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Angle", &anisotropyAngle, 0.01f, 5.0f, "%.3f");
+		ImGui::InputFloat("Background Weight", &backgroundWeight, 0.01f, 0.5f, "%.3f");
 		ImGui::InputFloat3("Stretch Direction", anisotropyVec, "%.3f");
 		
 		ImGui::SameLine();
@@ -5876,8 +7458,6 @@ void ScaffoldFactory::anisotropy_options(
 			}
 		}
 		
-		ImGui::SliderFloat("Background Weight", &backgroundWeight, 0.01f, 1.0f, "%.3f");
-
 		for (int i{ 0 }; i < (int)anisotropySources.size(); i++) {
 			std::string label = anisotropySources[i]->name.empty()
 				? "Anisotropy Source " + std::to_string(i + 1)
@@ -5912,12 +7492,10 @@ void ScaffoldFactory::main_options(
 ){
 
 	if(ImGui::BeginTabItem("Main")){
-		ImGui::InputText("Name", &name);
 
-		ImGui::SeparatorText("Mode");
-		ImGui::RadioButton("Porous", &foam, 0);
-		ImGui::RadioButton("Foam", &foam, 1);
+		ImGui::InputText("Name", &name);
 		ImGui::InputFloat("Voxel Size", &voxelSize);
+		ImGui::InputFloat("Measurement Voxel Size", &measurementVoxelSize);
 		
 		lockedCon = selectedCon.lock();
 		lockedGen = selectedGen.lock();
@@ -5991,7 +7569,31 @@ void ScaffoldFactory::main_options(
 		}
 
 		ImGui::EndChild();	
-		
+
 		ImGui::EndTabItem();
 	};
+};
+
+void ScaffoldFactory::smooth_options(){
+
+	if(ImGui::BeginTabItem("Smoothness")){
+
+		ImGui::SeparatorText("Mesh smoothing (Taubin)");
+		ImGui::InputInt("Iterations", &iter, 1);
+
+		ImGui::InputFloat("Lambda", &lambda, 0.01f, 10.0f);
+
+		ImGui::InputFloat("Mu", &mu, 0.01f, 10.0f);
+
+		ImGui::SeparatorText("Junction smoothing");
+		ImGui::Checkbox("Smooth rod-plate junctions", &smoothJunctions);
+		ImGui::SetItemTooltip("Fillet/fatten the trabecular nodes (more organic, "
+			"bone-like). Tb.Th inflation is absorbed by thickness calibration.");
+		if (smoothJunctions) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Junction k", &smoothK, 0.001f, 0.1f, "%.4f");
+		}
+
+		ImGui::EndTabItem();
+	}
 };

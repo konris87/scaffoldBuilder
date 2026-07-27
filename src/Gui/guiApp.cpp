@@ -383,6 +383,7 @@ void myGUI::run() {
 			if (ImGui::Button("Yes")) {
 				// save imgui
 				ImGui::SaveIniSettingsToDisk("./share/imgui.ini");
+				_reset_scene();
 				glfwSetWindowShouldClose(window, GLFW_TRUE);
 				ImGui::CloseCurrentPopup();
 			}
@@ -403,6 +404,8 @@ void myGUI::run() {
 		_render_object_list();
 
 		_render_properties_panel();
+
+		_render_tool_panel();
 
 		_render_console();
 
@@ -479,7 +482,8 @@ void myGUI::run() {
 						cutPlane->normal.z, d);
 
 					uniManager.setUniform(scaffoldShader, "cutPlane", 1);
-					uniManager.setUniform(scaffoldShader, "cutPlaneCoeffs", planeCoeffs);
+					uniManager.setUniform(
+						scaffoldShader, "cutPlaneCoeffs", planeCoeffs);
 					gen->draw();
 					glEnable(GL_CULL_FACE);
 				}
@@ -725,7 +729,7 @@ void myGUI::run() {
 			_draw_axes_lines();
 		}
 
-		if (showBbox) {
+		if (box && showBbox) {
 			_draw_selected_box();
 		}
 
@@ -958,9 +962,14 @@ void myGUI::_render_toolbar() {
 			"Measure the anisotropy of the scaffold using the Mean Intercept Length method.", anisotropyTexture);
 
 		ImGui::SameLine();
+		
+		// create_single_button_textured(
+		// 	"Measure Porosity Network", estimatePoreNetwork,
+		// 	"Create a graph that visualizes the connectivity network and estimates the percentage of interconneted seeds.", poreNetworkTexture
+		// );
 		create_single_button_textured(
-			"Measure Porosity Network", estimatePoreNetwork,
-			"Create a graph that visualizes the connectivity network and estimates the percentage of interconneted seeds.", poreNetworkTexture
+			"Estimate Structural Model Index", estimateSmi,
+			"Estimate Structure Model Index (SMI)", poreNetworkTexture
 		);
 		ImGui::SameLine();
 
@@ -971,7 +980,7 @@ void myGUI::_render_toolbar() {
 		ImGui::SameLine();
 
 		create_single_button_textured(
-			"Estimate Trabecular Numner", estimateTrabecularNr,
+			"Estimate Trabecular Number", estimateTrabecularNr,
 			"Estimate trabecular number of the active scaffold.", trabecularNumberTexture
 		);
 		ImGui::SameLine();
@@ -991,6 +1000,10 @@ void myGUI::_render_toolbar() {
 			"Update Current Scaffold", updateScaffold,
 			"Update Current Scaffold.", updateScaffoldTexture
 		);
+
+		if (updateScaffold && selectedPanelObj.type != ObjectType::ScaffoldType){
+			updateScaffold = false;
+		}
 
 		ImGui::SameLine();
 		ImGui::TableNextColumn();
@@ -1030,19 +1043,19 @@ void myGUI::_render_settings_panel() {
 		_render_algorithm_settings();
 	}
 
-	ImVec2 maxSize = ImVec2(width, height);
+	ImVec2 maxSize = ImVec2((float)width, (float)height);
 	ImVec2 minSize = ImVec2(500.0f, 500.0f);
 	if (ImGuiFileDialog::Instance()->Display("Export Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { 
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
 			scaffoldFileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
-
+			
 			// get the active scaffold
 			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 			std::filesystem::path filePath = scaffoldFilePath;
 
-			if (filePath.extension() == ".scaf") {
+			if (gen && filePath.extension() == ".scaf") {
 
 				gen->export_scaf(scaffoldFilePath);
 
@@ -1147,39 +1160,94 @@ void myGUI::_render_settings_panel() {
 
 			gen->export_metrics(filePath);
 
-			logger.log(LogPriority::SUCCESS, "metrics exported to: " + filePath + "!");
+			logger.log(LogPriority::SUCCESS, "Metrics exported to: " + filePath + "!");
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
+		if (ImGuiFileDialog::Instance()->Display("Export Parameters", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
+			std::string folder = ImGuiFileDialog::Instance()->GetCurrentPath();
+
+			GeneratorLewiner* gen = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+			std::filesystem::path path = scaffoldFilePath;
+
+			gen->export_parameters(filePath);
+
+			logger.log(
+				LogPriority::SUCCESS, "Parameters exported to: " + filePath + "!");
 		}
 		ImGuiFileDialog::Instance()->Close();
 	}
 
 	if (ImGuiFileDialog::Instance()->Display("Load Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
-		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
+		if (ImGuiFileDialog::Instance()->IsOk()) {
 			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
-			std::string fileName = ImGuiFileDialog::Instance()->GetCurrentFileName();
 			std::filesystem::path p = filePath;
 
-			// now create a scaffold using these
-			std::unique_ptr<GeneratorLewiner> scaffold = std::make_unique<GeneratorLewiner>();
-			scaffold->set_logger(&logger);
-			scaffold->name = p.stem().string();
+			loadTask = std::make_unique<ScaffoldLoadTask>();
+			loadTask->scaffold = std::make_unique<GeneratorLewiner>();
+			loadTask->scaffold->set_logger(&logger);
+			loadTask->scaffold->name = p.stem().string();
 
-			scaffold->load_scaf(
-				filePath, containers, seedGenerators, anisoSources);
-			
-			scaffold->update_render();
+			GeneratorLewiner* raw = loadTask->scaffold.get();
+			ScaffoldLoadTask*  lts = loadTask.get();
 
-			_update_cameras(*scaffold);
+			loadTask->task.start([raw, lts, filePath]() {
+				raw->load_scaf(
+					filePath,
+					lts->newContainers,
+					lts->newGenerators,
+					lts->newAnisoSources,
+					&lts->stage
+				);
+			});
 
-			// push to the scaffold list
-			scaffolds.push_back(std::move(scaffold));
-
-			// set it as the selected object
-			selectedSceneObj = scaffolds.back().get();
-			selectedPanelObj.ptr = scaffolds.back().get();
-			selectedPanelObj.type = ObjectType::ScaffoldType;
-
+			ImGui::OpenPopup("##ScaffoldLoadProgress");
 		}
 		ImGuiFileDialog::Instance()->Close();
+	}
+
+	// Progress modal — shown while a scaffold is loading in the background
+	if (ImGui::BeginPopupModal("##ScaffoldLoadProgress", nullptr,
+		ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+
+		static const char* const kStageMessages[] = {
+			"Initializing...",
+			"Reading parameters...",
+			"Loading anisotropy sources...",
+			"Loading container...",
+			"Loading seed generator...",
+			"Reading scalar field...",
+			"Running marching cubes...",
+			"Complete!"
+		};
+		static const float kStageProgress[] = {
+			0.02f, 0.10f, 0.20f, 0.35f, 0.45f, 0.60f, 0.65f, 1.0f
+		};
+
+		if (loadTask) {
+			int s = std::clamp(loadTask->stage.load(std::memory_order_relaxed), 0, 7);
+
+			ImGui::Text("Loading Scaffold");
+			ImGui::Separator();
+			ImGui::Spacing();
+			ImGui::TextUnformatted(kStageMessages[s]);
+			ImGui::ProgressBar(kStageProgress[s], ImVec2(360.0f, 0.0f));
+			ImGui::Spacing();
+
+			if (loadTask->task.poll()) {
+				_finalize_scaffold_load();
+				ImGui::CloseCurrentPopup();
+			}
+		} else {
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
 	}
 
 	if (ImGuiFileDialog::Instance()->Display("Load Mesh Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
@@ -1215,6 +1283,35 @@ void myGUI::_render_settings_panel() {
 	}
 
 };
+
+void myGUI::_finalize_scaffold_load() {
+	if (!loadTask) return;
+
+	// OpenGL calls must run on the main thread
+	for (auto& src : loadTask->newAnisoSources)
+		src->update_model();
+	for (auto& gen : loadTask->newGenerators)
+		gen->update_model();
+
+	for (auto& con : loadTask->newContainers)
+		containers.push_back(con);
+	for (auto& gen : loadTask->newGenerators)
+		seedGenerators.push_back(gen);
+	for (auto& src : loadTask->newAnisoSources)
+		anisoSources.push_back(src);
+
+	// Upload mesh data to GPU and sync cameras
+	loadTask->scaffold->update_render();
+	_update_cameras(*loadTask->scaffold);
+
+	scaffolds.push_back(std::move(loadTask->scaffold));
+
+	selectedSceneObj = scaffolds.back().get();
+	selectedPanelObj.ptr = scaffolds.back().get();
+	selectedPanelObj.type = ObjectType::ScaffoldType;
+
+	loadTask.reset();
+}
 
 void myGUI::_render_object_list() {
 
@@ -1272,6 +1369,14 @@ void myGUI::_render_object_list() {
 						config.path = "../data";
 						ImGuiFileDialog::Instance()->OpenDialog("Export Metrics", "Export Scaffold Metrics", ".csv", config);
 					}
+					if (ImGui::MenuItem("Export Parameters")) {
+						showMetricsExportWindow = true;
+						IGFD::FileDialogConfig config;
+						config.path = "../data";
+						ImGuiFileDialog::Instance()->OpenDialog(
+							"Export Parameters", 
+							"Export Scaffold Parameters", ".csv", config);
+					}
 
 					if (ImGui::MenuItem("Edit Name")) {
 						// index to change the name
@@ -1314,6 +1419,7 @@ void myGUI::_render_object_list() {
 			ImGui::TreePop();
 
 		}
+		
 		_render_container_list();
 
 		_render_seed_generator_list();
@@ -1324,6 +1430,27 @@ void myGUI::_render_object_list() {
 	}
 
 	ImGui::End();
+};
+
+void myGUI::_render_tool_panel() {
+
+	if (showPlaneCutSettings) {
+		_render_cutting_plane_settings(
+			"Cutting With Plane" , showPlaneCutSettings);
+	}
+
+	if (translateScaffold) {
+		_render_translate_panel("Translate Object", translateScaffold);
+	}
+
+	if (scaleScaffold) {
+		_render_scale_panel("Scale Object", scaleScaffold);
+	}
+
+	if (taubinSmooth) {
+		_render_taubin_smooth_panel("Taubin Smoothing", taubinSmooth);
+	}
+
 };
 
 void myGUI::_render_properties_panel() {
@@ -1781,8 +1908,6 @@ void myGUI::_reset_scene(){
 	scaffolds.clear();
 	anisoSources.clear();
 	rois.clear();
-	cutPlane.reset();
-	box.reset();
 	_reset_camera();
 	selectedSceneObj = nullptr;
 	selectedPanelObj.ptr = nullptr;
@@ -1863,16 +1988,19 @@ void myGUI::_render_algorithm_settings() {
 					ImGui::SetItemTooltip("Set the number of parallel lines along each dimension.");
 					ImGui::InputInt("Directions", &daMinDirections);
 					ImGui::SetItemTooltip("Set the number of tested directions.");
+					// Ratio form (>=1, isotropic = 1): matches ratio-convention
+					// literature (e.g. Ulrich 1999). 1 - Lmax/Lmin dropped: always <= 0.
 					ImGui::RadioButton("MaxRadius/MinRadius", &daFormulaIdx, 0);
-					ImGui::RadioButton("1 - (MaxRadius/MinRadius)", &daFormulaIdx, 1);
-					ImGui::RadioButton("MaxEigValue/MinEigValue", &daFormulaIdx, 2);
-					ImGui::RadioButton("1 - MaxEigValue/MinEigValue", &daFormulaIdx, 3);
+					// [0,1] forms: eigenvalue ratio (isotropic = 1) and its complement
+					// (isotropic = 0, the BoneJ convention).
+					ImGui::RadioButton("MinEigValue/MaxEigValue", &daFormulaIdx, 2);
+					ImGui::RadioButton("1 - MinEigValue/MaxEigValue", &daFormulaIdx, 3);
 				}
 
 
 				if (picked == 1) {
 					ImGui::Text("Tortuosity Algorithm Settings");
-					ImGui::InputFloat("Tolerance", &tortuosityVoxelSize);
+					ImGui::InputFloat("Voxel Size (mm)", &tortuosityVoxelSize);
 				}
 
 				if (picked == 1) {
@@ -1976,9 +2104,12 @@ void myGUI::_render_main_menu_bar() {
 			}
 
 			if (ImGui::MenuItem("Export Scaffold", "Save Scaffold as .scaf")) {
-				IGFD::FileDialogConfig config;
-				config.path = "../data";
-				ImGuiFileDialog::Instance()->OpenDialog("Export Scaffold", "Save Scaffold as .scaf", ".scaf", config);
+				
+				if(selectedPanelObj.type == ObjectType::ScaffoldType){
+					IGFD::FileDialogConfig config;
+					config.path = "../data";
+					ImGuiFileDialog::Instance()->OpenDialog("Export Scaffold", "Save Scaffold as .scaf", ".scaf", config);
+				}
 			}
 
 			if (ImGui::MenuItem("Save Scaffold as geometry", "Export scaffold geometry.")) {
@@ -2226,24 +2357,11 @@ void myGUI::_render_main_menu_bar() {
 		_action_estimate_trabecular_number();
 	}
 
-	if (estimatePoreNetwork) {
-		_action_estimate_pore_network();
-	}
-
-	if (showPlaneCutSettings) {
-		_render_cutting_plane_settings("Cutting With Plane" , showPlaneCutSettings);
-	}
-
-	if (translateScaffold) {
-		_render_translate_panel("Translate Object", translateScaffold);
-	}
-
-	if (scaleScaffold) {
-		_render_scale_panel("Scale Object", scaleScaffold);
-	}
-
-	if (taubinSmooth) {
-		_render_taubin_smooth_panel("Taubin Smoothing", taubinSmooth);
+	// if (estimatePoreNetwork) {
+	// 	_action_estimate_pore_network();
+	// }
+	if (estimateSmi){
+		_action_estimate_smi();
 	}
 
 	if (showROICreator) {
@@ -2357,11 +2475,10 @@ void myGUI::_render_display_settings() {
 void myGUI::_render_cutting_plane_settings(const char* popupName, bool& showPopup) {
 
 	// always centered
-	//ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-	//ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	// ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	// ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
-	if (ImGui::Begin("Plane Cut Tool", NULL)) {
-		
+	if (ImGui::Begin(popupName, &showPopup, ImGuiWindowFlags_AlwaysAutoResize)) {
 		ImGui::ColorEdit4("Color", renderSettings.cutPlaneColor.data());
 		ImGui::Text("Origin");
 		ImGui::SetNextItemWidth(100);
@@ -2497,7 +2614,6 @@ void myGUI::_render_cylinder_container_creator(const char* popupName, bool& show
 
 		ImGui::InputFloat("Cylinder Radius", &tempRadius, 0.01f, 1.0f);
 		ImGui::InputFloat("Cylinder Height", &tempHeight, 0.01f, 1.0f);
-		// we need the cylinder center, axis, radius
 
 		if (ImGui::Button("Create")) {
 
@@ -2628,11 +2744,9 @@ void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) 
 				else {
 					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
 				}
-				
-				//ContainerAdapter adapter = { *selectedCon, xDim, yDim, zDim };
-				//rnd->run(adapter, seeds);
-				rnd->run(*selectedCon);
+
 				rnd->container = selectedCon;
+				rnd->run(*selectedCon);
 				rnd->type = ObjectType::RandomGeneratorType;
 
 				size_t nr = rnd->get_seeds().size();
@@ -2701,8 +2815,8 @@ void myGUI::_render_random_seed_generator_properties() {
 	if (ImGui::Button("Update")) {
 		if (selectedContainer) {
 			//ContainerAdapter adapter = { *selectedContainer, xDim, yDim, zDim };
-			random->run(*selectedContainer);
 			random->container = selectedContainer;
+			random->run(*selectedContainer);
 			logger.log(LogPriority::SUCCESS, "Seeds Updated");
 		}
 	}
@@ -2791,7 +2905,7 @@ void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup)
 					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
 				}
 				rnd->type = ObjectType::UniformGeneratorType;
-
+				rnd->container = selectedCon;
 				rnd->run(*selectedCon);
 
 				size_t nr = rnd->get_seeds().size();
@@ -2857,9 +2971,8 @@ void myGUI::_render_uniform_seed_generator_properties() {
 
 	if (ImGui::Button("Update")) {
 		if (selectedContainer) {
-			//ContainerAdapter adapter = { *selectedContainer, xDim, yDim, zDim };
-			poisson->run(*selectedContainer);
 			poisson->container = selectedContainer;
+			poisson->run(*selectedContainer);
 			logger.log(LogPriority::SUCCESS, "Seeds Updated");
 		}
 	}
@@ -2879,6 +2992,8 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 	static float maxRadius = { 1.2f };
 	static int distanceFunc = 0;
 	static int radiusFunc = 0;
+	static double radiusMean = 0.0;   // 0 -> range midpoint
+	static double radiusStd = 0.1;
 	static Vec3 normal{ 0.0f, 0.0f, 1.0f };
 	static Vec3 planeCenter{ 0.0f, 0.0f, 1.0f };
 	static Vec3 point{ 0.0f, 0.0f, 0.0f };
@@ -2944,8 +3059,16 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 		ImGui::SeparatorText("Select Radius Function");
 		ImGui::RadioButton("Linear", &radiusFunc, 0);
 		ImGui::RadioButton("Quadratic", &radiusFunc, 1);
-		ImGui::RadioButton("Constant", &radiusFunc, 2);
-		ImGui::RadioButton("Random", &radiusFunc, 3);
+		ImGui::RadioButton("Sigmoid", &radiusFunc, 2);
+		ImGui::RadioButton("Constant", &radiusFunc, 3);
+		ImGui::RadioButton("Random (Normal)", &radiusFunc, 4);
+		if (radiusFunc == 4) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputDouble("Mean Radius (0 = midpoint)", &radiusMean);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputDouble("Radius Std", &radiusStd);
+			ImGui::TextDisabled("Each seed draws r ~ N(mean, std) clamped to [rMin, rMax].");
+		}
 
 		ImGui::SeparatorText("Parameters");
 
@@ -2973,14 +3096,22 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 						break;
 					}
 					case 2: {
-						cfg.rad = std::make_shared<ConstantRadiusFunction>();
+						cfg.rad = std::make_shared<SmoothStep>();
 						break;
 					}
 					case 3: {
-						cfg.rad = std::make_shared<RandomRadiusFunction>();
+						cfg.rad = std::make_shared<ConstantRadiusFunction>();
+						break;
+					}
+					case 4: {
+						// stochastic: no radius function, handled inside run()
+						break;
 					}
 				}
 
+				const bool stochastic = (radiusFunc == 4);
+
+				if (!stochastic)
 				switch (distanceFunc) {
 					// distance from plane
 					case 0: {
@@ -3021,6 +3152,11 @@ void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) 
 				}
 				rnd->distIdx = distanceFunc;
 				rnd->radiusIdx = radiusFunc;
+				rnd->rMin = minRadius;
+				rnd->rMax = maxRadius;
+				rnd->stochasticRadius = stochastic;
+				rnd->radiusMean = radiusMean;
+				rnd->radiusStd = radiusStd;
 				rnd->run(*selectedCon, cfg);
 
 				size_t nr = (int)rnd->get_seeds().size();
@@ -3062,10 +3198,10 @@ void myGUI::_render_varied_seed_generator_properties() {
 	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 100), ImGuiChildFlags_Borders);
 
 	static IContainer* selectedContainer = poisson->container;
-	static float minRadius = poisson->get_min_radius();
-	static float maxRadius = poisson->get_max_radius();
-	static int distanceFunc = poisson->distIdx;
-	static int radiusFunc = poisson->radiusIdx;
+	// static float minRadius = poisson->get_min_radius();
+	// static float maxRadius = poisson->get_max_radius();
+	// static int distanceFunc = poisson->distIdx;
+	// static int radiusFunc = poisson->radiusIdx;
 
 	static Vec3 normal{ 0.0f, 0.0f, 1.0f };
 	static Vec3 planeCenter{ 0.0f, 0.0f, 1.0f };
@@ -3076,14 +3212,14 @@ void myGUI::_render_varied_seed_generator_properties() {
 	RunConfig cfg = poisson->get_config();
 
 	if (cfg.dist && firstLoad) {
-		if (distanceFunc == 0){
+		if (poisson->distIdx == 0){
 			const PlaneSDF* pd = dynamic_cast<const PlaneSDF*>(cfg.dist.get());
 			if (pd) {
 				normal = pd->get_normal();
 				planeCenter = pd->get_point();
 			}
 		}
-		else if (distanceFunc == 1) {
+		else if (poisson->distIdx == 1) {
 			const PointSDF* pd = dynamic_cast<const PointSDF*>(cfg.dist.get());
 			if (pd) {
 				point = pd->get_point();
@@ -3114,29 +3250,37 @@ void myGUI::_render_varied_seed_generator_properties() {
 	ImGui::EndChild();
 
 	ImGui::SeparatorText("Select Distance Function");
-	ImGui::RadioButton("Distance From Plane", &distanceFunc, 0);
-	if (distanceFunc == 0) {
+	ImGui::RadioButton("Distance From Plane", &poisson->distIdx, 0);
+	if (poisson->distIdx == 0) {
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat3("Normal", normal);
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat3("Center", planeCenter);
 	};
-	ImGui::RadioButton("Distance From Point", &distanceFunc, 1);
-	if (distanceFunc == 1) {
+	ImGui::RadioButton("Distance From Point", &poisson->distIdx, 1);
+	if (poisson->distIdx == 1) {
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputFloat3("Point", point);
 	}
-	ImGui::RadioButton("Distance From Container", &distanceFunc, 2);
+	ImGui::RadioButton("Distance From Container", &poisson->distIdx, 2);
 
 	ImGui::SeparatorText("Select Radius Function");
-	ImGui::RadioButton("Linear", &radiusFunc, 0);
-	ImGui::RadioButton("Quadratic", &radiusFunc, 1);
-	ImGui::RadioButton("Constant", &radiusFunc, 2);
-	ImGui::RadioButton("Random", &radiusFunc, 3);
+	ImGui::RadioButton("Linear", &poisson->radiusIdx, 0);
+	ImGui::RadioButton("Quadratic", &poisson->radiusIdx, 1);
+	ImGui::RadioButton("Sigmoid", &poisson->radiusIdx, 2);
+	ImGui::RadioButton("Constant", &poisson->radiusIdx, 3);
+	ImGui::RadioButton("Random (Normal)", &poisson->radiusIdx, 4);
+	if (poisson->radiusIdx == 4) {
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputDouble("Mean Radius (0 = midpoint)", &poisson->radiusMean);
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputDouble("Radius Std", &poisson->radiusStd);
+		ImGui::TextDisabled("Each seed draws r ~ N(mean, std) clamped to [rMin, rMax].");
+	}
 
 	ImGui::SeparatorText("Parameters");
-	ImGui::InputFloat("Minimum Distance", &minRadius);
-	ImGui::InputFloat("Maximum Distance", &maxRadius);
+	ImGui::InputDouble("Minimum Distance", &poisson->rMin);
+	ImGui::InputDouble("Maximum Distance", &poisson->rMax);
 	//poisson->render_gui();
 
 	if (ImGui::Button("Update")) {
@@ -3144,26 +3288,37 @@ void myGUI::_render_varied_seed_generator_properties() {
 
 			RunConfig cfg;
 
-			switch (radiusFunc) {
+			// stochastic radius is a distance-field-free mode; the run() draws
+			// each seed's radius directly, so cfg.rad/cfg.dist stay null.
+			poisson->stochasticRadius = (poisson->radiusIdx == 4);
+
+			switch (poisson->radiusIdx) {
 				// linear radius function
 				case 0: {
 					cfg.rad = std::make_shared<LinearFunction>();
 					break;
 				}
 				case 1: {
-					cfg.rad = std::make_shared<QuadraticFunction>(minRadius);
+					cfg.rad = std::make_shared<QuadraticFunction>(
+						poisson->rMin);
 					break;
 				}
 				case 2: {
-					cfg.rad = std::make_shared<ConstantRadiusFunction>();
+					cfg.rad = std::make_shared<SmoothStep>();
 					break;
 				}
 				case 3: {
-					cfg.rad = std::make_shared<RandomRadiusFunction>();
+					cfg.rad = std::make_shared<ConstantRadiusFunction>();
+					break;
+				}
+				case 4: {
+					// stochastic: no radius function, handled inside run()
+					break;
 				}
 				}
 
-				switch (distanceFunc) {
+				if (!poisson->stochasticRadius)
+				switch (poisson->distIdx) {
 					// distance from plane
 				case 0: {
 					cfg.dist = std::make_shared<PlaneSDF>(planeCenter, normal);
@@ -3185,8 +3340,8 @@ void myGUI::_render_varied_seed_generator_properties() {
 			// from the container get the center
 			Bounds bnds = selectedContainer->compute_bounds();
 
-			poisson->set_min_radius(minRadius);
-			poisson->set_max_radius(maxRadius);
+			// poisson->set_min_radius(minRadius);
+			// poisson->set_max_radius(maxRadius);
 			poisson->run(*selectedContainer, cfg);
 			logger.log(LogPriority::SUCCESS, "Seeds Updated");
 		}
@@ -3301,7 +3456,7 @@ void myGUI::_action_estimate_local_thickness(const char* popupName, bool& showPo
 	}
 
 	static int analysisScope = 0;
-	static float tempVoxelSize = 0.05f;
+	static float tempVoxelSize = gen->measurementVoxelSize;
 	static std::array<float, 2> xDims = { 0.0f, 5.0f };
 	static std::array<float, 2> yDims = { 0.0f, 5.0f };
 	static std::array<float, 2> zDims = { 0.0f, 5.0f };
@@ -3358,12 +3513,12 @@ void myGUI::_action_estimate_local_thickness(const char* popupName, bool& showPo
 
 			if (analysisScope == 0) {
 				std::array<float, 6> bds = gen->get_bounds();
-				gen->estimate_local_thickness(voxelSize, bds, flag);
+				gen->estimate_local_thickness(tempVoxelSize, bds, flag);
 			}
 			else {
 				ROI* roi = static_cast<ROI*>(selectedROI);
 				std::array<float, 6> roiBounds = roi->get_bounds();
-				gen->estimate_local_thickness(voxelSize, roiBounds, flag);
+				gen->estimate_local_thickness(tempVoxelSize, roiBounds, flag);
 			}
 			showPopup = false;
 			selectedROI = nullptr;
@@ -3493,16 +3648,14 @@ void myGUI::_action_estimate_anisotropy() {
 		ImGui::NewLine();
 		if (ImGui::Button("Estimate")) {
 
-			scaffold->estimate_anisotropy(daMinDirections, daMinLines, daFormulaIdx, selectedROI);
+			scaffold->estimate_anisotropy(tempVoxelSize, daMinDirections, daMinLines, daFormulaIdx, selectedROI);
 			estimateAnisotropy = false;
 			selectedROI = nullptr;
-			voxelSize = 0.05f;
 		}
 
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) {
 			estimateAnisotropy = false;
-			voxelSize = 0.05f;
 			selectedROI = nullptr;
 			ImGui::CloseCurrentPopup();
 		}
@@ -3525,17 +3678,54 @@ void myGUI::_action_estimate_connectivity_density() {
 	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 
 	// pass settings
-	if (scaffold->isLoadedFromFile) {
+	if(scaffold->isLoadedFromFile){
 		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
 		estimateConnectivityDensity = false;
 		return;
 	}
 
-	if (scaffold) {
-		scaffold->estimate_connectivity_density();
+	if (estimateConnectivityDensity) {
+		if (!ImGui::IsPopupOpen("Connectivity Density Settings")) {
+			ImGui::OpenPopup("Connectivity Density Settings");
+		}
 	}
+	
+	if (ImGui::BeginPopupModal("Connectivity Density Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 
-	estimateConnectivityDensity = false;
+		static int selectedMethod = 1;
+		static float tempVoxelSize = 0.05f;
+
+		const char* formulaOptions[] = { "Mesh - based", "Voxel - based" };
+
+		ImGui::Combo("Algorithm", &selectedMethod, formulaOptions, IM_ARRAYSIZE(formulaOptions));
+
+		if (selectedMethod == 1){
+			ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
+		}
+
+		ImGui::NewLine();
+		if (ImGui::Button("Estimate")) {
+
+			if (selectedMethod == 0){
+				scaffold->estimate_connectivity_density();
+			}
+			else if (selectedMethod == 1){
+				scaffold->estimate_connectivity_density_voxel(tempVoxelSize);
+			}
+			estimateConnectivityDensity = false;
+			selectedMethod = 1;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			estimateConnectivityDensity = false;
+			selectedMethod = 1;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+
+	}
 };
 
 void myGUI::_action_estimate_trabecular_number() {
@@ -3573,7 +3763,7 @@ void myGUI::_action_estimate_trabecular_number() {
 
 		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
 		
-		const char* formulaOptions[] = { "Mean Intercept Length (DDA)", "Derived Proxy (BV/TV / Tb.Th)" };
+		const char* formulaOptions[] = { "Mean Intercept Length (DDA)", "Derived Proxy (BV/TV / Tb.Th)", "Derived Proxy (1 / Tb.Sp.)" };
 		ImGui::Combo("Algorithm", &trabecularNrFormula, formulaOptions, IM_ARRAYSIZE(formulaOptions));
 		
 		ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
@@ -3605,16 +3795,16 @@ void myGUI::_action_estimate_trabecular_number() {
 
 		ImGui::NewLine();
 		if (ImGui::Button("Estimate")) {
-			scaffold->estimate_trabecular_number(trabecularNrFormula, daMinDirections, daMinLines, selectedROI);
+			scaffold->estimate_trabecular_number(tempVoxelSize, trabecularNrFormula, daMinDirections, daMinLines, selectedROI);
 			estimateTrabecularNr = false;
 			selectedROI = nullptr;
-			voxelSize = 0.05f;
+			trabecularNrFormula = 0;
 		}
 
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) {
 			estimateTrabecularNr = false;
-			voxelSize = 0.05f;
+			trabecularNrFormula = 0;
 			selectedROI = nullptr;
 			ImGui::CloseCurrentPopup();
 		}
@@ -3645,6 +3835,64 @@ void myGUI::_action_estimate_pore_network() {
 	if (scaffold) {
 		scaffold->estimate_connectivity_network();
 	}
+};
+
+void myGUI::_action_estimate_smi() {
+
+	// get the selected scaffold
+	if (selectedPanelObj.type != ObjectType::ScaffoldType) {
+		logger.log(LogPriority::ERROR, "Select a scaffold from the left panel.");
+		estimateSmi = false;
+		return;
+	}
+
+	// get the scaffold
+	GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
+
+	// pass settings
+	if (scaffold->isLoadedFromFile) {
+		logger.log(LogPriority::ERROR, "Scaffold is loaded from file, cannot recalculate metrics!");
+		estimateSmi = false;
+		return;
+	}
+
+	if (estimateSmi) {
+		if (!ImGui::IsPopupOpen("Estimate Structural Model Index")) {
+			ImGui::OpenPopup("Estimate Structural Model Index");
+		}
+	}
+	if (ImGui::BeginPopupModal("Estimate Structural Model Index", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static float dilation = 0.0f;
+
+		// SMI needs dBS/dr, so the offset must stay far below the strut
+		// thickness or the forward difference stops being a derivative.
+		// 0 lets estimate_smi pick a scale-relative default (0.05 * voxel).
+		ImGui::InputFloat("Dilation (0 = auto)", &dilation, 0.001f, 0.01f, "%.4f");
+		ImGui::SetItemTooltip(
+			"Surface offset used for dBS/dr. Leave at 0 for an automatic, "
+			"scale-relative value. Must be much smaller than the strut thickness.");
+
+		if (dilation < 0.0f) dilation = 0.0f;
+
+		ImGui::NewLine();
+		if (ImGui::Button("Estimate")) {
+			scaffold->estimate_smi(dilation);
+			estimateSmi = false;
+			dilation = 0.0f;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			estimateSmi = false;
+			dilation = 0.0f;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+
+	}
+
 };
 
 void myGUI::_render_translate_panel(const char* popupName, bool& showPopup) {
@@ -3952,13 +4200,14 @@ void myGUI::_render_taubin_smooth_panel(const char* popupName, bool& showPopup) 
 	
 		if (ImGui::Button("Apply")) {
 			model->apply_taubin_smooth(iter, lambda, mu);
+			// model->smooth_scalar_field_taubin(iter, lambda, mu);
+			// std::shared_ptr<IContainer> parentCon = model->container.lock();
+			// model->marching_cubes();
+			// model->estimate_metrics(*parentCon);
+			// model->update_render();
 		}
 
 		if (ImGui::Button("Cancel")) {
-
-			//if (model) {
-			//	md->reset_vertices();
-			//}
 			showPopup = false;
 		}
 

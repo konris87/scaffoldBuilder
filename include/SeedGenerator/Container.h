@@ -28,6 +28,7 @@ public:
 	virtual bool is_inside(const Vec3& pt) const = 0;
 	virtual std::shared_ptr<const SDF> get_distance_estimator() const = 0;
 	virtual float get_volume() const = 0;
+	virtual void set_scale(float newScale) = 0;
 	//virtual float sdf(const Vec3&) const = 0;
 	std::string name = "";
 	std::array<float, 4> color = {0.5, 0.5f, 0.5f , 1.0f};
@@ -141,6 +142,7 @@ public:
 
 	Vec3 origin{ 5.0f, 5.0f, 5.0f };
 
+	void set_scale(float newScale) override {};
 private:
 
 	bool renderModeTrue = true;
@@ -158,7 +160,11 @@ public:
 	CylinderContainer(const float r, const float h, const bool renderMode = true) : cylinderRadius(r), cylinderHeight(h), renderMode(renderMode){
 	
 		// create the sdf
-		sdf = std::make_shared<CylinderSDF>(cylinderRadius, cylinderHeight, Vec3(0.0f, cylinderHeight * 0.5f, 0.0f));
+		sdf = std::make_shared<CylinderSDF>(
+			cylinderRadius, 
+			cylinderHeight, 
+			Vec3(0.0f, cylinderHeight * 0.5f, 0.0f)
+		);
 
 		if (renderMode) {
 			create();
@@ -207,6 +213,8 @@ public:
 			return true;
 		}
 	};
+
+	void set_scale(float newScale) override {};
 
 	float cylinderRadius{ 2.0f };
 	float cylinderHeight{ 10.0f };
@@ -309,10 +317,14 @@ public:
 
 	// rescale the mesh about its bounding-box center (e.g. to convert a
 	// CAD export's native units into mm) and rebuild the SDF/BVH
-	void set_scale(float scale) {
-		scaleFactor = scale;
+	void set_scale(float newScale) override {
+		scaleFactor = newScale;
 		apply_scale();
 	};
+
+	float get_scale() const {
+		return scaleFactor;
+	}
 
 private:
 	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};

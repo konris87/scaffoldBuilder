@@ -27,14 +27,16 @@ public:
         float angle = 0.0f,
         Vec3 stretch = {1.0f, 1.0f, 1.0f},
         float sigma = 1.1f
-    ){};
+    ) : origin(center), direction(direction), angle(angle), stretch(stretch), sigma(sigma){
+        update_metric();
+    };
 
     Vec3 origin; // set initially to zero
     Vec3 direction = {1.0f, 0.0f, 0.0f};
     float angle = 0.0f;
     Vec3 stretch = {1.0f, 1.0f, 1.0f};
     float sigma = 1.1f; // gaussian falloff parameter
-    Eigen::Matrix3f M;
+    Eigen::Matrix3f C = Eigen::Matrix3f::Identity();
 
     std::string name = "";
 	float color[4] = {0.0f, 1.0f, 0.0f, 0.4f};
@@ -117,17 +119,21 @@ public:
 
     void update_metric() {
 
+        // Use Covariance Matrix
         Eigen::Matrix3f rot = rotation_from_direction_roll(
             direction, 
             angle
         );
         
         auto safe_sq = [](float val) { return std::max(1e-6f, val * val); };
-        Eigen::Vector3f invSq(1.0f / safe_sq(stretch.x),
-                              1.0f / safe_sq(stretch.y),
-                              1.0f / safe_sq(stretch.z));
-        M = rot.transpose() * invSq.asDiagonal() * rot;
 
+        Eigen::Vector3f sq(
+            safe_sq(stretch.x), 
+            safe_sq(stretch.y), 
+            safe_sq(stretch.z)
+        );
+
+        C = rot.transpose() * sq.asDiagonal() * rot;
     };
 
     void update_model(){
@@ -155,13 +161,17 @@ inline void create_metric(AnisotropySource& source){
     Eigen::Matrix3f rot = rotation_from_direction_roll(
         source.direction, source.angle
     );
+
+    auto safe_sq = [](float val) { return std::max(1e-6f, val * val); };
     
-    // S^-2 matrix diagonal
-    Eigen::Vector3f invSq(1.0f / (source.stretch.x * source.stretch.x),
-                          1.0f / (source.stretch.y * source.stretch.y),
-                          1.0f / (source.stretch.z * source.stretch.z));
-    // M = R^T S^-2 R
-    source.M = rot.transpose() * invSq.asDiagonal() * rot;
+    Eigen::Vector3f sq(
+        safe_sq(source.stretch.x),
+        safe_sq(source.stretch.y),
+        safe_sq(source.stretch.z)
+    );
+
+    // Covariance matrix R^T S^2 R
+    source.C = rot.transpose() * sq.asDiagonal() * rot;
 };
 
 //@ brief function to estimate the number of candidates based on the applied stretches
@@ -177,27 +187,52 @@ inline size_t choose_candidate_number(
     return k;
 }
 
+//@brief Blend the source covariances at 'point' with the global background
+// covariance, then invert to obtain the local Riemannian metric M(x).
+//
+// Partition of unity: the background acts as an always-present source with
+// constant weight wb, so the blend is a single normalized average
+//     C(x) = ( sum_i w_i C_i + wb * C_bg ) / ( sum_i w_i + wb ).
+// Far from every source C(x) = C_bg exactly; at a source centre the source
+// contributes 1/(1+wb) of the blend. Larger wb bleeds the background more
+// strongly into source regions (wb = 1 caps a lone source at a 50/50 mix);
+// wb -> 0 would make the blend undefined outside all supports, so it is
+// clamped away from zero.
+//
+// The Gaussian weight is shifted so it reaches zero continuously at the
+// 3-sigma support boundary (an unshifted kernel jumps by exp(-4.5) ~ 0.011
+// there, leaving a small discontinuity in the scalar field).
 inline Eigen::Matrix3f blend_metric(
-    const Vec3 point, 
+    const Vec3 point,
     const std::vector<std::shared_ptr<AnisotropySource>>& sources,
-    AnisotropySource& background, 
-    float backgroundWeight){
+    const AnisotropySource& background,
+    float backgroundWeight = 0.1f){
 
-        Eigen::Matrix3f M = backgroundWeight * background.M;
-        float weightSum = backgroundWeight;
-        for(const auto& src: sources){
+        // weight of the unshifted Gaussian at the 3-sigma cutoff
+        const float cutoffWeight = std::exp(-4.5f);
+
+        Eigen::Matrix3f Clocal = Eigen::Matrix3f::Zero();
+        float weightSum = 0.0f;
+        for(const auto& src : sources){
+
+            // squared distance of query point from center of source
             Vec3 d = point - src->origin;
-            float r2 = d.x * d.x + d.y * d.y + d.z * d.z;
-            if (r2 > 9.0f * src->sigma * src->sigma) continue; 
 
+            float r2 = d.x * d.x + d.y * d.y + d.z * d.z;
+            if (r2 > 9.0f * src->sigma * src->sigma) continue;
+
+            // Gaussian falloff, shifted to vanish at the support boundary
             float invSigma = 1.0f / (2.0f * src->sigma * src->sigma);
-            float w = std::exp(-r2 * invSigma);
-            M += w * src->M;
+            float w = std::exp(-r2 * invSigma) - cutoffWeight;
+            if (w <= 0.0f) continue;
+
+            Clocal += w * src->C;
             weightSum += w;
         }
 
-        // return the weighted sum
-        return M / weightSum;
+        float wb = std::max(backgroundWeight, 1e-3f);
+        Eigen::Matrix3f Cblend = (Clocal + wb * background.C) / (weightSum + wb);
+        return Cblend.inverse();
     };
 
 inline double aniso_distance_sq(
