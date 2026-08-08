@@ -328,7 +328,10 @@ std::vector<GeneratorLewiner::NarrowBandClass> GeneratorLewiner::classify_contai
  *    cheap coarse pre-pass, skipping (1) entirely for those voxels and
  *    falling back to the real query only in a thin band around the surface.
  */
-bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
+bool GeneratorLewiner::compute_cached_field_values(const IContainer& con) {
+
+	// ensure cached voxels is free
+	cachedVoxels.clear();
 
 	if (seeds.size() < 3) {
 		if (logger) logger->log(LogPriority::ERROR, "We need at least three seeds!");
@@ -402,9 +405,10 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
                          static_cast<size_t>(blockDims[2]);
 
     std::cout << "Voxel Nr: " << totalVoxels << std::endl;
-    scalarField.resize(totalVoxels, 9999.9f);
+    scalarField.assign(totalVoxels, 9999.9f);
 
-    std::vector<float> containerDistField(totalVoxels);
+    // member (not local): assemble_field reuses it for the clamp + porosity mask
+    containerDistField.assign(totalVoxels, 0.0f);
 
     // Numerical bands are expressed in grid spacings (voxels), not absolute
     // millimetres, so they track the model scale and resolution automatically.
@@ -426,6 +430,41 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
     const auto classifyEnd = std::chrono::steady_clock::now();
     std::cout << "  [compute_scalar_field] narrow-band classification: "
               << std::chrono::duration<double>(classifyEnd - fillStart).count() << " s" << std::endl;
+
+	// RAM guard for the per-voxel cache. compute_scalar_field always caches now
+	// (calibration re-assembles off it), so every caller - the GUI, the CLI
+	// profiler, the .scaf loader - reaches this allocation. The GUI has its own
+	// pre-flight check, but the non-GUI callers do not, so guard here too: a
+	// too-large grid should fail cleanly with an actionable message instead of
+	// throwing std::bad_alloc (or OOM-killing) deep inside resize(). Convention
+	// mirrors the MC sizing guard: a 0 from the query means "unknown, proceed"
+	// and the bad_alloc backstop still applies.
+	{
+		const uint64_t bytesPerVoxel =
+			sizeof(VoxelValue) + sizeof(float) /*scalarField*/ + sizeof(float) /*containerDist*/;
+		const uint64_t requiredBytes = static_cast<uint64_t>(totalVoxels) * bytesPerVoxel;
+		const uint64_t freeBytes = available_physical_memory_bytes();
+		const double   budgetFrac = 0.80; // leave headroom for the OS / other buffers
+		const bool memoryOk =
+			(freeBytes == 0) ||
+			(requiredBytes <= static_cast<uint64_t>(budgetFrac * static_cast<double>(freeBytes)));
+		if (!memoryOk) {
+			if (logger) logger->log(LogPriority::ERROR,
+				"Scalar-field cache aborted: grid is " + std::to_string(totalVoxels) +
+				" voxels (~" + std::to_string(requiredBytes >> 30) + " GB needed, " +
+				std::to_string(freeBytes >> 30) + " GB free). Increase the generation "
+				"voxel size (coarser grid) or restrict the domain.");
+			else
+				std::cerr << "Scalar-field cache aborted: grid too large ("
+				          << totalVoxels << " voxels, ~" << (requiredBytes >> 30)
+				          << " GB needed, " << (freeBytes >> 30) << " GB free)." << std::endl;
+			cachedVoxels.clear();
+			return false;
+		}
+	}
+
+	// resize the vector store the cached voxels
+	cachedVoxels.resize(totalVoxels);
 
 	// Lambda for face hash
 	auto stable_face_hash = [](size_t a, size_t b){
@@ -483,20 +522,19 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
                     continue;
                 }
 
-                // --- 2. Dynamic Thickness Evaluation ---
-                float localIsoLevel = isoLevel;
+                // --- 2. Thickness SDF distance (invariant to the thickness knob) ---
+                // Only the DISTANCE is cached; the per-voxel iso level is re-derived
+                // from it in assemble_field, so a thickness-scale change during
+                // calibration does not need a fresh (expensive) cache pass.
+                float rawDist = 0.0f;
                 if (thicknessFunction && thicknessSDF) {
-                    double rawDist = (thicknessSDF.get() == con.sdf.get())
+                    rawDist = std::abs(static_cast<float>((thicknessSDF.get() == con.sdf.get())
                         ? containerDist
-                        : thicknessSDF->compute_distance(point);
-
-                    rawDist = std::abs(rawDist);
-                    localIsoLevel = static_cast<float>(
-                        thicknessFunction->estimate_radius(rawDist, startThickness, endThickness));
+                        : thicknessSDF->compute_distance(point)));
                 }
 
-                float d1 = 0.0f, d2 = 0.0f, d3 = 0.0f;
-                Vec3 grad1, grad2, grad3;
+                float d1 = 0.0f, d2 = 0.0f, d3 = 0.0f, d4 = 0.0f;
+                Vec3 grad1, grad2, grad3, grad4;
 				size_t id1 = 0, id2 = 0;
 
                 // --- 3. Gather Anisotropic Nearest Neighbors ---
@@ -515,7 +553,7 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
                     }
                     
                     std::partial_sort(
-						cand.begin(), cand.begin() + 3, cand.end(),
+						cand.begin(), cand.begin() + std::min<size_t>(4, cand.size()), cand.end(),
 						[](const auto& a, const auto& b) { return a.second < b.second; });
 
 					id1 = cand[0].first;
@@ -532,13 +570,24 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
                     grad1 = aniso_distance_grad(M, point, p1, d1);
                     grad2 = aniso_distance_grad(M, point, p2, d2);
                     grad3 = aniso_distance_grad(M, point, p3, d3);
+
+                    // Fourth neighbour (for the optional edge-rounding smin).
+                    // Falls back to the third if the seed set is too small, so
+                    // the edge-vs-strut smin degenerates to a no-op there.
+                    if (cand.size() >= 4) {
+                        d4 = std::sqrt((float)cand[3].second);
+                        grad4 = aniso_distance_grad(M, point, seeds[cand[3].first], d4);
+                    } else {
+                        d4 = d3;
+                        grad4 = grad3;
+                    }
                 }
                 else {
                     Vec3 localPt = point - center;
                     Vec3 rotatedPt = Vec3(rot * Eigen::Vector3f{ localPt.x, localPt.y, localPt.z });
                     Vec3 wrapped(rotatedPt.x / stretchX, rotatedPt.y / stretchY, rotatedPt.z / stretchZ);
 
-                    auto cand = kdtree->knn(wrapped, 3, [this](const Vec3& p1, const Vec3& p2) {
+                    auto cand = kdtree->knn(wrapped, 4, [this](const Vec3& p1, const Vec3& p2) {
                         Vec3 v = p2 - p1;
                         return (v.x * v.x) + (v.y * v.y) + (v.z * v.z);
                     });
@@ -567,8 +616,18 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
                     grad1 = calc_grad(p1, d1);
                     grad2 = calc_grad(p2, d2);
                     grad3 = calc_grad(p3, d3);
-                }
 
+                    // Fourth neighbour (for the optional edge-rounding smin).
+                    // Falls back to the third if the seed set is too small.
+                    if (cand.size() >= 4) {
+                        d4 = (float)std::sqrt(cand[3].second);
+                        grad4 = calc_grad(warpedSeeds[cand[3].first], d4);
+                    } else {
+                        d4 = d3;
+                        grad4 = grad3;
+                    }
+                }
+			
 			// 2. The two geometric extremes for this voxel.
 			// wallVal vanishes on the Voronoi FACES (bisector of the nearest two
 			// seeds) -> thickening it gives plates.
@@ -579,6 +638,11 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 			float strutVal = d3 - d1;
 			Vec3 strutGrad = grad3 - grad1;
+
+			// edgeVal vanishes on the Voronoi VERTICES (nearest four equidistant).
+			// Only the optional edge-rounding smin reads it; strutVal <= edgeVal.
+			float edgeVal = d4 - d1;
+			Vec3 edgeGrad = grad4 - grad1;
 
 			// 3. Per-face fenestration.
 			// A Voronoi face is identified by its nearest seed PAIR, so hashing
@@ -591,6 +655,18 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 
 			float faceP = stable_face_hash(a, b);
 
+			// cached voxel (all invariant to the calibration knobs iso/threshold/spread)
+			VoxelValue cachedVoxel;
+			cachedVoxel.wallVal = wallVal;
+			cachedVoxel.wallGrad = wallGrad;
+			cachedVoxel.strutVal = strutVal;
+			cachedVoxel.strutGrad = strutGrad;
+			cachedVoxel.edgeVal = edgeVal;
+			cachedVoxel.edgeGrad = edgeGrad;
+			cachedVoxel.faceP = faceP;
+			cachedVoxel.rawDist = rawDist;
+
+			cachedVoxels[idx] = cachedVoxel;
 			// Each face gets its OWN openness, centred on the global threshold:
 			//
 			//   threshold ("openness") = MEAN openness of the structure.
@@ -625,109 +701,257 @@ bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
 			// spread 0 -> 1 with Tb.Th flat. openness + spread jointly span the
 			// (porosity, SMI) plane - openness alone traces the perforation curve
 			// where SMI and BV/TV are locked; spread moves off it. See §8.4.
-			float localTau = std::clamp(threshold + spread * (faceP - 0.5f), 0.0f, 1.0f);
-
-			// 4. Exact geometric interpolation for this face.
-			// This is a linear blend, not a min()/union, so there is no crease to fillet: a smin here would only fatten the rod-plate junctions, and the local-thickness metric amplifies that via junction bleeding.
-			// The field stays continuous across Voronoi edges even though
-			// localTau jumps between faces: at an edge d1=d2=d3, so wallVal and
-			// strutVal both vanish and value=0 regardless of localTau.
-			float value = (1.0f - localTau) * wallVal + localTau * strutVal;
-			Vec3 gradValue = (1.0f - localTau) * wallGrad + localTau * strutGrad;
-
-			// Optional junction smoothing. The linear blend above is crease-free
-			// but its rod-plate junctions are sharp; a smooth-min with the strut
-			// field fillets (and slightly fattens) them, giving the organic,
-			// thickened nodes of real trabecular bone. 'value' (the linear blend)
-			// <= the shifted strut field, and their gap -> 0 near Voronoi edges,
-			// so the fillet appears exactly at the junctions. Reduces to the
-			// linear blend as smoothK -> 0. The Tb.Th inflation this causes is
-			// absorbed by calibrate_thickness. See §8 (smoothness).
-			if (smoothJunctions && smoothK > 1e-6f) {
-				float rodField = strutVal + (1.0f - localTau) * (strutVal - wallVal);
-				SmoothDist sd = smin_gradient(value, rodField, gradValue, strutGrad, smoothK);
-				value = sd.val;
-				gradValue = sd.grad;
-			}
-
-			// // Legacy: single global openness, no per-face variation.
-			// // Equivalent to the above with spread = 0.
-			// // threshold = 0.0 -> Pure Walls (Foam)
-			// // threshold = 1.0 -> Pure Struts (Lattice)
-			// float value = (1.0f - threshold) * wallVal + threshold * strutVal;
-			// Vec3 gradValue = (1.0f - threshold) * wallGrad + threshold * strutGrad;
-
-			// 4. Safe Normalization
-			float gradMag = gradValue.norm();
-
-			// Use a slightly larger epsilon to protect against gradient cancellation at nodes.
-			// If the gradient cancels, fallback to the raw value to maintain topology.
-			float localRaw = value;
-			if (gradMag > 1e-4f) {
-				localRaw = (value / gradMag) * 2.0f; 
-			}
-
-			// 5. Shift the scalar field
-			scalarField[idx] = localRaw - localIsoLevel + isoLevel;
             }
         }
     }
 
     const auto fillEnd = std::chrono::steady_clock::now();
-    std::cout << "  [compute_scalar_field] fill loop (container SDF + seed kdtree): "
+    std::cout << "  [compute_cached_field_values] fill loop (container SDF + seed kdtree): "
               << std::chrono::duration<double>(fillEnd - fillStart).count() << " s" << std::endl;
 
-    // --- 5. Post-Processing ---
-	// smooth_scalar_field();
+    // Post-processing (smoothing, clamp, island removal, seal, porosity) is NOT
+    // done here. It depends on the ASSEMBLED field and on the calibration knobs
+    // (isoLevel / threshold / spread), so it lives in assemble_field(), which runs
+    // once per iteration off this cache.
+    return true;
+}
 
+// Cheap per-iteration pass: reconstruct the scalar field from the cached,
+// knob-invariant per-voxel data (no kdtree, no container SDF), then run the
+// knob-dependent post-processing. Called repeatedly by the calibrators after a
+// single compute_cached_field_values(). Mirrors the tail of the old
+// compute_scalar_field exactly, so the output is identical.
+bool GeneratorLewiner::assemble_field(){
+
+	if (cachedVoxels.empty()) {
+		if (logger) logger->log(LogPriority::ERROR,
+			"assemble_field: no cached field values; call compute_cached_field_values first.");
+		return false;
+	}
+
+	const auto fillStart = std::chrono::steady_clock::now();
+
+	// exterior band, identical to the cache pass's early-out
+	const float hMax = std::max(stepX, std::max(stepY, stepZ));
+	const float surfaceMargin = 3.0f * hMax;
+	const float airLevel = air_skip_level();
+	const bool variedThickness = thicknessFunction && thicknessSDF;
+
+	const long long totalVoxels = static_cast<long long>(cachedVoxels.size());
+
+	#pragma omp parallel for
+	for (long long idx = 0; idx < totalVoxels; idx++) {
+
+		// Exterior voxels are air: keep the stamp instead of writing a bogus
+		// (all-zero-cache) value that would flip them to solid.
+		if (containerDistField[idx] > surfaceMargin) {
+			scalarField[idx] = airLevel;
+			continue;
+		}
+
+		const VoxelValue& cachedVoxel = cachedVoxels[idx];
+
+		// Re-derive the per-voxel iso level from the cached (invariant) distance
+		// and the CURRENT thickness. Uniform: localIsoLevel = isoLevel, so the
+		// shift below cancels to localRaw. Varied: tracks the calibrated scale.
+		float localIsoLevel = isoLevel;
+		if (variedThickness) {
+			localIsoLevel = static_cast<float>(
+				thicknessFunction->estimate_radius(cachedVoxel.rawDist, startThickness, endThickness));
+		}
+
+		// local tau (openness + per-face spread)
+		float localTau = std::clamp(
+			threshold + spread * (cachedVoxel.faceP - 0.5f), 0.0f, 1.0f);
+
+		// Boundary frame: within frameDepth of the container wall, ramp the openness
+		// toward zero so the outermost cells close into full Voronoi walls. This
+		// leaves a connected honeycomb rim (the "frame") that ties the cut boundary
+		// struts together. containerDistField is the container SDF (<=0 inside), so
+		// depth = -SDF grows inward from the wall.
+		// The band depth is expressed as a MULTIPLE of the wall thickness (isoLevel),
+		// so it stays proportionate at any scale. This matters because tau -> 0 is the
+		// plate field: a large ABSOLUTE depth turns a thick boundary shell plate-like
+		// ("plates appear"), whereas tying it to the thickness keeps the frame a thin
+		// rim. Default frameDepth = 1.0 => one wall layer (a band of isoLevel), which
+		// is the shallowest depth that still reads as a solid honeycomb rim.
+		if (frameBoundary && frameDepth > 1e-6f) {
+			const float frameBand = frameDepth * isoLevel;
+			const float depth = -containerDistField[idx];   // 0 at wall, >0 inward
+			if (depth < frameBand) {
+				float w = 1.0f - depth / frameBand;          // 1 at wall -> 0 at frameBand
+				w = std::clamp(w, 0.0f, 1.0f);               // guard the thin outside band
+				w = w * w * (3.0f - 2.0f * w);               // smoothstep for a gentle blend
+				localTau *= (1.0f - w);                      // drive tau -> 0 at the wall
+			}
+		}
+
+		// Base geometry per face. Two paths that agree exactly when edgeK -> 0:
+		//
+		//   value = (1-tau)(sd2 - sd1) + tau(sd3 - sd1)
+		//
+		// Linear blend (edge rounding off): sd_k = d_k, i.e. sd2-sd1 = wallVal,
+		// sd3-sd1 = strutVal -- the validated crease-free field.
+		//
+		// Edge rounding on: sd2 = smin(d2,d3;k), sd3 = smin(d3,d4;k). By the
+		// translation-equivariance of smin, sd2-sd1 = smin(wallVal, strutVal; k)
+		// and sd3-sd1 = smin(strutVal, edgeVal; k) -- computed purely from the
+		// cached contrasts. This rounds the Voronoi EDGES (d2=d3) and VERTICES
+		// (d3=d4), independent of tau (so it also rounds tau=1 lattices). Since
+		// wallVal <= strutVal <= edgeVal, at k=0 each smin picks the min branch
+		// and the field reduces EXACTLY to the linear blend above.
+		float value;
+		Vec3 gradValue;
+		if (roundEdges && edgeK > 1e-6f) {
+			SmoothDist softWall = smin_gradient(
+				cachedVoxel.wallVal, cachedVoxel.strutVal,
+				cachedVoxel.wallGrad, cachedVoxel.strutGrad, edgeK);   // sd2 - sd1
+			SmoothDist softStrut = smin_gradient(
+				cachedVoxel.strutVal, cachedVoxel.edgeVal,
+				cachedVoxel.strutGrad, cachedVoxel.edgeGrad, edgeK);   // sd3 - sd1
+			value     = (1.0f - localTau) * softWall.val  + localTau * softStrut.val;
+			gradValue = (1.0f - localTau) * softWall.grad + localTau * softStrut.grad;
+		} else {
+			// Exact geometric interpolation for this face (linear blend, crease-free).
+			value     = (1.0f - localTau) * cachedVoxel.wallVal  + localTau * cachedVoxel.strutVal;
+			gradValue = (1.0f - localTau) * cachedVoxel.wallGrad + localTau * cachedVoxel.strutGrad;
+		}
+
+		// Optional junction smoothing (smin fillet of the rod/plate fields).
+		// Independent of edge rounding above; the two can be stacked.
+		if (smoothJunctions && smoothK > 1e-6f) {
+			float rodField = cachedVoxel.strutVal + (1.0f - localTau) * (cachedVoxel.strutVal - cachedVoxel.wallVal);
+			SmoothDist sd = smin_gradient(value, rodField, gradValue, cachedVoxel.strutGrad, smoothK);
+			value = sd.val;
+			gradValue = sd.grad;
+		}
+
+		// Safe normalization: protect against gradient cancellation at nodes.
+		float gradMag = gradValue.norm();
+		float localRaw = value;
+		if (gradMag > 1e-4f) {
+			localRaw = (value / gradMag) * 2.0f;
+		}
+
+		// Shift the scalar field
+		scalarField[idx] = localRaw - localIsoLevel + isoLevel;
+	}
+
+	const auto fillEnd = std::chrono::steady_clock::now();
+	std::cout << "  [assemble_field] blend + shift: "
+	          << std::chrono::duration<double>(fillEnd - fillStart).count() << " s" << std::endl;
+
+	// --- Post-processing (knob-dependent; runs every assemble) ---
 	smooth_scalar_field_taubin(iter, lambda, mu);
 
-    // Boundary Clamp (Cached SDF Lookup)
-    #pragma omp parallel for collapse(3)
-    for (int i = 0; i < blockDims[0]; i++) {
-        for (int j = 0; j < blockDims[1]; j++) {
-            for (int k = 0; k < blockDims[2]; k++) {
-                int idx = find_vertex_index(i, j, k);
-                float mappedContainer = containerDistField[idx] + isoLevel;
-                // Intersection: Take the maximum (most "Air-like") value
-                scalarField[idx] = std::max(scalarField[idx], mappedContainer);
-            }
-        }
-    }
+	// Boundary clamp: contiguous flat walk (see the note formerly on this loop).
+	#pragma omp parallel for
+	for (long long idx = 0; idx < totalVoxels; idx++) {
+		scalarField[idx] = std::max(scalarField[idx], containerDistField[idx] + isoLevel);
+	}
 
-    const auto clampEnd = std::chrono::steady_clock::now();
-    std::cout << "  [compute_scalar_field] boundary clamp (cached SDF lookup): "
-              << std::chrono::duration<double>(clampEnd - fillEnd).count() << " s" << std::endl;
+	// Container edge frame: union solid beams along the container's own edges
+	// (a box's 12 edges, a cylinder's two circular rims) so the specimen gains a
+	// rigid outer cage for gripping/loading. edgeDist is a true Euclidean distance
+	// to the edge set, so (edgeDist - frameBeam + isoLevel) is an SDF-shifted field
+	// whose iso-surface is a beam of radius frameBeam. Gated to the interior
+	// (containerDist <= 0) so the beams stay flush with the outer wall. Off by
+	// default; only box/cylinder are supported (a mesh has no simple edge set).
+	if (frameContainerEdges && frameBeam > 1e-6f) {
+		auto lockedCon = container.lock();
+		if (lockedCon) {
+			const ObjectType ctype = lockedCon->get_type();
+			const long long nx = blockDims[0];
+			const long long ny = blockDims[1];
+			if (ctype == ObjectType::BoxContainerType) {
+				const float x0 = bounds[0], x1 = bounds[1];
+				const float y0 = bounds[2], y1 = bounds[3];
+				const float z0 = bounds[4], z1 = bounds[5];
+				#pragma omp parallel for
+				for (long long idx = 0; idx < totalVoxels; idx++) {
+					if (containerDistField[idx] > 0.0f) continue;   // interior only
+					const long long i = idx % nx;
+					const long long j = (idx / nx) % ny;
+					const long long k = idx / (nx * ny);
+					const float x = bounds[0] + i * stepX;
+					const float y = bounds[2] + j * stepY;
+					const float z = bounds[4] + k * stepZ;
+					// distance to the nearest box edge = hypot of the two smallest
+					// face distances (an edge is where those two faces meet).
+					float a = std::min(x - x0, x1 - x);
+					float b = std::min(y - y0, y1 - y);
+					float c = std::min(z - z0, z1 - z);
+					if (a > b) std::swap(a, b);
+					if (b > c) std::swap(b, c);
+					if (a > b) std::swap(a, b);              // a <= b <= c
+					const float edgeDist = std::sqrt(a * a + b * b);
+					scalarField[idx] = std::min(scalarField[idx], edgeDist - frameBeam + isoLevel);
+				}
+			}
+			else if (ctype == ObjectType::CylinderContainerType) {
+				const float cx = 0.5f * (bounds[0] + bounds[1]);
+				const float cy = 0.5f * (bounds[2] + bounds[3]);
+				const float zB = bounds[4], zT = bounds[5];
+				const float R  = 0.5f * (bounds[1] - bounds[0]);   // radius from the AABB
+				#pragma omp parallel for
+				for (long long idx = 0; idx < totalVoxels; idx++) {
+					if (containerDistField[idx] > 0.0f) continue;   // interior only
+					const long long i = idx % nx;
+					const long long j = (idx / nx) % ny;
+					const long long k = idx / (nx * ny);
+					const float x = bounds[0] + i * stepX;
+					const float y = bounds[2] + j * stepY;
+					const float z = bounds[4] + k * stepZ;
+					const float dr = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) - R;
+					const float dB = std::sqrt(dr * dr + (z - zB) * (z - zB));
+					const float dT = std::sqrt(dr * dr + (z - zT) * (z - zT));
+					const float edgeDist = std::min(dB, dT);
+					scalarField[idx] = std::min(scalarField[idx], edgeDist - frameBeam + isoLevel);
+				}
+			}
+			else if (logger) {
+				logger->log(LogPriority::WARNING,
+					"Container edge frame is only supported for box and cylinder containers; skipped.");
+			}
+		}
+	}
 
-    if (!isROI) {
-        remove_isolated_islands();
-    }
+	const auto clampEnd = std::chrono::steady_clock::now();
+	std::cout << "  [assemble_field] boundary clamp: "
+	          << std::chrono::duration<double>(clampEnd - fillEnd).count() << " s" << std::endl;
 
-    seal_grid_boundaries();
+	if (!isROI) {
+		remove_isolated_islands();
+	}
 
-    // Voxel-based porosity: solid and domain fractions are counted on the
-    // SAME grid, so the discretization bias cancels between numerator and
-    // denominator. The mesh-based estimate (see estimate_metrics) always
-    // overestimates porosity because the extracted mesh can never reach the
-    // container surface (sealed outer shell + sub-voxel marching-cubes inset).
-    long long solidVoxels = 0;
-    long long domainVoxels = 0;
-    #pragma omp parallel for reduction(+:solidVoxels, domainVoxels)
-    for (long long v = 0; v < static_cast<long long>(totalVoxels); v++) {
-        if (containerDistField[v] <= 0.0f) {
-            domainVoxels++;
-            if (scalarField[v] < isoLevel) solidVoxels++;
-        }
-    }
-    if (domainVoxels > 0) {
-        porosity = 1.0f - static_cast<float>(solidVoxels) / static_cast<float>(domainVoxels);
-    }
+	seal_grid_boundaries();
 
-    const auto cleanupEnd = std::chrono::steady_clock::now();
-    std::cout << "  [compute_scalar_field] island removal + seal: "
-              << std::chrono::duration<double>(cleanupEnd - clampEnd).count() << " s" << std::endl;
+	// Voxel-based porosity: numerator and denominator counted on the same grid so
+	// the discretization bias cancels (see estimate_metrics for the mesh estimate).
+	long long solidVoxels = 0;
+	long long domainVoxels = 0;
+	#pragma omp parallel for reduction(+:solidVoxels, domainVoxels)
+	for (long long v = 0; v < totalVoxels; v++) {
+		if (containerDistField[v] <= 0.0f) {
+			domainVoxels++;
+			if (scalarField[v] < isoLevel) solidVoxels++;
+		}
+	}
+	if (domainVoxels > 0) {
+		porosity = 1.0f - static_cast<float>(solidVoxels) / static_cast<float>(domainVoxels);
+	}
 
-    return true;
+	const auto cleanupEnd = std::chrono::steady_clock::now();
+	std::cout << "  [assemble_field] island removal + seal: "
+	          << std::chrono::duration<double>(cleanupEnd - clampEnd).count() << " s" << std::endl;
+
+	return true;
+}
+
+// Full regeneration: cache pass + one assemble. Every non-calibration caller uses
+// this; calibration caches once and re-assembles per iteration.
+bool GeneratorLewiner::compute_scalar_field(const IContainer& con) {
+	return compute_cached_field_values(con) && assemble_field();
 }
 
 // void GeneratorLewiner::smooth_scalar_field() {
@@ -3347,12 +3571,27 @@ void GeneratorLewiner::render_properties(
 
     const bool mineBusy = task && task->is_running_for(this);
 
-    ImGui::ColorEdit4("Appearance", (float*)&color);  
-	ImGui::InputFloat("Voxel Size", &voxelSize);
-
 	ImGui::SeparatorText("Container & Generator");
     if (lockedCon) ImGui::Text("Container: %s", lockedCon->name.c_str());
-    if (lockedGen) ImGui::Text("Generator: %s", lockedGen->name.c_str());
+    if (lockedGen){
+		ImGui::Text("Generator: %s", lockedGen->name.c_str());
+		if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
+			ImGui::SameLine();
+			ImGui::Text("Random Seeds %d", lockedGen->get_seeds().size());
+		}
+		else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
+			Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
+			if (dummy->is_uniform()) {
+				ImGui::SameLine();
+				ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
+            } 
+			else {
+				ImGui::Text(
+					"Rmin %.4f Rmax %4.f",
+					dummy->get_min_radius(), dummy->get_max_radius());
+            }			
+		}
+	} 	
 
 	ImGui::SeparatorText("Settings");
 
@@ -3361,7 +3600,7 @@ void GeneratorLewiner::render_properties(
 
 	ImGui::BeginTabBar("Items");
 
-	calibration_properties();
+	main_properties();
 
 	thickness_properties();
 
@@ -3371,37 +3610,6 @@ void GeneratorLewiner::render_properties(
 
 	ImGui::EndTabBar();
 
-    ImGui::SeparatorText("Parameters");
-    ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
-    if (ImGui::BeginTable("", 2, flags)) {
-        if (lockedGen) {
-            ImGui::TableNextRow();
-            if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
-                ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
-                ImGui::TableNextColumn(); ImGui::Text("%d", lockedGen->get_seeds().size());
-            }
-            else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
-                ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
-                ImGui::TableNextColumn();
-                Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
-                if (dummy->is_uniform()) {
-                    ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
-                } else {
-                    ImGui::BeginTable("##", 2);
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn(); ImGui::Text("Rmin %4.f", dummy->get_min_radius());
-                    ImGui::TableNextColumn(); ImGui::Text("Rmax %4.f", dummy->get_max_radius());
-                    ImGui::EndTable();
-                }
-            }
-        } else {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn(); ImGui::Text("Source");
-            ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
-        }
-
-        ImGui::EndTable();
-    }
 
     ImGui::EndDisabled();
 
@@ -3478,95 +3686,60 @@ void GeneratorLewiner::render_properties(
             self->cancelRequested = [task]{ return task->is_cancel_requested(); };
             start_time = std::chrono::steady_clock::now();
 
-			auto targetTh = targetThickness;
-			auto targetP = targetPorosity * 0.01f;
+			const bool anyCalibration =
+				calibrateThickness || calibratePorosity /* || calibrateSmi */ || calibrateDA;
 
-			if(selectedThicknessOption == 1){
-				// varied thickness: calibrate the MEAN of the graded range 
-				targetThickness = (startThickness + endThickness) * 0.5f;
-			}
-
-			if (calibrateThickness && !calibratePorosity){
-				// reset isoLevel to the target thickness at the start
-				isoLevel = targetThickness;
-
-				// calibrate at the measurement voxel
-				auto cStep = measurementVoxelSize;   
-				auto cTol = calibrationTol;
-				auto cIter = calibrationIter;
+			if (anyCalibration) {
+				auto cStep = measurementVoxelSize; // metrics at the measurement voxel
 				task->start(
-					[self, conShared, targetTh, cStep, cTol, cIter, t=task]() {
+					[this, conShared, cStep, t = task]() {
 					t->set_progress(0.00f);
-					bool ok = self->calibrate_thickness(
-						*conShared, targetTh, cStep, cTol, cIter,
-						[t](float p) { t->set_progress(0.05f + 0.90f * p); });
-					if (ok) {
-						self->estimate_metrics(*conShared);
+
+					// Snapshot the knobs the calibration may move, so a cancel truly
+					// changes nothing (the popup also skips the GPU upload on cancel).
+					const float snapIso = isoLevel, snapThr = threshold, snapSpread = spread;
+					const float snapS0 = startThickness, snapS1 = endThickness;
+					const float snapSx = stretchX, snapSy = stretchY, snapSz = stretchZ;
+
+					this->build_calibration_stages(cStep);
+					bool ok = !t->is_cancel_requested()
+						&& this->solve_calibration(this->stages, 0, *conShared);
+
+					if (t->is_cancel_requested()) {
+						// restore the pre-calibration state; nothing is applied
+						isoLevel = snapIso; threshold = snapThr; spread = snapSpread;
+						startThickness = snapS0; endThickness = snapS1;
+						set_stretch(snapSx, snapSy, snapSz);
+					}
+					else if (ok && this->marching_cubes()) {
+						t->set_progress(0.90f);
+						// full-resolution DA (the loop used a reduced ray budget)
+						if (this->calibrateDA)
+							this->estimate_anisotropy(cStep, 2000, 10000, this->targetFormulaIdx);
+						this->estimate_metrics(*conShared);
+						// stamp calibrated metric versions to this final mesh so the
+						// inner-loop targets (Tb.Th, SMI) no longer read stale.
+						this->stamp_calibrated_versions();
 					}
 					t->set_progress(1.00f);
 				}, this);
 			}
-			// 2 knob
-			else if (calibrateThickness && calibratePorosity){
-
-				 // calibrate at the measurement voxel
-				auto cStep = measurementVoxelSize;  
-				auto cTol = calibrationTol;
-				auto cIter = calibrationIter;
-
+			else {
 				task->start(
-					[self, conShared, targetTh, targetP,
-						cStep, cTol, cIter, t=task]() {
+					[this, conShared, t = task]() {
 					t->set_progress(0.00f);
-					bool ok = self->two_knob_calibration(
-						*conShared, targetTh,
-						targetP, cStep, cTol, cIter,
-						[t](float p) { t->set_progress(0.05f + 0.90f * p); });
-					if (ok) {
-						self->estimate_metrics(*conShared);
+					if (!t->is_cancel_requested() &&
+						this->compute_scalar_field(*conShared)) {
+						t->set_progress(0.50f);
+						if (!t->is_cancel_requested() && 
+							this->marching_cubes()) {
+							t->set_progress(0.90f);
+							if (!t->is_cancel_requested()) 
+							this->estimate_metrics(*conShared);
+						}
 					}
 					t->set_progress(1.00f);
 				}, this);
-			}
-			// porosity only: openness re-calibrated at the already-calibrated
-			// thickness (isoLevel persists). This is the path taken after a
-			// thickness-calibrated scaffold is updated - previously it fell
-			// through to the plain regeneration and silently dropped the porosity
-			// target. calibrate_openness leaves only the field, so run marching
-			// cubes before estimate_metrics.
-			else if (!calibrateThickness && calibratePorosity){
-
-				auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
-				auto cTol = calibrationTol;
-				auto cIter = calibrationIter;
-
-				task->start(
-					[self, conShared, targetP, cStep, cTol, cIter, t=task]() {
-					t->set_progress(0.00f);
-					bool ok = self->calibrate_openness(
-						*conShared, targetP, cStep, cTol, cIter,
-						[t](float p) { t->set_progress(0.05f + 0.85f * p); });
-					if (ok && self->marching_cubes()) {
-						t->set_progress(0.95f);
-						self->estimate_metrics(*conShared);
-					}
-					t->set_progress(1.00f);
-				}, this);
-			}
-			else
-			{
- 			task->start([self, conShared, t = task]() {
-                // each stage runs only if the previous one succeeded and no cancel
-                t->set_progress(0.00f);
-                if (!t->is_cancel_requested() && self->compute_scalar_field(*conShared)) {
-                    t->set_progress(0.50f);
-                    if (!t->is_cancel_requested() && self->marching_cubes()) {   // CPU only — no GL
-                        t->set_progress(0.90f);
-                        if (!t->is_cancel_requested()) self->estimate_metrics(*conShared);
-                    }
-                }
-                t->set_progress(1.00f);
-            }, this);
 			}
                                  
 			ImGui::OpenPopup("Updating Scaffold..."); // open the progress bar
@@ -3617,62 +3790,70 @@ void GeneratorLewiner::render_properties(
     }
 }
 
-void GeneratorLewiner::calibration_properties(){
+void GeneratorLewiner::main_properties(){
 
-	if (ImGui::BeginTabItem("Calibration")){
-
-		ImGui::SeparatorText("Thickness Calibration");
-		ImGui::Checkbox("Calibrate Thickness", &calibrateThickness);
-		ImGui::Checkbox("Calibrate Porosity", &calibratePorosity);
-		ImGui::SetItemTooltip("Calibrate SMI at fixed porosity!");
+	if(ImGui::BeginTabItem("Main")){
 		
-		if (calibrateThickness){
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat("Target Thickness (mm)", &targetThickness);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat("Measurement Voxel Size", &measurementVoxelSize);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat("Tolerance", &calibrationTol);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputInt("Max Iters", &calibrationIter);
-		}
-		if (calibratePorosity){
-			ImGui::InputFloat("Target Porosity", &targetPorosity);
-		}
+		ImGui::ColorEdit4("Appearance", (float*)&color);  
+		ImGui::InputFloat("Voxel Size", &voxelSize);
+		ImGui::InputFloat("Measurement Voxel Size", &measurementVoxelSize);
+		
+		ImGui::SeparatorText("Porosity Calibration");
+
+		ImGui::Checkbox("Calibrate Porosity", &calibratePorosity);
+		ImGui::InputFloat("Target Porosity", &targetPorosity);
+
 		ImGui::EndTabItem();
 	}
+
 };
 
 void GeneratorLewiner::thickness_properties(){
 
 	if (ImGui::BeginTabItem("Thickness")){
 
-	 	ImGui::RadioButton(
-			"Apply Uniform Thickness", &selectedThicknessOption, 0);
-    	ImGui::RadioButton(
-			"Apply Varied Thickness", &selectedThicknessOption, 1);
+		ImGui::Checkbox("Calibrate Thickness", &calibrateThickness);
+
+		ImGui::Separator();
+
+		ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
+		ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
 		if (selectedThicknessOption == 0) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat("Thickness", &isoLevel);
+			ImGui::InputFloat("Iso Surface Level", &isoLevel, 0.001f, 1.0f);
+			ImGui::InputFloat(
+				"Target Thickness", &targetThickness, 0.001f, 1.0f);
+			// uniform: the Thickness value IS the calibration target (Tb.Th)
+			if (calibrateThickness)
+				ImGui::Text("Calibration target (Tb.Th): %.3f mm", targetThickness);
 		}
 		else {
-			ImGui::SetNextItemWidth(200); ImGui::InputFloat("Start Thickness", &startThickness);
-			ImGui::SetNextItemWidth(200); ImGui::InputFloat("End Thickness", &endThickness);
-			ImGui::SetNextItemWidth(200); ImGui::InputFloat("Transition Distance", &transitionDistance);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Start Thickness", &startThickness);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("End Thickness", &endThickness);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Transition Distance", &transitionDistance);
+			// varied: the calibration target is the MEAN of the (scaled) range
+			if (calibrateThickness)
+				ImGui::Text("Calibration target (mean Tb.Th): %.3f mm",
+					(startThickness + endThickness) * 0.5f);
 
 			ImGui::SeparatorText("Select Distance Function");
 			ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
 			if (selectedDist == 0) {
-				ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Normal", distancePlaneNormal);
-				ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Center", distancePlaneCenter);
-			}
+				ImGui::SetNextItemWidth(200);
+				ImGui::InputFloat3("Normal", distancePlaneNormal);
+				ImGui::SetNextItemWidth(200);
+				ImGui::InputFloat3("Center", distancePlaneCenter);
+			};
 			ImGui::RadioButton("Distance From Point", &selectedDist, 1);
 			if (selectedDist == 1) {
-				ImGui::SetNextItemWidth(200); ImGui::InputFloat3("Point", distancePoint);
+				ImGui::SetNextItemWidth(200);
+				ImGui::InputFloat3("Point", distancePoint);
 			}
 			ImGui::RadioButton("Distance From Container", &selectedDist, 2);
-
+			
 			ImGui::SeparatorText("Select Radius Function");
 			ImGui::RadioButton("Linear", &selectedFunc, 0);
 			ImGui::RadioButton("Quadratic", &selectedFunc, 1);
@@ -3680,8 +3861,8 @@ void GeneratorLewiner::thickness_properties(){
 			ImGui::RadioButton("Random", &selectedFunc, 3);
 		}
 
-		ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f, "%.3f");
-		ImGui::SliderFloat("Spread", &spread, 0.0f, 1.0f, "%.3f");
+		ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f);
+		ImGui::SliderFloat("Spread", &spread, 0.0f, 1.0f);
 		ImGui::EndTabItem();
 	}
 }
@@ -3692,6 +3873,11 @@ void GeneratorLewiner::anisotropy_properties(
 
 	static int selectedIdx = -1;
 	if(ImGui::BeginTabItem("Anisotropy")){
+
+		ImGui::Checkbox("Calibrate", &calibrateDA);
+		ImGui::InputFloat("Calibration Target", &targetDa);
+
+		ImGui::Separator();
 		
 		ImGui::SeparatorText("Global Background");
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
@@ -3772,6 +3958,39 @@ void GeneratorLewiner::smooth_properties(){
 		if (smoothJunctions) {
 			ImGui::SetNextItemWidth(200);
 			ImGui::InputFloat("Junction k", &smoothK, 0.001f, 0.1f, "%.4f");
+		}
+
+		ImGui::SeparatorText("Edge rounding");
+		ImGui::Checkbox("Round cell edges", &roundEdges);
+		ImGui::SetItemTooltip("Soften the raw Voronoi distance field so the cell "
+			"EDGES and VERTICES become round rather than polygonal (rounder "
+			"pores). Unlike junction smoothing it acts before the openness blend, "
+			"so it also rounds bare (open-lattice) struts. Tb.Th inflation is "
+			"absorbed by thickness calibration. Requires re-generation (recache).");
+		if (roundEdges) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Edge k", &edgeK, 0.001f, 0.1f, "%.4f");
+		}
+
+		ImGui::SeparatorText("Boundary frame");
+		ImGui::Checkbox("Frame boundary cells", &frameBoundary);
+		ImGui::SetItemTooltip("Close the outermost Voronoi cells into full walls, "
+			"forming a connected honeycomb rim around the scaffold. Ties the cut "
+			"boundary struts together for gripping/loading test specimens.");
+		if (frameBoundary) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Frame depth (x thickness)", &frameDepth, 0.1f, 0.5f, "%.2f");
+			ImGui::SetItemTooltip("Rim depth as a multiple of the wall thickness. "
+				"Keep it small (~0.5) so the boundary stays a thin honeycomb rim; "
+				"large values turn the boundary shell plate-like.");
+		}
+		ImGui::Checkbox("Frame container edges", &frameContainerEdges);
+		ImGui::SetItemTooltip("Add solid beams along the container's own edges "
+			"(a box's 12 edges, a cylinder's two rims) for a rigid outer cage. "
+			"Box and cylinder containers only.");
+		if (frameContainerEdges) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Edge beam (mm)", &frameBeam, 0.05f, 0.5f, "%.3f");
 		}
 
 		ImGui::EndTabItem();
@@ -4014,8 +4233,11 @@ void GeneratorLewiner::set_distance_point_options(Vec3 point) {
 	distancePoint = point;
 };
 
+// These change the per-voxel cache's inputs (grid / seeds / warp), so the cache
+// is invalidated; the next calibrate_* / compute_scalar_field rebuilds it.
 void GeneratorLewiner::set_resolution(const std::array<int, 3>& newResolution) {
 	blockDims = newResolution;
+	cachedVoxels.clear();
 };
 
 void GeneratorLewiner::set_bounds(const std::array<float, 6>& newBounds) {
@@ -4023,16 +4245,19 @@ void GeneratorLewiner::set_bounds(const std::array<float, 6>& newBounds) {
 	stepX = (bounds[1] - bounds[0]) / (blockDims[0] - 1);
 	stepY = (bounds[3] - bounds[2]) / (blockDims[1] - 1);
 	stepZ = (bounds[5] - bounds[4]) / (blockDims[2] - 1);
+	cachedVoxels.clear();
 };
 
 void GeneratorLewiner::set_seeds(const std::vector<Vec3>& newSeeds) {
 	seeds = newSeeds;
+	cachedVoxels.clear();
 };
 
 void GeneratorLewiner::set_stretch(float newStretchX, float newStretchY, float newStretchZ) {
 	this->stretchX = newStretchX;
 	this->stretchY = newStretchY;
 	this->stretchZ = newStretchZ;
+	cachedVoxels.clear();
 };
 
 void GeneratorLewiner::set_thickness(float newThickness) {
@@ -4057,18 +4282,25 @@ Aabb GeneratorLewiner::get_aabb() const { return aabb; };
 void GeneratorLewiner::estimate_local_thickness(
 	float voxelSize, std::array<float, 6>& blockBounds, bool separation, bool supress) {
 
-	// we should ensure that the inserted blockbounds are clipped inside the aligned bounding box
-	blockBounds[0] = std::max(blockBounds[0], aabb.pMin.x); // Min X
-	blockBounds[1] = std::min(blockBounds[1], aabb.pMax.x); // Max X
-	blockBounds[2] = std::max(blockBounds[2], aabb.pMin.y); // Min Y
-	blockBounds[3] = std::min(blockBounds[3], aabb.pMax.y); // Max Y
-	blockBounds[4] = std::max(blockBounds[4], aabb.pMin.z); // Min Z
-	blockBounds[5] = std::min(blockBounds[5], aabb.pMax.z); // Max Z
+	// Clip the requested window to the GENERATION grid - the domain the scalar
+	// field is defined on - NOT the mesh AABB. This makes the measurement extent
+	// identical whether or not a mesh exists (calibration runs without one), and
+	// immune to a stale mesh AABB from a previous build. Passing the generation
+	// bounds therefore measures the whole container interior (out-of-container
+	// voxels are still excluded by the is_inside gate below), while an explicit
+	// ROI (a sub-box) is preserved. get_image_field already treats anything past
+	// the grid as air, so the clip only guards against a degenerate window.
+	blockBounds[0] = std::max(blockBounds[0], bounds[0]);
+	blockBounds[1] = std::min(blockBounds[1], bounds[1]);
+	blockBounds[2] = std::max(blockBounds[2], bounds[2]);
+	blockBounds[3] = std::min(blockBounds[3], bounds[3]);
+	blockBounds[4] = std::max(blockBounds[4], bounds[4]);
+	blockBounds[5] = std::min(blockBounds[5], bounds[5]);
 
 	if (blockBounds[0] >= blockBounds[1] ||
 		blockBounds[2] >= blockBounds[3] ||
 		blockBounds[4] >= blockBounds[5]) {
-		std::cerr << "Error: The requested bounds do not overlap with the mesh AABB." << std::endl;
+		std::cerr << "Error: The requested bounds do not overlap the generation grid." << std::endl;
 		return; // Abort early to prevent voxel creation crashes
 	}
 
@@ -4526,6 +4758,327 @@ std::array<float, 2> GeneratorLewiner::run_slab_phantom(
 	return { localThickness, localThicknessStd };
 };
 
+bool GeneratorLewiner::secant_1d(
+	const std::function<float(float)>& eval,
+	float guess, float target, float tol, float lo, float hi, int maxIter,
+	bool ascending, float& xOut,
+	const std::string& label, int depth
+){
+
+	// default the output to the starting guess so xOut is always valid, even if
+	// the very first evaluation already meets the tolerance.
+	xOut = guess;
+
+	// we need the following varibales
+	float c = guess; // the current iteration value
+	float cNext; // the next iteration value
+	float cPrev = c; // the previous iteration value
+
+	float m = eval(c); // this is the current metric, use the guess
+	// A NaN means a sub-stage (assemble / marching cubes / a nested stage) failed
+	// or the run was cancelled; abort cleanly instead of iterating on garbage.
+	if (std::isnan(m)) { xOut = c; return false; }
+	float mPrev = m; // previous iteration value
+
+	for (int it{0}; it < maxIter; it++){
+
+		// Cancellation: stop the ENTIRE calibration the instant the user cancels,
+		// rather than finishing this (and every outer) secant first.
+		if (cancelRequested && cancelRequested()) {
+			if (logger) logger->log(LogPriority::WARNING,
+				label + " calibration cancelled by user.");
+			xOut = c;
+			return false;
+		}
+
+		// per-iteration progress (mirrors the old calibrate_thickness/openness logs)
+		if (logger) logger->log(LogPriority::INFO,
+			std::string(2 * depth, ' ') + label + " [" + std::to_string(it) +
+			"] knob=" + std::to_string(c) + " -> " + std::to_string(m) +
+			" (target " + std::to_string(target) + ")");
+
+		if (std::fabs(m - target) <= tol) {
+			xOut = c;
+			if (logger) logger->log(
+				LogPriority::SUCCESS, label + " calibration converged.");
+			return true;
+		}
+
+		if (it == 0) {
+			// proportional first correction (handles the ~linear-through-origin part)
+			cNext = c * target / std::max(m, 1e-6f);
+		}
+		else {
+			float denom = m - mPrev; // f(c) - f(cPrev)
+
+			// check if denom is zero
+			if (std::fabs(denom) < 1e-9){
+				float ratio = target / std::max(m, 1e-6f);
+                ratio = std::clamp(ratio, 0.5f, 2.0f); 
+                cNext = c * ratio;
+
+				if (std::fabs(cNext - c) < 1e-6f) {
+                    cNext = c * ((m < target) ? 1.1f : 0.9f);
+                }
+			}
+			// else use the secant formula on the RESIDUAL f(c) = measure(c) - target
+			// (using m alone would drive the metric to 0, not to the target).
+			else{
+				cNext = c - (m - target) * (c - cPrev) / denom;
+			}
+		}
+
+		// clamp the NEXT candidate (not the already-evaluated current one)
+		cNext = std::clamp(cNext, lo, hi);
+
+		// Pinned-at-bound early-out: if we are already sitting on a bound and the
+		// step cannot move us off it, the target lies outside the reachable range
+		// (e.g. openness at 1 but the porosity target still higher). Continuing
+		// only burns iterations and, for a nested solve, would return a spurious
+		// failure that NaNs the outer stage. Stop and accept the closest feasible
+		// value as best effort (converged in the reachable sense).
+		if (cNext == c && (c == lo || c == hi)) {
+			if (logger) logger->log(LogPriority::WARNING,
+				label + " target unreachable within its range; using the closest "
+				"feasible knob value (" + std::to_string(c) + ").");
+			xOut = c;
+			return true;
+		}
+
+		// update for next iteration
+		cPrev = c; mPrev = m;
+		c = cNext;
+		m = eval(c);
+		// sub-stage failed / cancelled at this candidate: keep the last good knob
+		if (std::isnan(m)) { xOut = cPrev; return false; }
+	}
+
+	// max iterations reached: keep the last value, report whether it met tol
+	xOut = c;
+	return std::fabs(m - target) <= tol;
+};
+
+bool GeneratorLewiner::solve_calibration(
+		std::vector<CalibrationStage>& stageSet,
+		int lvl, 
+		const IContainer& con
+){
+
+	// we have reached the level
+	if (lvl == (int)stageSet.size()) return true;
+
+	// Stop the whole nested solve immediately on cancel (before the expensive
+	// cache build or the next secant).
+	if (cancelRequested && cancelRequested()) {
+		if (logger) logger->log(LogPriority::WARNING, "Calibration cancelled by user.");
+		return false;
+	}
+
+	// Ensure the per-voxel cache exists before any Reassemble stage tries to
+	// assemble_field(). A DA (Recache) outer stage rebuilds it itself, so only
+	// pre-build when the outermost stage won't. Built once; inner stages reuse it.
+	if (lvl == 0 && cachedVoxels.empty() &&
+		(stageSet.empty() || stageSet[0].cost != Recompute::Recache)) {
+		if (!compute_cached_field_values(con)) {
+			if (logger) logger->log(LogPriority::ERROR,
+				"Calibration aborted: scalar-field cache failed.");
+			return false;
+		}
+	}
+
+	// get the current stage
+	CalibrationStage& k = stageSet[lvl];
+
+	// add the logger info
+	if (logger) logger->log(LogPriority::INFO,
+        "[" + k.name + "] target " + std::to_string(k.target) +
+        " (start " + std::to_string(k.get_knob()) + ")");
+
+	// create a lambda that evaluates the stage. Explicit -> float so the NAN
+	// (double) failure returns and the float metric returns don't conflict.
+	auto eval = [&](float x) -> float {
+		k.set_knob(x);
+
+		// this is for DA if the cached 
+		if(k.cost == Recompute::Recache && !compute_cached_field_values(con)) return NAN;
+
+		// recursive call of solve if it did not converge return nan
+		if(!solve_calibration(stageSet, lvl + 1, con)) return NAN;
+
+		// chechk those the need assemble field
+		if (lvl + 1 == (int)stageSet.size() && !assemble_field()) return NAN;
+		
+		// else return the measure
+		return k.measure();
+	};
+
+	float xOut;
+	bool ok = secant_1d(
+		eval,
+		k.get_knob(),
+		k.target,
+		k.tol, k.lo, k.hi, k.maxIter, k.ascending, xOut,
+		k.name, lvl);
+
+	// record convergence so the version can be stamped once the final mesh exists
+	k.converged = ok;
+
+	// get last value
+	k.set_knob(xOut);
+
+	// update logger
+    if (ok && logger) logger->log(LogPriority::SUCCESS,
+        "[" + k.name + "] converged: knob=" + std::to_string(xOut) +
+        " metric=" + std::to_string(k.measure()));
+    else if (!ok && logger) logger->log(LogPriority::ERROR,
+        "[" + k.name + "] failed to converge");
+
+	return ok;
+};
+
+// =============================================================================
+// Calibration stage factories + assembly
+// =============================================================================
+// Each stage binds a scalar knob to its metric. solve_calibration drives them:
+// an outer stage's every evaluation re-solves the inner stages, so coupling is
+// absorbed automatically and warm starts (get_knob) keep each inner re-solve to
+// 1-2 iterations. cost = Recache only for DA (stretch changes the warped seeds,
+// so the per-voxel cache must be rebuilt); every other knob just re-assembles.
+
+CalibrationStage GeneratorLewiner::make_thickness_stage(
+	float target, float voxelSize, float tol, int maxIter) {
+
+	CalibrationStage s;
+	s.name = "Thickness";
+	s.cost = Recompute::Recompute;          // iso-level / range scale -> re-assemble only
+	s.target = target; s.tol = tol; s.maxIter = maxIter;
+	s.lo = 1e-4f; s.hi = 100.0f;            // iso-level must stay positive
+	s.ascending = true;                      // Tb.Th increases with iso-level
+
+	// UNIFORM: knob is the iso-level. VARIED: knob is a scale on [start,end] that
+	// preserves the grading ratio (mirrors calibrate_thickness).
+	const bool  varied = (thicknessFunction && thicknessSDF);
+	const float start0 = startThickness;
+	const float end0   = endThickness;
+
+	s.set_knob = [this, varied, start0, end0](float c) {
+		if (varied) set_thickness_functions(thicknessSDF, thicknessFunction,
+			c * start0, c * end0, transitionDistance);
+		else        set_thickness(c);        // isoLevel = c
+	};
+	s.get_knob = [this, varied, start0, end0]() -> float {
+		if (varied) {
+			const float mean0 = 0.5f * (start0 + end0);
+			return (std::fabs(mean0) > 1e-6f)
+				? 0.5f * (startThickness + endThickness) / mean0 : 1.0f;
+		}
+		return isoLevel;
+	};
+	s.measure = [this, voxelSize]() -> float {
+		std::array<float, 6> bb = bounds;    // measure on the generation domain...
+		estimate_local_thickness(voxelSize, bb, false, true); // ...at the measurement voxel
+		return localThickness;
+	};
+	s.stampVersion = [this]() { thicknessVersion = meshVersion; };
+	return s;
+}
+
+CalibrationStage GeneratorLewiner::make_porosity_stage(
+	float target, float tol, int maxIter) {
+
+	CalibrationStage s;
+	s.name = "Porosity";
+	s.cost = Recompute::Recompute;
+	s.target = target; s.tol = tol; s.maxIter = maxIter;
+	s.lo = 0.0f; s.hi = 1.0f;                // openness in [0,1]
+	s.ascending = true;                      // more openness -> more porosity
+	s.set_knob = [this](float x) { threshold = std::clamp(x, 0.0f, 1.0f); };
+	s.get_knob = [this]() -> float { return threshold; };
+	// porosity (voxel-based) is set by assemble_field, which solve_calibration
+	// runs for the innermost stage before measure() - no mesh needed.
+	s.measure  = [this]() -> float { return porosity; };
+	return s;
+}
+
+// DISABLED: SMI is not a reliable calibration target -- it is governed by openness
+// (which also fixes porosity) and cannot be steered independently at fixed
+// radius/thickness; spread is too weak/confounded to move it. Kept (disabled) in
+// case a coupled SMI solve is revisited. SMI is a reported outcome, tuned by hand
+// via openness / radius / thickness. See the parameter-control discussion.
+#if 0
+CalibrationStage GeneratorLewiner::make_smi_stage(
+	float target, float tol, int maxIter) {
+
+	CalibrationStage s;
+	s.name = "SMI";
+	s.cost = Recompute::Recompute;
+	s.target = target; s.tol = tol; s.maxIter = maxIter;
+	s.lo = 0.0f; s.hi = 1.0f;                // spread in [0,1]
+	s.ascending = true;                      // SMI rises with spread at matched porosity
+	s.set_knob = [this](float x) { spread = std::clamp(x, 0.0f, 1.0f); };
+	s.get_knob = [this]() -> float { return spread; };
+	s.measure  = [this]() -> float {
+		if (!marching_cubes(true)) return NAN;
+		return estimate_smi();
+	};
+	s.stampVersion = [this]() { smiVersion = meshVersion; };
+	return s;
+}
+#endif
+
+CalibrationStage GeneratorLewiner::make_da_stage(
+	float target, float voxelSize, float tol, int maxIter, int mode) {
+
+	CalibrationStage s;
+	s.name = "DA";
+	s.cost = Recompute::Recache;             // stretch changes warped seeds -> rebuild cache
+	s.target = target; s.tol = tol; s.maxIter = maxIter;
+	s.lo = 1.0f; s.hi = 8.0f;                // along-fibre stretch (>=1 elongates)
+	s.ascending = true;                      // DA increases with along-fibre stretch
+	// The anisotropy axis is rotated onto local X, so stretchX is the along-fibre
+	// stretch; keep Y/Z as-is so DA is a single scalar knob.
+	s.set_knob = [this](float x) { set_stretch(x, stretchY, stretchZ); };
+	s.get_knob = [this]() -> float { return stretchX; };
+	s.measure  = [this, voxelSize, mode]() -> float {
+		if (!marching_cubes(true)) return NAN;
+		// Reduced ray budget inside the loop (MIL ray-casting dominates cost);
+		// a full-resolution DA is measured once after solve_calibration returns.
+		estimate_anisotropy(voxelSize, /*dirs*/ 500, /*lines*/ 2000, mode, nullptr);
+		return anisotropyDegree;
+	};
+	s.stampVersion = [this]() { anisotropyVersion = meshVersion; };
+	return s;
+}
+
+void GeneratorLewiner::build_calibration_stages(float voxelSize) {
+
+	stages.clear();
+
+	const float tol = calibrationTol;
+	const int   it  = calibrationIter;
+
+	// Priority order (outer -> inner). DA/SMI use a looser tolerance because their
+	// metrics are coarser/noisier than the resampled Tb.Th and voxel porosity.
+	if (calibrateDA)
+		stages.push_back(make_da_stage(targetDa, voxelSize, std::max(0.02f, 10.0f * tol), it, targetFormulaIdx));
+	// SMI is intentionally NOT a calibration target: it is set by openness (which
+	// also fixes porosity) and cannot be steered independently at fixed
+	// radius/thickness. It is reported, and tuned by hand via openness / radius /
+	// thickness (see the parameter-control discussion in the paper). Disabled:
+	// if (calibrateSmi)
+	//     stages.push_back(make_smi_stage(targetSmi, std::max(0.05f, 10.0f * tol), it));
+	if (calibrateThickness)
+		stages.push_back(make_thickness_stage(targetThickness, voxelSize, tol, it));
+	if (calibratePorosity)
+		stages.push_back(make_porosity_stage(targetPorosity * 0.01f, tol, it)); // percent -> fraction
+}
+
+void GeneratorLewiner::stamp_calibrated_versions() {
+	for (auto& s : stages)
+		if (s.converged && s.stampVersion) s.stampVersion();
+}
+
+
 bool GeneratorLewiner::calibrate_thickness(
 	const IContainer& con, float targetThickness, float voxelSize,
 	float tol, int maxIter, const std::function<void(float)>& onProgress) {
@@ -4543,8 +5096,19 @@ bool GeneratorLewiner::calibrate_thickness(
 	const float start0 = startThickness;
 	const float end0 = endThickness;
 
+	// The knob-invariant per-voxel cache (the expensive kdtree pass) is built once
+	// and reused every iteration through assemble_field. If a caller (two_knob, the
+	// GUI) already populated it we reuse it; otherwise self-cache so standalone use
+	// and the profiler work. set_seeds/set_bounds/set_resolution clear it, so a
+	// stale cache from a different config is never silently reused.
+	if (cachedVoxels.empty() && !compute_cached_field_values(con)) {
+		if (logger) logger->log(LogPriority::ERROR, "Scalar field cache failed.");
+		return false;
+	}
+
 	// Generate for search value c and return the resulting MEASURED mean Tb.Th
-	// (mm), or -1 on generation failure. Leaves the generator built at c.
+	// (mm), or -1 on generation failure. Leaves the field assembled at c (no mesh;
+	// standalone callers run marching_cubes once after convergence).
 	auto measure = [&](float c) -> float {
 		if (varied) {
 			set_thickness_functions(thicknessSDF, thicknessFunction,
@@ -4553,12 +5117,12 @@ bool GeneratorLewiner::calibrate_thickness(
 		else {
 			set_thickness(c); // isoLevel = c
 		}
-		if (!compute_scalar_field(con)) return -1.0f;
-		if (!marching_cubes(true)) return -1.0f;
-		Aabb bb = get_aabb();
-		std::array<float, 6> blockBounds = {
-			bb.pMin.x, bb.pMax.x, bb.pMin.y, bb.pMax.y, bb.pMin.z, bb.pMax.z
-		};
+		if (!assemble_field()) return -1.0f;
+
+		// Measure over the generation grid (not the mesh AABB / get_bounds(), which
+		// flips to the aabb once a mesh exists) so the calibration substrate is
+		// stable and matches the coupling re-check / reported Tb.Th.
+		std::array<float, 6> blockBounds = bounds;
 		estimate_local_thickness(voxelSize, blockBounds, false, true);
 		return localThickness;
 	};
@@ -4621,7 +5185,7 @@ bool GeneratorLewiner::calibrate_thickness(
                 }
 			}
 			else{
-				c - (m - targetThickness) * (c - cPrev) / denom;
+				cNext = c - (m - targetThickness) * (c - cPrev) / denom;
 			}
 		}
 
@@ -4663,13 +5227,19 @@ bool GeneratorLewiner::calibrate_openness(
 		return false;
 	}
 
+	// Reuse the caller's cache (two_knob, GUI) or self-cache for standalone use.
+	if (cachedVoxels.empty() && !compute_cached_field_values(con)) {
+		if (logger) logger->log(LogPriority::ERROR, "Scalar field cache failed.");
+		return false;
+	}
+
 	// Vary the openness (threshold) at the CURRENT, fixed thickness (iso-level or
-	// graded range). Porosity is the voxel-based estimate that compute_scalar_field
+	// graded range). Porosity is the voxel-based estimate that assemble_field
 	// sets, so no marching cubes is needed to measure it. Porosity is monotone
 	// increasing in openness (foam -> lattice), so a secant converges.
 	auto measure = [&](float op) -> float {
 		threshold = std::clamp(op, 0.0f, 1.0f);
-		if (!compute_scalar_field(con)) return -1.0f;
+		if (!assemble_field()) return -1.0f;
 		return porosity;
 	};
 
@@ -4847,10 +5417,11 @@ bool GeneratorLewiner::two_knob_calibration(
             [&](float p) { report(0.45f + 0.40f * p); }))
             return false;   // knobGuard restores
 
-		// 3. re-measure Tb.Th after the openness change to check the coupling.
-		if (!marching_cubes(true)) return false;
-		Aabb bb = get_aabb();
-		std::array<float, 6> bnds = { bb.pMin.x, bb.pMax.x, bb.pMin.y, bb.pMax.y, bb.pMin.z, bb.pMax.z };
+		// 3. re-measure Tb.Th after the openness change to check the coupling. This
+		// is field-based (no mesh needed) and uses the SAME generation-grid
+		// substrate as calibrate_thickness, so the coupling check and the reported
+		// Tb.Th are consistent. The final mesh is built once after the loop.
+		std::array<float, 6> bnds = bounds;
 		estimate_local_thickness(voxelSize, bnds, false, true);
 
 		// Break as soon as Tb.Th is on target. calibrate_openness already drove
@@ -5154,7 +5725,7 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 	// 1. Header Block
 	char header[4] = { 'S', 'C', 'A', 'F' };
 	out.write(header, 4);
-	uint32_t fileVersion = 1;
+	uint32_t fileVersion = 3;   // v2 adds the extension block (spread, junction/frame, calibration); v3 appends edge rounding (roundEdges, edgeK)
 	out.write(reinterpret_cast<const char*>(&fileVersion), sizeof(fileVersion));
 
 	// 2. Core Parameters Block
@@ -5325,6 +5896,32 @@ void GeneratorLewiner::export_scaf(const std::string& fileName) {
 		out.write(reinterpret_cast<const char*>(scalarField.data()), sizeof(float) * voxelCount);
 	}
 
+	// 10. v2 Extension Block: spread, junction smoothing, boundary/edge frame, and
+	// the calibration state (checkboxes + targets). Appended at the end and gated on
+	// fileVersion so older v1 files still load.
+	out.write(reinterpret_cast<const char*>(&spread), sizeof(spread));
+	out.write(reinterpret_cast<const char*>(&smoothJunctions), sizeof(smoothJunctions));
+	out.write(reinterpret_cast<const char*>(&smoothK), sizeof(smoothK));
+	out.write(reinterpret_cast<const char*>(&frameBoundary), sizeof(frameBoundary));
+	out.write(reinterpret_cast<const char*>(&frameDepth), sizeof(frameDepth));
+	out.write(reinterpret_cast<const char*>(&frameContainerEdges), sizeof(frameContainerEdges));
+	out.write(reinterpret_cast<const char*>(&frameBeam), sizeof(frameBeam));
+	out.write(reinterpret_cast<const char*>(&calibrateThickness), sizeof(calibrateThickness));
+	out.write(reinterpret_cast<const char*>(&targetThickness), sizeof(targetThickness));
+	out.write(reinterpret_cast<const char*>(&calibratePorosity), sizeof(calibratePorosity));
+	out.write(reinterpret_cast<const char*>(&targetPorosity), sizeof(targetPorosity));
+	out.write(reinterpret_cast<const char*>(&calibrateDA), sizeof(calibrateDA));
+	out.write(reinterpret_cast<const char*>(&targetDa), sizeof(targetDa));
+	out.write(reinterpret_cast<const char*>(&targetFormulaIdx), sizeof(targetFormulaIdx));
+	out.write(reinterpret_cast<const char*>(&calibrationStep), sizeof(calibrationStep));
+	out.write(reinterpret_cast<const char*>(&calibrationTol), sizeof(calibrationTol));
+	out.write(reinterpret_cast<const char*>(&calibrationIter), sizeof(calibrationIter));
+
+	// 11. v3 Extension Block: optional edge rounding (roundEdges, edgeK). Appended
+	// after the v2 block and gated on fileVersion >= 3 so v1/v2 files still load.
+	out.write(reinterpret_cast<const char*>(&roundEdges), sizeof(roundEdges));
+	out.write(reinterpret_cast<const char*>(&edgeK), sizeof(edgeK));
+
 	out.close();
 	logger->log(LogPriority::SUCCESS, "Procedural scaffold serialized smoothly to " + fileName);
 }
@@ -5353,7 +5950,7 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	uint32_t fileVersion = 0;
 	in.read(reinterpret_cast<char*>(&fileVersion), sizeof(fileVersion));
 	std::cout << fileVersion << std::endl;
-	if (fileVersion != 1) {
+	if (fileVersion != 1 && fileVersion != 2 && fileVersion != 3) {
 		logger->log(LogPriority::ERROR, "Unsupported file version.");
 		return false;
 	}
@@ -5582,6 +6179,27 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 		generatorList.push_back(rebuiltGen);
 		this->generator = rebuiltGen;
 	}
+	// Robustness: a scaffold exported without an attached seed generator (e.g. a
+	// batch export built from a raw seed vector) stores genTypeID == -1 and no
+	// generator data, which would leave the loaded model uneditable ("generator
+	// not found"). Wrap the saved seeds in a fallback uniform generator so the
+	// model stays editable — the seeds are preserved exactly; only the spacing
+	// radius is unknown (left at its default, so a *re-seed* would use it).
+	else if (!seeds.empty()) {
+		auto fallbackGen = std::make_shared<Poisson3D>();
+		fallbackGen->name = genName;
+		fallbackGen->set_seeds(seeds);
+		fallbackGen->type = ObjectType::UniformGeneratorType;
+		fallbackGen->set_renderMode(renderMode);
+		if (!stage && this->renderMode && !this->seeds.empty()) {
+			fallbackGen->update_model();
+		}
+		generatorList.push_back(fallbackGen);
+		this->generator = fallbackGen;
+		if (logger) logger->log(LogPriority::WARNING,
+			"SCAF had no stored seed generator; reconstructed a uniform generator "
+			"from the saved seeds (spacing radius unknown).");
+	}
 
 	if (stage) stage->store(5, std::memory_order_relaxed);
 
@@ -5591,6 +6209,35 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 	scalarField.resize(voxelCount);
 	if (voxelCount > 0) {
 		in.read(reinterpret_cast<char*>(scalarField.data()), sizeof(float) * voxelCount);
+	}
+
+	// v2 Extension Block (see export_scaf). Present only in fileVersion >= 2; on v1
+	// files the members keep their defaults.
+	if (fileVersion >= 2) {
+		in.read(reinterpret_cast<char*>(&spread), sizeof(spread));
+		in.read(reinterpret_cast<char*>(&smoothJunctions), sizeof(smoothJunctions));
+		in.read(reinterpret_cast<char*>(&smoothK), sizeof(smoothK));
+		in.read(reinterpret_cast<char*>(&frameBoundary), sizeof(frameBoundary));
+		in.read(reinterpret_cast<char*>(&frameDepth), sizeof(frameDepth));
+		in.read(reinterpret_cast<char*>(&frameContainerEdges), sizeof(frameContainerEdges));
+		in.read(reinterpret_cast<char*>(&frameBeam), sizeof(frameBeam));
+		in.read(reinterpret_cast<char*>(&calibrateThickness), sizeof(calibrateThickness));
+		in.read(reinterpret_cast<char*>(&targetThickness), sizeof(targetThickness));
+		in.read(reinterpret_cast<char*>(&calibratePorosity), sizeof(calibratePorosity));
+		in.read(reinterpret_cast<char*>(&targetPorosity), sizeof(targetPorosity));
+		in.read(reinterpret_cast<char*>(&calibrateDA), sizeof(calibrateDA));
+		in.read(reinterpret_cast<char*>(&targetDa), sizeof(targetDa));
+		in.read(reinterpret_cast<char*>(&targetFormulaIdx), sizeof(targetFormulaIdx));
+		in.read(reinterpret_cast<char*>(&calibrationStep), sizeof(calibrationStep));
+		in.read(reinterpret_cast<char*>(&calibrationTol), sizeof(calibrationTol));
+		in.read(reinterpret_cast<char*>(&calibrationIter), sizeof(calibrationIter));
+	}
+
+	// v3 Extension Block (see export_scaf). Present only in fileVersion >= 3; on
+	// v1/v2 files roundEdges/edgeK keep their defaults (off).
+	if (fileVersion >= 3) {
+		in.read(reinterpret_cast<char*>(&roundEdges), sizeof(roundEdges));
+		in.read(reinterpret_cast<char*>(&edgeK), sizeof(edgeK));
 	}
 
 	in.close();
@@ -6837,6 +7484,22 @@ void GeneratorLewiner::export_parameters(std::string fileName) {
 	cfg.backgroundWeight = backgroundWeight;
 	cfg.smoothJunctions = smoothJunctions ? 1 : 0;
 	cfg.smoothK = smoothK;
+	cfg.roundEdges = roundEdges ? 1 : 0;
+	cfg.edgeK = edgeK;
+	cfg.frameBoundary = frameBoundary ? 1 : 0;
+	cfg.frameDepth = frameDepth;
+	cfg.frameContainerEdges = frameContainerEdges ? 1 : 0;
+	cfg.frameBeam = frameBeam;
+	cfg.calibrateThickness = calibrateThickness ? 1 : 0;
+	cfg.targetThickness = targetThickness;
+	cfg.calibratePorosity = calibratePorosity ? 1 : 0;
+	cfg.targetPorosity = targetPorosity;
+	cfg.calibrateDA = calibrateDA ? 1 : 0;
+	cfg.targetDa = targetDa;
+	cfg.targetFormulaIdx = targetFormulaIdx;
+	cfg.calibrationStep = calibrationStep;
+	cfg.calibrationTol = calibrationTol;
+	cfg.calibrationIter = calibrationIter;
 	cfg.transitionDistance = transitionDistance;
 
 	// Populate Thickness & Distance Parameters
@@ -6878,7 +7541,9 @@ void GeneratorLewiner::export_parameters(std::string fileName) {
 		<< "PlaneOriginX,PlaneOriginY,PlaneOriginZ,PlaneNormalX,PlaneNormalY,PlaneNormalZ,PointX,PointY,PointZ,"
 		<< "GeneratorType,SeedNr,MinRadius,MaxRadius,Openess,StretchX,StretchY,StretchZ,"
 		<< "AnisotropyAngle,DirX,DirY,DirZ,"
-		<< "Spread,BackgroundWeight,SmoothJunctions,SmoothK,TransitionDistance\n";
+		<< "Spread,BackgroundWeight,SmoothJunctions,SmoothK,TransitionDistance,FrameBoundary,FrameDepth,FrameContainerEdges,FrameBeam,"
+		<< "CalibrateThickness,TargetThickness,CalibratePorosity,TargetPorosity,CalibrateDA,TargetDa,TargetFormulaIdx,CalibrationStep,CalibrationTol,CalibrationIter,"
+		<< "RoundEdges,EdgeK\n";
 
 	// Write Fixed Data Row
 	fout << cfg.thicknessOption << "," << cfg.uniformThickness << "," << cfg.startThickness << "," << cfg.endThickness << "," << cfg.distFunction << "," << cfg.radFunction << ","
@@ -6888,7 +7553,9 @@ void GeneratorLewiner::export_parameters(std::string fileName) {
 		<< cfg.generatorType << "," << cfg.seedNr << "," << cfg.minRadius << "," << cfg.maxRadius << ","
 		<< cfg.openess << "," << cfg.stretchX << "," << cfg.stretchY << "," << cfg.stretchZ << ","
 		<< cfg.anisotropyAngle << "," << cfg.dirX << "," << cfg.dirY << "," << cfg.dirZ << ","
-		<< cfg.spread << "," << cfg.backgroundWeight << "," << cfg.smoothJunctions << "," << cfg.smoothK << "," << cfg.transitionDistance << "\n";
+		<< cfg.spread << "," << cfg.backgroundWeight << "," << cfg.smoothJunctions << "," << cfg.smoothK << "," << cfg.transitionDistance << "," << cfg.frameBoundary << "," << cfg.frameDepth << "," << cfg.frameContainerEdges << "," << cfg.frameBeam << ","
+		<< cfg.calibrateThickness << "," << cfg.targetThickness << "," << cfg.calibratePorosity << "," << cfg.targetPorosity << "," << cfg.calibrateDA << "," << cfg.targetDa << "," << cfg.targetFormulaIdx << "," << cfg.calibrationStep << "," << cfg.calibrationTol << "," << cfg.calibrationIter << ","
+		<< cfg.roundEdges << "," << cfg.edgeK << "\n";
 
 	fout.close();
 
@@ -6968,6 +7635,22 @@ void GeneratorLewiner::read_parameters(const std::string fileName) {
 		else if (key == "BackgroundWeight") { backgroundWeight = val; }
 		else if (key == "SmoothJunctions") { smoothJunctions = (val != 0.0f); }
 		else if (key == "SmoothK") { smoothK = val; }
+		else if (key == "RoundEdges") { roundEdges = (val != 0.0f); }
+		else if (key == "EdgeK") { edgeK = val; }
+		else if (key == "FrameBoundary") { frameBoundary = (val != 0.0f); }
+		else if (key == "FrameDepth") { frameDepth = val; }
+		else if (key == "FrameContainerEdges") { frameContainerEdges = (val != 0.0f); }
+		else if (key == "FrameBeam") { frameBeam = val; }
+		else if (key == "CalibrateThickness") { calibrateThickness = (val != 0.0f); }
+		else if (key == "TargetThickness") { targetThickness = val; }
+		else if (key == "CalibratePorosity") { calibratePorosity = (val != 0.0f); }
+		else if (key == "TargetPorosity") { targetPorosity = val; }
+		else if (key == "CalibrateDA") { calibrateDA = (val != 0.0f); }
+		else if (key == "TargetDa") { targetDa = val; }
+		else if (key == "TargetFormulaIdx") { targetFormulaIdx = static_cast<int>(val); }
+		else if (key == "CalibrationStep") { calibrationStep = val; }
+		else if (key == "CalibrationTol") { calibrationTol = val; }
+		else if (key == "CalibrationIter") { calibrationIter = static_cast<int>(val); }
 		else if (key == "TransitionDistance") { transitionDistance = val; }
 	}
 
@@ -7009,7 +7692,7 @@ std::unique_ptr<GeneratorLewiner> GeneratorLewiner::extract_from_ROI(ROI* roi) {
 		max_j - min_j + 1,
 		max_k - min_k + 1
 	};
-	
+
 	auto roiScaffold = std::make_unique<GeneratorLewiner>(
 		this->seeds,
 		snappedBounds,
@@ -7037,6 +7720,7 @@ std::unique_ptr<GeneratorLewiner> GeneratorLewiner::extract_from_ROI(ROI* roi) {
 		}
 	}
 
+	roiScaffold->update_render();
 	return roiScaffold;
 }
 
@@ -7116,7 +7800,7 @@ void ScaffoldFactory::gui_draw(
 
 			main_options(containers, generators);
 
-			calibration_options();
+			// calibration_options();
 
 			thickness_options();
 
@@ -7157,12 +7841,55 @@ void ScaffoldFactory::gui_draw(
                     static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
                 };
 
+                // --- Memory guard --------------------------------------------------
+                // The scalar-field allocations scale with the voxel count; a fine grid
+                // over a large container can exceed RAM and hard-crash with bad_alloc.
+                // Estimate the peak footprint and refuse up front with an actionable
+                // message instead of crashing on the worker thread.
+                const uint64_t projectedVoxels =
+                    (uint64_t)resolution[0] * (uint64_t)resolution[1] * (uint64_t)resolution[2];
+                const bool     willCalibrate = calibrateThickness || calibratePorosity;
+                // peak bytes/voxel: cache(40)+field(4)+containerDist(4)+narrowBand(4)+MC verts(24)
+                // when calibrating; without the cache the plain path drops the 40.
+                const uint64_t bytesPerVoxel = willCalibrate ? 76ull : 36ull;
+                const uint64_t requiredBytes = projectedVoxels * bytesPerVoxel;
+                const uint64_t freeBytes     = available_physical_memory_bytes();
+                const double   budgetFrac    = 0.80; // leave headroom for the OS/other buffers
+
+                const bool memoryOk =
+                    (freeBytes == 0) || // query unavailable: don't block (bad_alloc backstop applies)
+                    (requiredBytes <= (uint64_t)(budgetFrac * (double)freeBytes));
+
+                if (!memoryOk) {
+                    const double dimVol = (double)(bds.xMax - bds.xMin)
+                                        * (double)(bds.yMax - bds.yMin)
+                                        * (double)(bds.zMax - bds.zMin);
+                    const double minVoxel = std::cbrt(
+                        dimVol * (double)bytesPerVoxel / (budgetFrac * (double)freeBytes));
+                    const double minVoxelR = std::ceil(minVoxel * 1000.0) / 1000.0;
+                    std::ostringstream oss;
+                    oss << "Generation aborted: grid is " << projectedVoxels << " voxels (~"
+                        << (requiredBytes >> 30) << " GB needed, " << (freeBytes >> 30)
+                        << " GB free). Increase the generation voxel size to >= "
+                        << minVoxelR << " mm"
+                        << (willCalibrate
+                            ? "; metrics can still be measured at the measurement voxel inside an ROI."
+                            : ".");
+                    if (logger) logger->log(LogPriority::ERROR, oss.str());
+                }
+                else {
                 auto scaffold = std::make_unique<GeneratorLewiner>(
                     seeds, bounds, resolution, logger, openess, thickness);
 
 				scaffold->spread = spread;
 				scaffold->smoothJunctions = smoothJunctions;
 				scaffold->smoothK = smoothK;
+				scaffold->roundEdges = roundEdges;
+				scaffold->edgeK = edgeK;
+				scaffold->frameBoundary = frameBoundary;
+				scaffold->frameDepth = frameDepth;
+				scaffold->frameContainerEdges = frameContainerEdges;
+				scaffold->frameBeam = frameBeam;
 
                 if (selectedThicknessOption == 1) {
                     switch (selectedFunc) {
@@ -7194,15 +7921,21 @@ void ScaffoldFactory::gui_draw(
 					thicknessSDF, thicknessRadFunc,
                     startThickness, endThickness, transitionDistance);
                 scaffold->set_stretch(stretchX, stretchY, stretchZ);
-				if(calibrateThickness){
-					scaffold->calibrateThickness = calibrateThickness;
-					scaffold->targetThickness = targetThickness;
-					scaffold->calibrationIter = calibrationIter;
-					scaffold->calibrationTol = calibrationTol;
-				}
-				if(calibratePorosity){
-					scaffold->targetPorosity = targetPorosity;
-				}
+				
+				// update calibration settings (flags + targets consumed by
+				// build_calibration_stages, which runs on the worker thread)
+				scaffold->calibrateThickness = calibrateThickness;
+				scaffold->calibratePorosity  = calibratePorosity;
+				// scaffold->calibrateSmi       = calibrateSmi;   // SMI calibration disabled
+				scaffold->calibrateDA        = calibrateDA;
+				scaffold->targetThickness    = targetThickness;
+				scaffold->targetPorosity     = targetPorosity;
+				// scaffold->targetSmi          = targetSmi;      // SMI calibration disabled
+				scaffold->targetDa           = targetDa;
+				scaffold->targetFormulaIdx   = targetFormulaIdx;
+				scaffold->calibrationIter    = calibrationIter;
+				scaffold->calibrationTol     = calibrationTol;
+
                 scaffold->anisotropyAngle = anisotropyAngle;
                 scaffold->anisotropyVec   = anisotropyVec;
 				scaffold->anisotropySources = anisoSources;
@@ -7224,72 +7957,45 @@ void ScaffoldFactory::gui_draw(
 
                 start_time = std::chrono::steady_clock::now();
 
-				// calibrate thickness only
-				if (calibrateThickness && !calibratePorosity){
-					auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
-					auto cTol = calibrationTol;
-					auto cIter = calibrationIter;
+				// NOTE: the expensive cache pass runs on the WORKER thread, not here
+				// (it would freeze the UI). Calibrators lazy-cache; the plain path
+				// calls compute_scalar_field (cache + assemble).
 
+					// Calibration: build the enabled knob stack (DA -> SMI ->
+					// Thickness -> Porosity) and solve it with one recursive driver;
+					// any subset reproduces the old one/two/three-knob behaviour.
+				const bool anyCalibration =
+					calibrateThickness || calibratePorosity /* || calibrateSmi */ || calibrateDA;
+
+				if (anyCalibration) {
+					auto cStep = measurementVoxelSize; // metrics at the measurement voxel
 					task->start(
-						[raw, conShared, targetThickness, cStep, cTol, cIter, t=task]() {
+						[raw, conShared, cStep, t = task]() {
 						t->set_progress(0.00f);
-						bool ok = raw->calibrate_thickness(
-							*conShared, targetThickness, cStep, cTol, cIter,
-							[t](float p) { t->set_progress(0.05f + 0.90f * p); });
-						if (ok) {
+
+						raw->build_calibration_stages(cStep);
+						bool ok = !t->is_cancel_requested()
+							&& raw->solve_calibration(raw->stages, 0, *conShared);
+
+						if (ok && !t->is_cancel_requested() && raw->marching_cubes()) {
+							t->set_progress(0.90f);
+							// full-resolution DA (the loop used a reduced ray budget)
+							if (raw->calibrateDA)
+								raw->estimate_anisotropy(cStep, 2000, 10000, raw->targetFormulaIdx);
 							raw->estimate_metrics(*conShared);
+							// stamp calibrated metric versions to this final mesh so the
+							// inner-loop targets (Tb.Th, SMI) no longer read stale.
+							raw->stamp_calibrated_versions();
 						}
 						t->set_progress(1.00f);
 					}, this);
 				}
-				// 2 knob
-				else if (calibrateThickness && calibratePorosity){
-					auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
-					auto cTol = calibrationTol;
-					auto cIter = calibrationIter;
-
-					task->start(
-						[raw,
-						 conShared,
-						 targetThickness, targetP,
-						 cStep, cTol, cIter, t=task]() {
-						t->set_progress(0.00f);
-						bool ok = raw->two_knob_calibration(
-							*conShared, targetThickness,
-							targetP, cStep, cTol, cIter,
-							[t](float p) { t->set_progress(0.05f + 0.90f * p); });
-						if (ok) {
-							raw->estimate_metrics(*conShared);
-						}
-						t->set_progress(1.00f);
-					}, this);
-				}
-				// porosity only: openness calibrated at the current thickness.
-				// calibrate_openness leaves only the field, so run marching cubes.
-				else if (!calibrateThickness && calibratePorosity){
-					auto cStep = measurementVoxelSize;   // calibrate at the measurement voxel
-					auto cTol = calibrationTol;
-					auto cIter = calibrationIter;
-
-					task->start(
-						[raw, conShared, targetP, cStep, cTol, cIter, t=task]() {
-						t->set_progress(0.00f);
-						bool ok = raw->calibrate_openness(
-							*conShared, targetP, cStep, cTol, cIter,
-							[t](float p) { t->set_progress(0.05f + 0.85f * p); });
-						if (ok && raw->marching_cubes()) {
-							t->set_progress(0.95f);
-							raw->estimate_metrics(*conShared);
-						}
-						t->set_progress(1.00f);
-					}, this);
-				}
-				else{
+				else {
 					task->start(
 						[raw, conShared, t = task]() {
-						// each stage runs only if the previous one succeeded and no cancel
 						t->set_progress(0.00f);
-						if (!t->is_cancel_requested() && raw->compute_scalar_field(*conShared)) {
+						if (!t->is_cancel_requested() &&
+							raw->compute_scalar_field(*conShared)) {
 							t->set_progress(0.50f);
 							if (!t->is_cancel_requested() && raw->marching_cubes()) {
 								t->set_progress(0.90f);
@@ -7299,7 +8005,7 @@ void ScaffoldFactory::gui_draw(
 						t->set_progress(1.00f);
 					}, this);
 				}
-                
+                } // end memory guard (memoryOk)
             }
         }
         ImGui::EndDisabled();
@@ -7363,39 +8069,21 @@ void ScaffoldFactory::gui_draw(
 	}
 };
 
-void ScaffoldFactory::calibration_options(){
-
-	if(ImGui::BeginTabItem("Calibration")){
-
-		ImGui::SeparatorText("Thickness Calibration");
-		ImGui::Checkbox("Calibrate Thickness", &calibrateThickness);
-		ImGui::Checkbox("Calibrate Porosity", &calibratePorosity);
-		// ImGui::SetItemTooltip("Calibrate SMI at fixed porosity!");
-		
-		if (calibrateThickness){
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat("Measurement Voxel Size", &measurementVoxelSize);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat("Tolerance", &calibrationTol);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputInt("Max Iters", &calibrationIter);
-		}
-		if (calibratePorosity){
-			ImGui::InputFloat("Target Porosity", &targetPorosity);
-		}
-		ImGui::EndTabItem();
-	}
-};
-
 void ScaffoldFactory::thickness_options(){
 	if (ImGui::BeginTabItem("Thickness")){
 
+		ImGui::Checkbox("Calibrate Thickness", &calibrateThickness);
+
 		ImGui::Separator();
+
 		ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
 		ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
 
 		if (selectedThicknessOption == 0) {
 			ImGui::InputFloat("Thickness", &thickness, 0.001f, 1.0f);
+			// uniform: the Thickness value IS the calibration target (Tb.Th)
+			if (calibrateThickness)
+				ImGui::Text("Calibration target (Tb.Th): %.3f mm", thickness);
 		}
 		else {
 			ImGui::SetNextItemWidth(200);
@@ -7404,6 +8092,10 @@ void ScaffoldFactory::thickness_options(){
 			ImGui::InputFloat("End Thickness", &endThickness);
 			ImGui::SetNextItemWidth(200);
 			ImGui::InputFloat("Transition Distance", &transitionDistance);
+			// varied: the calibration target is the MEAN of the (scaled) range
+			if (calibrateThickness)
+				ImGui::Text("Calibration target (mean Tb.Th): %.3f mm",
+					(startThickness + endThickness) * 0.5f);
 
 			ImGui::SeparatorText("Select Distance Function");
 			ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
@@ -7438,6 +8130,10 @@ void ScaffoldFactory::anisotropy_options(
 ){
 
 	if(ImGui::BeginTabItem("Anisotropy")){
+
+		ImGui::Checkbox("Calibrate Anisotropy", &calibrateDA);
+		ImGui::InputFloat("Calibration Target", &targetDa);		
+
 		ImGui::SeparatorText("Global Background");
 		ImGui::InputFloat("Stretch X", &stretchX, 0.01f, 5.0f, "%.3f");
 		ImGui::InputFloat("Stretch Y", &stretchY, 0.01f, 5.0f, "%.3f");
@@ -7570,6 +8266,15 @@ void ScaffoldFactory::main_options(
 
 		ImGui::EndChild();	
 
+		ImGui::SeparatorText("Porosity Calibration");
+
+		ImGui::Checkbox("Calibrate Porosity", &calibratePorosity);
+		ImGui::InputFloat("Target Porosity", &targetPorosity);
+
+		// SMI calibration disabled -- SMI is a reported outcome, not a target:
+		// ImGui::Checkbox("Calibrate SMI", &calibrateSmi);
+		// ImGui::InputFloat("Target SMI", &targetSmi);
+
 		ImGui::EndTabItem();
 	};
 };
@@ -7592,6 +8297,39 @@ void ScaffoldFactory::smooth_options(){
 		if (smoothJunctions) {
 			ImGui::SetNextItemWidth(200);
 			ImGui::InputFloat("Junction k", &smoothK, 0.001f, 0.1f, "%.4f");
+		}
+
+		ImGui::SeparatorText("Edge rounding");
+		ImGui::Checkbox("Round cell edges", &roundEdges);
+		ImGui::SetItemTooltip("Soften the raw Voronoi distance field so the cell "
+			"EDGES and VERTICES become round rather than polygonal (rounder "
+			"pores). Unlike junction smoothing it acts before the openness blend, "
+			"so it also rounds bare (open-lattice) struts. Tb.Th inflation is "
+			"absorbed by thickness calibration. Requires re-generation (recache).");
+		if (roundEdges) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Edge k", &edgeK, 0.001f, 0.1f, "%.4f");
+		}
+
+		ImGui::SeparatorText("Boundary frame");
+		ImGui::Checkbox("Frame boundary cells", &frameBoundary);
+		ImGui::SetItemTooltip("Close the outermost Voronoi cells into full walls, "
+			"forming a connected honeycomb rim around the scaffold. Ties the cut "
+			"boundary struts together for gripping/loading test specimens.");
+		if (frameBoundary) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Frame depth (x thickness)", &frameDepth, 0.1f, 0.5f, "%.2f");
+			ImGui::SetItemTooltip("Rim depth as a multiple of the wall thickness. "
+				"Keep it small (~0.5) so the boundary stays a thin honeycomb rim; "
+				"large values turn the boundary shell plate-like.");
+		}
+		ImGui::Checkbox("Frame container edges", &frameContainerEdges);
+		ImGui::SetItemTooltip("Add solid beams along the container's own edges "
+			"(a box's 12 edges, a cylinder's two rims) for a rigid outer cage. "
+			"Box and cylinder containers only.");
+		if (frameContainerEdges) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat("Edge beam (mm)", &frameBeam, 0.05f, 0.5f, "%.3f");
 		}
 
 		ImGui::EndTabItem();

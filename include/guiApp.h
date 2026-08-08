@@ -513,6 +513,16 @@ private:
 	void _reset_scene();
 
 	void _finalize_scaffold_load();
+
+	// -------- Project (.sbproj) scene serialization --------
+	// Saves the whole scene: shared containers, generators, anisotropy sources and
+	// ROIs are written once into the .sbproj manifest; each scaffold is written as
+	// its own full-fidelity .scaf file next to the project, referenced by name.
+	void save_project(const std::string& path);
+	// Restores a scene saved with save_project. Rebuilds the shared entities, then
+	// loads each scaffold's .scaf and relinks its container/generator/anisotropy
+	// references to the shared entities by index.
+	bool load_project(const std::string& path);
 };
 
 bool create_single_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled=true);

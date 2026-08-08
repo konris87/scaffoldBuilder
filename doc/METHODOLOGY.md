@@ -232,6 +232,65 @@ the joint solve **backs `k` off** until it can (§8.2). The extra Tb.Th is real
 geometry, the same effect as junction bleeding (§7.2), which is why the fillet is
 opt-in and kept small (`k ≈ 0.01` with typical thicknesses).
 
+### 5.3c Optional edge rounding — the `edgeK` softening (PROTOTYPE)
+
+The junction fillet of §5.3b acts on the *composite* field **after** the `τ`
+blend, so its effect is scaled by `(1−τ)` and **vanishes at `τ=1`** (there
+`rodField = value` everywhere and the smin reduces to a uniform offset — no
+shape change on a bare lattice). Edge rounding instead softens the **raw
+distance order statistics before the blend**, so it rounds the intrinsic
+Voronoi cell **edges** (`d₂=d₃`) and **vertices** (`d₃=d₄`) at *every* openness,
+lattices included.
+
+Define smoothed distances `sd_k` (with `sd_k → d_k` as `edgeK → 0`) and keep the
+same blend:
+
+```
+sd₂ = smin(d₂, d₃; edgeK)     sd₃ = smin(d₃, d₄; edgeK)
+v   = (1−τ)(sd₂ − sd₁) + τ(sd₃ − sd₁)          (sd₁ = d₁, kept sharp)
+```
+
+By the **translation-equivariance** of the polynomial smin
+(`smin(a+t, b+t) = smin(a,b) + t`), this needs no per-seed distances — only the
+cached contrasts:
+
+```
+sd₂ − sd₁ = smin(wallVal,  strutVal; edgeK)      (wallVal  = d₂−d₁)
+sd₃ − sd₁ = smin(strutVal, edgeVal;  edgeK)      (strutVal = d₃−d₁, edgeVal = d₄−d₁)
+```
+
+The cache therefore gains a **4th-neighbour contrast** `edgeVal = d₄−d₁` and its
+gradient (the KNN now fetches 4, not 3; ~+4 floats/voxel). Since
+`wallVal ≤ strutVal ≤ edgeVal`, at `edgeK=0` each smin picks the min branch and
+the field reduces **exactly** to the §5.3 linear blend — a provable no-op,
+guarded by `roundEdges && edgeK > 1e-6`.
+
+Gradients use the same `smin_gradient` as §5.3b (convex blend of the two branch
+gradients, weight `m = h²/2`), so the §5.4 Newton normalization is unchanged in
+form; the node-fattening comes from `‖∇v‖` shrinking where non-parallel branch
+gradients blend. Like the fillet, edge rounding **lifts Tb.Th / BV·TV** near the
+joins and is absorbed by calibration — but the current prototype does **not**
+yet share the joint-solve `k` back-off (§8.2), so a target below the fattened
+floor will not auto-reduce `edgeK`. It stacks with the §5.3b fillet (independent
+knobs `roundEdges`/`edgeK`).
+
+Verified on a box (4 mm, radius 0.684, thickness 0.12, generation/measure voxel
+0.02) at **openness `τ=1` (bare lattice)** — the regime where the §5.3b fillet is
+inert — sweeping `edgeK` monotonically adds material, confirming the mechanism:
+
+| `edgeK` | Tb.Th (mm) | BV/TV |
+|---|---|---|
+| 0.00 | 0.142 | 0.362 |
+| 0.05 | 0.143 | 0.365 |
+| 0.10 | 0.154 | 0.391 |
+| 0.20 | 0.183 | 0.471 |
+| 0.40 | 0.250 | 0.633 |
+
+> ⚠️ **Prototype status.** Off by default. Serialized as a v3 `.scaf` block
+> (`roundEdges`, `edgeK`); exposed in the GUI *Smoothness* tab and via the
+> profiler `--round-edges k`. The paper-side changes and re-runs this triggers
+> are catalogued separately (not yet merged into the calibration back-off).
+
 ### 5.4 Gradient normalization
 
 `value` scales with seed density and metric distortion, so `c_glob` is not a

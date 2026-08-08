@@ -134,6 +134,11 @@ bool is_inside_cylinder(
 
 double distance(const std::array<double, 3>& arr1, const std::array<double, 3>& arr2);
 
+// @brief Available physical memory in bytes (RAM currently free), used by the
+// generation memory guard to refuse grids that would not fit. Returns 0 if the
+// platform query is unavailable, which the caller treats as "unknown, proceed".
+uint64_t available_physical_memory_bytes();
+
 void select_file_button(const char* title, const std::string path, const char* dialogName, const char* fileExt);
 
 float polygon_area_2d(const Eigen::MatrixXd& verts2D);

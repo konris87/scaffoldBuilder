@@ -21,6 +21,28 @@ AbstractContainer::AbstractContainer(const std::string& fileName, const bool ren
 	meshVerts = std::get<0>(entries);
 	meshFaces = std::get<1>(entries);
 
+	init_from_geometry(renderMode);
+};
+
+AbstractContainer::AbstractContainer(std::vector<openstl::Vec3> verts,
+	std::vector<openstl::Face> faces,
+	float scale,
+	const bool renderMode) {
+
+	this->renderMode = renderMode;
+	meshVerts = std::move(verts);
+	meshFaces = std::move(faces);
+
+	// The embedded geometry is ALREADY scaled (apply_scale bakes the scale into
+	// meshVerts), so only record the factor for the GUI - do NOT re-apply it,
+	// which would scale the mesh a second time.
+	scaleFactor = scale;
+
+	init_from_geometry(renderMode);
+};
+
+void AbstractContainer::init_from_geometry(bool renderMode) {
+
 	// generate
 	generate();
 

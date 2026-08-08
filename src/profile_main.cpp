@@ -126,6 +126,11 @@ int main(int argc, char** argv) {
 	float backgroundWeightArg = 0.1f;
 	float opennessArg = 0.5f;
 
+	// Optional edge rounding (smin softening of the raw distance order
+	// statistics). Off unless --round-edges is passed; edgeKArg=0 is a no-op.
+	bool roundEdgesArg = false;
+	float edgeKArg = 0.0f;
+
 	bool phantomMode = false;
 	float phantomThickness = 0.0f, phantomVoxel = 0.0f;
 
@@ -182,6 +187,16 @@ int main(int argc, char** argv) {
 	int bonejCount = 20;
 	float bonejVoxel = 0.025f;
 	std::string bonejOut = "data/bonej_comparison";
+
+	// Literature replication suite (11 samples): builds each sample's container +
+	// seeds and runs BOTH a manual (single-shot: DA + porosity iterated, iso fixed
+	// at reported Tb.Th, no thickness calibration) and a fully-calibrated trial.
+	// Edge rounding is on with edgeK = kEdgeFrac * reported Tb.Th per sample.
+	bool literatureSuite = false;
+	std::string literatureCsv = "doc/paper/experiments/literature/literature_samples.csv";
+	std::string literatureOut = "doc/paper/experiments/literature";
+	float literatureGenVoxel = 0.0f;    // generation grid spacing (mm); 0 = auto (Tb.Th/4)
+	float kEdgeFrac = 1.0f;             // edgeK = kEdgeFrac * reported Tb.Th
 	// physiologically plausible sampling ranges (Ulrich 1999 min..max)
 	float bonejThMin = 0.10f, bonejThMax = 0.26f;
 	float bonejSpMin = 0.45f, bonejSpMax = 1.00f;
@@ -221,6 +236,7 @@ int main(int argc, char** argv) {
 		else if (a == "--poisson-radius" && i + 1 < args.size()) poissonRadius = std::stof(args[++i]);
 		else if (a == "--background-weight" && i + 1 < args.size()) backgroundWeightArg = std::stof(args[++i]);
 		else if (a == "--openness" && i + 1 < args.size()) opennessArg = std::stof(args[++i]);
+		else if (a == "--round-edges" && i + 1 < args.size()) { edgeKArg = std::stof(args[++i]); roundEdgesArg = edgeKArg > 0.0f; }
 		else if (a == "--phantom" && i + 2 < args.size()) {
 			phantomMode = true;
 			phantomThickness = std::stof(args[++i]);
@@ -277,6 +293,11 @@ int main(int argc, char** argv) {
 			bonejVoxel = std::stof(args[++i]);
 		}
 		else if (a == "--bonej-out" && i + 1 < args.size()) bonejOut = args[++i];
+		else if (a == "--literature-suite") literatureSuite = true;
+		else if (a == "--literature-csv" && i + 1 < args.size()) literatureCsv = args[++i];
+		else if (a == "--literature-out" && i + 1 < args.size()) literatureOut = args[++i];
+		else if (a == "--literature-genvoxel" && i + 1 < args.size()) literatureGenVoxel = std::stof(args[++i]);
+		else if (a == "--kedge-frac" && i + 1 < args.size()) kEdgeFrac = std::stof(args[++i]);
 		else if (a == "--bonej-thickness-range" && i + 2 < args.size()) {
 			bonejThMin = std::stof(args[++i]);
 			bonejThMax = std::stof(args[++i]);
@@ -349,6 +370,181 @@ int main(int argc, char** argv) {
 	float scale = positional.size() > 1 ? std::stof(positional[1]) : 100.0f;
 
 	Logger& logger = Logger::get_instance();
+
+	// --- Literature replication suite (11 samples) -------------------------
+	// Per CSV row: build the sample's container + uniform-Poisson seeds (radius =
+	// reported Tb.Sp), turn edge rounding on (edgeK = kEdgeFrac * Tb.Th), and run
+	// TWO trials:
+	//   manual     : DA + porosity solved (a user iterating stretch/openness), but
+	//                iso FIXED at the reported Tb.Th (no thickness calibration) ->
+	//                exposes the +junction-bleeding Tb.Th bias.
+	//   calibrated : full closed loop (DA + thickness + porosity).
+	// DA uses each sample's own formula (Lmax/Lmin idx 0, or lambda_min/max idx 2),
+	// and Tb.N is reported with the source-matched formula for a fair comparison.
+	if (literatureSuite) {
+		std::filesystem::create_directories(literatureOut);
+		std::ifstream fin(literatureCsv);
+		if (!fin.is_open()) { std::cerr << "cannot open " << literatureCsv << "\n"; return 1; }
+
+		std::vector<std::string> header;
+		std::vector<std::vector<std::string>> rows;
+		std::string line;
+		while (std::getline(fin, line)) {
+			if (line.empty() || line[0] == '#') continue;
+			std::vector<std::string> cells; std::stringstream ss(line); std::string c;
+			while (std::getline(ss, c, ',')) cells.push_back(c);
+			if (header.empty()) header = cells; else rows.push_back(cells);
+		}
+		auto col = [&](const std::vector<std::string>& r, const std::string& name) -> std::string {
+			for (size_t i = 0; i < header.size(); ++i) if (header[i] == name && i < r.size()) return r[i];
+			return "";
+		};
+		auto colf = [&](const std::vector<std::string>& r, const std::string& name, float def) -> float {
+			std::string v = col(r, name); return v.empty() ? def : std::stof(v);
+		};
+
+		std::ofstream fout(literatureOut + "/literature_results.csv");
+		fout << "sample,trial,container,gen_voxel,meas_voxel,edgeK,converged,"
+			<< "iso,stretch,openness,TbTh,TbTh_SD,TbTh_ref,TbSp,TbSp_SD,TbSp_ref,porosity,porosity_ref,"
+			<< "DA,DA_ref,TbN_mil,TbN_src,TbN_ref,ConnD,SMI,BS_BV,BS_TV\n";
+		std::cout << "\n=== LITERATURE SUITE (" << rows.size() << " samples, kEdge="
+			<< kEdgeFrac << "*Tb.Th) ===" << std::endl;
+
+		for (auto& r : rows) {
+			const std::string sid = col(r, "sample_id");
+			const std::string ctype = col(r, "container_type");
+			const float tbth = colf(r, "tb_th", 0.1f);
+			const float tbsp = colf(r, "tb_sp", 0.7f);
+			const float porRef = colf(r, "porosity_pct", 85.0f);   // percent
+			const float daRef = colf(r, "da", 1.5f);
+			const float voxel = colf(r, "microct_voxel_mm", 0.02f);
+			const std::string daForm = col(r, "da_formula");
+			const std::string tbnForm = col(r, "tbn_formula");
+			const int formIdx = (daForm == "lmin_lmax") ? 2 : 0;
+			const float edgeK = kEdgeFrac * tbth;
+
+			IContainer* con = nullptr; std::string cdesc;
+			if (ctype == "cylinder") {
+				float d = colf(r, "cyl_diameter_mm", 5.0f), h = colf(r, "cyl_height_mm", 10.0f);
+				con = new CylinderContainer(d * 0.5f, h, false);
+				cdesc = "cyl_d" + col(r, "cyl_diameter_mm") + "_h" + col(r, "cyl_height_mm");
+			} else {
+				float s = colf(r, "box_side_mm", 4.0f);
+				con = new BoxContainer(Vec3(s, s, s), Vec3(0.5f * s, 0.5f * s, 0.5f * s), false);
+				cdesc = "box" + col(r, "box_side_mm");
+			}
+			std::shared_ptr<IContainer> conSh(con, [](IContainer*) {});
+			Bounds b = con->compute_bounds();
+			std::array<float, 6> bnds = { (float)b.xMin,(float)b.xMax,(float)b.yMin,(float)b.yMax,(float)b.zMin,(float)b.zMax };
+			// Generation grid = reported Tb.Th / 4: four voxels across the thinnest
+			// feature (Nyquist-comfortable), and since edgeK = Tb.Th = 4h the edge
+			// rounding sits well above its aliasing floor (2h). Self-scales with the
+			// sample's thickness, so big containers still stay tractable. A positive
+			// --literature-genvoxel overrides it.
+			float gVox = (literatureGenVoxel > 0.0f) ? literatureGenVoxel : (tbth / 4.0f);
+			std::array<int, 3> res = {
+				std::max(2,(int)((b.xMax - b.xMin) / gVox)),
+				std::max(2,(int)((b.yMax - b.yMin) / gVox)),
+				std::max(2,(int)((b.zMax - b.zMin) / gVox)) };
+
+			// Build the seed generator as a shared object and ATTACH it to each
+			// scaffold (g.generator) so export_scaf stores a valid generator block
+			// (genTypeID = uniform Poisson + radius + name). Without this the .scaf
+			// would carry genTypeID = -1 and load as "generator not found",
+			// blocking edits in the GUI.
+			auto poisson = std::make_shared<Poisson3D>(tbsp, tbsp, 30, false);
+			poisson->set_rng_seed(1);
+			poisson->run(*con);
+			std::vector<Vec3> seeds = poisson->get_seeds();
+			if (seeds.size() < 4) { std::cerr << sid << ": too few seeds\n"; delete con; continue; }
+			poisson->set_seeds(seeds);
+			poisson->name = sid + "_poisson";
+			poisson->type = ObjectType::UniformGeneratorType;
+
+			std::cout << "\n--- " << sid << " (" << cdesc << ", genVox=" << gVox
+				<< ", seeds=" << seeds.size() << ", edgeK=" << edgeK << ") ---" << std::endl;
+
+			auto run_trial = [&](const std::string& trial, bool calThick, const std::string& exportPrefix) {
+				GeneratorLewiner g(seeds, bnds, res, &logger, 0.5f, tbth, false);
+				g.container = conSh;
+				g.generator = poisson;        // attach seed generator so .scaf is editable on load
+				g.iter = 100;                 // heavy Taubin smoothing (release-quality surfaces)
+				g.roundEdges = true; g.edgeK = edgeK;
+				g.set_stretch(1.0f, 1.0f, 1.0f);
+				g.targetFormulaIdx = formIdx;
+				g.calibrateDA = true;        g.targetDa = daRef;
+				g.calibratePorosity = true;  g.targetPorosity = porRef;  // percent
+				g.calibrateThickness = calThick; g.targetThickness = tbth;
+				g.build_calibration_stages(voxel);
+				bool ok = g.solve_calibration(g.stages, 0, *con);
+				g.marching_cubes(true);
+				g.estimate_metrics(*con);                 // mesh metrics (BS/BV, BS/TV, SMI)
+				Aabb bb = g.get_aabb();
+				std::array<float, 6> bA = { bb.pMin.x, bb.pMax.x, bb.pMin.y, bb.pMax.y, bb.pMin.z, bb.pMax.z };
+				std::array<float, 6> bB = bA;
+				g.estimate_local_thickness(voxel, bA, false);
+				g.estimate_local_thickness(voxel, bB, true);
+				g.estimate_anisotropy(voxel, milDirections, milLines, formIdx);
+				g.estimate_trabecular_number(voxel, 0, milDirections, milLines);
+				g.estimate_connectivity_density_voxel(voxel, 6);
+				g.estimate_smi();
+				const float bvtv = 1.0f - g.porosity;
+				const float tbnSrc = (tbnForm == "inv_tbsp") ? 1.0f / g.localSeparation
+					: (tbnForm == "bvtv_tbth") ? bvtv / g.localThickness
+					: g.trabecularNr;
+				fout << sid << "," << trial << "," << cdesc << "," << gVox << "," << voxel << ","
+					<< edgeK << "," << (ok ? 1 : 0) << "," << g.get_iso_level() << "," << g.stretchX << ","
+					<< g.get_openness() << "," << g.localThickness << "," << g.localThicknessStd << "," << tbth << ","
+					<< g.localSeparation << "," << g.localSeparationStd << "," << tbsp << "," << (g.porosity * 100.0f) << "," << porRef << ","
+					<< g.anisotropyDegree << "," << daRef << "," << g.trabecularNr << "," << tbnSrc << ","
+					<< col(r, "tb_n") << "," << g.connectivityDensity << "," << g.smi << ","
+					<< g.surfaceToVolume << "," << g.surfaceToTotalVolume << "\n";
+				fout.flush();
+				std::cout << "  [" << trial << "] conv=" << ok << " iso=" << g.get_iso_level()
+					<< " stretch=" << g.stretchX << " -> TbTh=" << g.localThickness
+					<< " (ref " << tbth << ") por=" << (g.porosity * 100.0f) << " (ref " << porRef
+					<< ") DA=" << g.anisotropyDegree << " (ref " << daRef << ")" << std::endl;
+
+				// Release artifacts (from the calibrated trial): scaffold + metrics +
+				// a self-contained generation-recipe CSV (export_parameters needs a
+				// seed-generator handle we do not have here, so it is written inline).
+				if (!exportPrefix.empty()) {
+					g.export_scaf(exportPrefix + ".scaf");
+					g.export_metrics(exportPrefix + "_metrics.csv");
+					std::ofstream fp(exportPrefix + "_parameters.csv");
+					if (fp.is_open()) {
+						fp << "key,value\n"
+							<< "sample," << sid << "\n"
+							<< "container," << cdesc << "\n"
+							<< "generation_voxel_mm," << gVox << "\n"
+							<< "measurement_voxel_mm," << voxel << "\n"
+							<< "poisson_radius_mm," << tbsp << "\n"
+							<< "seed_count," << seeds.size() << "\n"
+							<< "iso_level_mm," << g.get_iso_level() << "\n"
+							<< "stretch_x," << g.stretchX << "\n"
+							<< "openness," << g.get_openness() << "\n"
+							<< "spread," << g.get_spread() << "\n"
+							<< "round_edges,1\n"
+							<< "edgeK_mm," << edgeK << "\n"
+							<< "taubin_iter," << g.iter << "\n"
+							<< "taubin_lambda," << g.lambda << "\n"
+							<< "taubin_mu," << g.mu << "\n"
+							<< "target_TbTh_mm," << tbth << "\n"
+							<< "target_porosity_pct," << porRef << "\n"
+							<< "target_DA," << daRef << "\n"
+							<< "da_formula_idx," << formIdx << "\n";
+						fp.close();
+					}
+				}
+			};
+
+			run_trial("manual", false, "");
+			run_trial("calibrated", true, literatureOut + "/" + sid);
+			delete con;
+		}
+		std::cout << "\nWrote " << literatureOut << "/literature_results.csv" << std::endl;
+		return 0;
+	}
 
 	// --- Phantom self-test: measure an analytic slab of known thickness ---
 	// A slab has no junctions, so the estimator should return the true
@@ -662,6 +858,7 @@ int main(int argc, char** argv) {
 			g.container = containerShared;           // enable the outside-container mask
 			g.set_stretch(1.0f, sy, 1.0f);           // dominant-y anisotropy
 			g.spread = spread;
+			if (roundEdgesArg) { g.roundEdges = true; g.edgeK = edgeKArg; }
 			if (!g.compute_scalar_field(*container) || !g.marching_cubes()) {
 				std::cerr << "  generation failed, skipping\n"; return;
 			}
@@ -897,6 +1094,12 @@ int main(int argc, char** argv) {
 		std::cout << "Fenestration spread: " << spreadArg << std::endl;
 	}
 
+	if (roundEdgesArg) {
+		gen.roundEdges = true;
+		gen.edgeK = edgeKArg;
+		std::cout << "Edge rounding: ON (edgeK = " << edgeKArg << ")" << std::endl;
+	}
+
 	// --- Auto-calibrate iso-level so measured Tb.Th hits a target ---
 	if (calibrateTargetMode) {
 		std::cout << "\n=== THICKNESS CALIBRATION (target Tb.Th=" << calTarget
@@ -904,6 +1107,7 @@ int main(int argc, char** argv) {
 			<< ", openness tau=" << opennessArg << ") ===" << std::endl;
 		bool ok = gen.calibrate_thickness(*container, calTarget, calTargetVoxel);
 		std::cout << "\nCalibration " << (ok ? "converged" : "FAILED") << std::endl;
+		if (ok) gen.marching_cubes(true);   // calibrate_thickness leaves only the field
 		gen.estimate_metrics(*container);
 		std::cout << "final Tb.Th = " << gen.localThickness << " +- " << gen.localThicknessStd
 			<< " mm, porosity = " << gen.porosity << std::endl;
@@ -933,6 +1137,28 @@ int main(int argc, char** argv) {
 		std::cout << "achieved:  Tb.Th=" << gen.localThickness
 			<< "  porosity=" << gen.porosity
 			<< "  SMI=" << gen.smi << std::endl;
+
+		// Full outcome-metric report at the calibration voxel, so the calibrated
+		// scaffold's Tb.N / Conn.D / BS-TV / DA (not tuned) can be read off. Used
+		// by the k_edge investigation, which calibrates Tb.Th+porosity at each
+		// edgeK and compares these outcomes against the reference.
+		if (ok) {
+			gen.marching_cubes(true);
+			Aabb bb = gen.get_aabb();
+			std::array<float, 6> bA = { bb.pMin.x, bb.pMax.x, bb.pMin.y, bb.pMax.y, bb.pMin.z, bb.pMax.z };
+			std::array<float, 6> bB = bA;
+			gen.estimate_local_thickness(jkVoxel, bA, false);
+			gen.estimate_local_thickness(jkVoxel, bB, true);
+			gen.estimate_anisotropy(jkVoxel, milDirections, milLines, 0);
+			gen.estimate_trabecular_number(jkVoxel, 0, milDirections, milLines);
+			gen.estimate_connectivity_density_voxel(jkVoxel, 6);
+			gen.estimate_smi();
+			std::cout << "KEDGE_ROW," << edgeKArg << "," << (ok ? 1 : 0) << ","
+				<< gen.get_iso_level() << "," << gen.localThickness << "," << gen.porosity << ","
+				<< gen.localSeparation << "," << gen.trabecularNr << "," << gen.anisotropyDegree << ","
+				<< gen.connectivityDensity << "," << gen.smi << ","
+				<< gen.surfaceToVolume << "," << gen.surfaceToTotalVolume << std::endl;
+		}
 		delete container;
 		return 0;
 	}

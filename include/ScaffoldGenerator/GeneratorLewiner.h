@@ -71,6 +71,33 @@ struct ScaffoldParameters {
 	int smoothJunctions = 0;      // 0/1 flag
 	float smoothK = 0.01f;
 
+	// Edge rounding (smin softening of the raw distance order statistics)
+	int roundEdges = 0;           // 0/1 flag
+	float edgeK = 0.01f;
+
+	// Boundary frame: close the Voronoi cells near the container wall into full
+	// walls (a honeycomb rim that ties the cut struts together).
+	int frameBoundary = 0;        // 0/1 flag
+	float frameDepth = 1.0f;      // band depth as a MULTIPLE of wall thickness (isoLevel)
+
+	// Container edge frame: solid beams along the container's own edges (box: 12
+	// edges, cylinder: 2 rims), forming a rigid outer cage for test specimens.
+	int frameContainerEdges = 0;  // 0/1 flag
+	float frameBeam = 0.3f;       // mm; radius of the edge beams
+
+	// Calibration state (checkboxes + targets), so a saved setup restores which
+	// metrics were being driven and to what values.
+	int calibrateThickness = 1;   // 0/1 flag
+	float targetThickness = 0.3f;
+	int calibratePorosity = 1;    // 0/1 flag
+	float targetPorosity = 80.0f;
+	int calibrateDA = 1;          // 0/1 flag
+	float targetDa = 1.2f;
+	int targetFormulaIdx = 0;
+	float calibrationStep = 0.02f;
+	float calibrationTol = 0.001f;
+	int calibrationIter = 10;
+
 	// Varied-thickness transition distance (only meaningful when thicknessOption == 1)
 	float transitionDistance = 10.0f;
 };
@@ -93,10 +120,59 @@ struct ScaffoldMetrics {
 	float tortuosity = -1.0f;
 };
 
+struct VoxelValue {
+	float strutVal = 0.0f;
+	float wallVal = 0.0f;
+	Vec3 strutGrad = {0.0f, 0.0f, 0.0f};
+	Vec3 wallGrad = {0.0f, 0.0f, 0.0f};
+	// Fourth-nearest contrast (d4 - d1) and its gradient. Only used by the
+	// optional edge-rounding (k_edge) softening, which smins strutVal against
+	// edgeVal to round the Voronoi VERTICES (where d3 = d4) exactly the way
+	// wallVal-vs-strutVal rounds the EDGES (where d2 = d3). When edge rounding is
+	// off this is inert. edgeVal >= strutVal >= wallVal always (d2<=d3<=d4).
+	float edgeVal = 0.0f;
+	Vec3 edgeGrad = {0.0f, 0.0f, 0.0f};
+	float faceP = 0.0f;
+	// |distance| from the thickness SDF, needed to RE-derive the per-voxel iso
+	// level in assemble_field for VARIED thickness (localIsoLevel itself depends
+	// on the thickness knob being calibrated, so it must not be cached). For
+	// uniform thickness this is unused (localIsoLevel = isoLevel).
+	float rawDist = 0.0f;
+};
+
 struct SmoothDist {
 	float val;
 	Vec3 grad;
 };
+
+// enum for the knob recache for DA because it needs stretch computations, recompute for others
+enum class Recompute {Recache, Recompute};
+
+struct CalibrationStage {
+
+	std::string name = "";
+	Recompute cost;
+	// set stage
+	std::function<void(float)> set_knob;
+	// current value
+	std::function<float()> get_knob;
+	// return metric re-estimate mesh if needed 
+	std::function<float()> measure;
+	float target, tol, lo, hi;
+	int maxIter=5;
+
+	bool ascending;
+
+	// Stamp this metric's version to meshVersion. The inner stages measure on an
+	// earlier meshVersion than the final mesh, so their versions read stale even
+	// though the VALUE is correct for the converged config (re-mesh is
+	// deterministic). Applied once, after the final mesh is built, for every
+	// stage that converged. Null for metrics with no version (voxel porosity).
+	std::function<void()> stampVersion;
+	bool converged = false;
+};
+
+// =============================================================================
 class GeneratorLewiner {
 public:
 
@@ -132,6 +208,14 @@ public:
 	// Both return false when their preconditions are not met (too few seeds /
 	// empty scalar field), so callers can skip the rest of the pipeline
 	// instead of running marching cubes or metrics on garbage.
+	bool compute_cached_field_values(const IContainer& con);
+
+	bool assemble_field();
+
+	// Full regeneration: the cache pass (expensive kdtree/wall-strut/gradient,
+	// invariant to the calibration knobs) followed by one assemble pass. Kept as
+	// the single entry point every non-calibration caller uses. Calibration calls
+	// compute_cached_field_values once and then assemble_field() per iteration.
 	bool compute_scalar_field(const IContainer& con);
 
 	bool marching_cubes(bool supress = false);
@@ -182,6 +266,40 @@ public:
 	enum PhantomShape { PHANTOM_SLAB = 0, PHANTOM_CYLINDER = 1, PHANTOM_SPHERE = 2, PHANTOM_TORUS = 3 };
 	void build_phantom_field(int shape, float feature, float voxelSize, float domainSize = 0.0f);
 
+	bool solve_calibration(
+		std::vector<CalibrationStage>& stageSet,
+		int lvl,
+		const IContainer& con
+	);
+
+	// Assemble the ENABLED calibration knobs into `stages`, ordered outer->inner:
+	// DA -> SMI -> Thickness -> Porosity. Outermost = most expensive metric and
+	// most coupling (fewest evaluations); innermost = cheapest (evaluated most).
+	// voxelSize is the MEASUREMENT voxel (metrics are measured there, decoupled
+	// from the generation grid). Any subset reproduces the old two/three-knob.
+	void build_calibration_stages(float voxelSize);
+
+	// Stamp every converged calibration stage's metric version to the CURRENT
+	// meshVersion. Call once AFTER the final mesh is built: the inner stages were
+	// measured on an earlier meshVersion, so their versions read stale even though
+	// their values already match the converged config (re-mesh is deterministic).
+	void stamp_calibrated_versions();
+
+	// Stage factories: each binds a knob (set/get) and its metric (measure) to
+	// THIS generator. DA re-caches (stretch changes the warped seeds); the rest
+	// only re-assemble.
+	CalibrationStage make_da_stage(float target, float voxelSize, float tol, int maxIter, int mode);
+	// CalibrationStage make_smi_stage(float target, float tol, int maxIter);   // SMI calibration disabled
+	CalibrationStage make_thickness_stage(float target, float voxelSize, float tol, int maxIter);
+	CalibrationStage make_porosity_stage(float target, float tol, int maxIter);
+
+	bool secant_1d(
+		const std::function<float(float)>& eval,
+	 	float guess, float target, float tol, float lo, float hi, int maxIter,
+		bool ascending, float& xOut, 
+		const std::string& label = "", int depth = 0
+	);
+
 	// Auto-calibrate the iso-level (c_glob) so the MEASURED local thickness at
 	// the given voxel size matches targetThickness (mm). A secant search over the
 	// monotonic map, regenerating and re-measuring each step, so it needs no
@@ -189,9 +307,12 @@ public:
 	// container shape. UNIFORM thickness: tunes isoLevel. VARIED thickness
 	// (thicknessFunction set): scales the whole [startThickness, endThickness]
 	// range by one factor, preserving the grading, so the measured MEAN Tb.Th
-	// hits the target. Leaves the generator in the calibrated state (mesh built).
+	// hits the target. Leaves the FIELD assembled at the calibrated value but does
+	// NOT build the mesh (the secant skips marching cubes for speed); standalone
+	// callers run marching_cubes() once after it returns. two_knob/three_knob
+	// build the mesh themselves. Builds/reuses the per-voxel cache automatically.
 	// onProgress, if given, is called with a fraction in [0,1] each iteration.
-	// Returns true if the generator holds a valid calibrated scaffold.
+	// Returns true if the generator holds a valid calibrated field.
 	bool calibrate_thickness(const IContainer& con, float targetThickness,
 		float voxelSize, float tol = 0.002f, int maxIter = 8,
 		const std::function<void(float)>& onProgress = nullptr);
@@ -201,6 +322,7 @@ public:
 		float voxelSize, float tol=0.001, int maxIter = 10,
 		const std::function<void(float)>& onProgress = nullptr);
 
+		
 	// two knob calibration of thickness and porosity. This adjusts the isoLevel to reach targeted Tb.Th, then freezes it and adjusts openness to achieve porosity
 	bool two_knob_calibration(
 		const IContainer& con, 
@@ -403,8 +525,8 @@ private:
 	std::vector<uint8_t> get_image_field(
 		float voxelSize, std::array<float, 6>& blockBounds, bool inverse = false, uint8_t solidValue = 1);
 
+	void main_properties();
 	void smooth_properties();
-	void calibration_properties();
 	void thickness_properties();
 	void anisotropy_properties(
 		std::vector<std::shared_ptr<AnisotropySource>>& globalSources);
@@ -429,14 +551,20 @@ public:
 	bool hiddenEllipsoid = false;
 	bool hiddenNetworkPath = false;
 	bool isROI = false;
+	std::vector<CalibrationStage> stages;
+
+	bool calibrateDA = true;
+	float targetDa = 1.2f;
+	int targetFormulaIdx = 0;
 	bool calibrateThickness = true;
+	float targetThickness = 0.3f;
 	bool calibratePorosity = true;
 	float targetPorosity = 80.0f;
-	float targetThickness = 0.3f;
+	// bool calibrateSmi = false;   // SMI calibration disabled (SMI is reported, not targeted)
+	// float targetSmi = 0.5f;
 	float calibrationStep = 0.02f;
-	float calibrationTol = 0.0005f;
+	float calibrationTol = 0.001f;
 	int calibrationIter = 10;
-	bool isThicknessCalibrated = false;
 
 	float measurementVoxelSize = 0.02f;
 	float volume{ 0.0f };
@@ -477,6 +605,29 @@ public:
 	// the fattened nodes is absorbed by calibrate_thickness.
 	bool smoothJunctions = false;
 	float smoothK = 0.01f;
+
+	// Optional edge rounding (smooth-min softening of the raw distance order
+	// statistics, applied BEFORE the tau blend -- distinct from the junction
+	// fillet above, which acts AFTER it). Rounds the intrinsic Voronoi cell
+	// edges/vertices, so it works at every openness (including tau=1 bare
+	// lattices, where the junction fillet degenerates to a uniform offset).
+	// Off by default; edgeK=0 reduces EXACTLY to the linear blend. Tb.Th
+	// inflation from the fattened edges is absorbed by calibrate_thickness.
+	bool roundEdges = false;
+	float edgeK = 0.01f;
+
+	// Boundary frame. When on, the openness is ramped to zero within frameDepth of
+	// the container wall, so the outermost cells close into full Voronoi walls and
+	// form a connected honeycomb rim around the scaffold (a "frame" that ties the
+	// otherwise cut boundary struts together, useful for gripping test specimens).
+	bool frameBoundary = false;
+	float frameDepth = 1.0f;      // band depth as a multiple of wall thickness (isoLevel)
+
+	// Container edge frame. When on, solid beams of radius frameBeam are unioned
+	// along the container's own edges (a box's 12 edges, a cylinder's two rims),
+	// giving the specimen a rigid outer cage. Box and cylinder only.
+	bool frameContainerEdges = false;
+	float frameBeam = 0.3f;       // mm; edge beam radius
 
 	// Cooperative cancellation hook. The GUI wires this to the running
 	// GenerationTask's cancel flag before launching a job; the long-running
@@ -537,6 +688,13 @@ private:
 
 	std::atomic<size_t> vertexCount{ 0 };
 	std::atomic<size_t> triangleCount{ 0 };
+
+	std::vector<VoxelValue> cachedVoxels;
+
+	// Per-voxel signed container distance, filled by compute_cached_field_values
+	// and reused by assemble_field for the boundary clamp and the porosity domain
+	// mask. A member (not a local) so the assemble pass can run standalone.
+	std::vector<float> containerDistField;
 
 	// scaffold properties
 	float threshold = { 0.5f };
@@ -611,6 +769,12 @@ private:
 	float spread = { 0.5f };
 	bool smoothJunctions = false;
 	float smoothK = 0.01f;
+	bool roundEdges = false;
+	float edgeK = 0.01f;
+	bool frameBoundary = false;
+	float frameDepth = 1.0f;
+	bool frameContainerEdges = false;
+	float frameBeam = 0.3f;
 	float stretchX = { 1.0f };
 	float stretchY = { 1.0f };
 	float stretchZ = { 1.0f };
@@ -635,11 +799,17 @@ private:
 	std::shared_ptr<const SDF> thicknessSDF;
 	std::shared_ptr<const RadiusFunction> thicknessRadFunc;
 
+	std::vector<CalibrationStage> stages;
+
+	bool calibrateDA = true;
+	float targetDa = 1.2f;
+	int targetFormulaIdx = 0;
 	bool calibrateThickness = true;
 	float targetThickness = 0.3f;
 	bool calibratePorosity = true;
 	float targetPorosity = 80.0f;
-	bool calibrateSmi = false;
+	// bool calibrateSmi = false;   // SMI calibration disabled (SMI is reported, not targeted)
+	// float targetSmi = 0.5f;
 	float calibrationStep = 0.02f;
 	float calibrationTol = 0.001f;
 	int calibrationIter = 10;
@@ -654,7 +824,6 @@ private:
 	float warningFlashTimer1 = 0.0f;
 	float warningFlashTimer2 = 0.0f;
 
-	void calibration_options();
 	void thickness_options();
 	void smooth_options();
 	void anisotropy_options(

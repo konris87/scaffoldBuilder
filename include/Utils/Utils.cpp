@@ -5,6 +5,28 @@
 #include <cmath>
 #include <math.h>
 
+// Isolated here (rather than in the Eigen/OpenMP-heavy generator TU) so the
+// Windows min/max macros never leak into std::min/max or Eigen.
+#if defined(_WIN32)
+	#ifndef NOMINMAX
+		#define NOMINMAX
+	#endif
+	#include <windows.h>
+#endif
+
+uint64_t available_physical_memory_bytes() {
+#if defined(_WIN32)
+	MEMORYSTATUSEX status;
+	status.dwLength = sizeof(status);
+	if (GlobalMemoryStatusEx(&status)) {
+		return static_cast<uint64_t>(status.ullAvailPhys);
+	}
+	return 0;
+#else
+	return 0; // unsupported platform: caller treats 0 as "unknown, proceed"
+#endif
+}
+
 bool is_inside_box(const std::array<double, 3>& p, const Bounds& b) {
 	return (p[0] >= b.xMin && p[0] <= b.xMax) &&
 		(p[1] >= b.yMin && p[1] <= b.yMax) &&

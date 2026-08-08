@@ -109,7 +109,6 @@ foreach(TGT ${PROJECT_NAME} scaffoldProfile)
 	target_link_libraries(${TGT} PRIVATE
 		${OPENGL_LIBRARIES}
 		glfw
-		${VTK_LIBRARIES}
 	)
 
 	# Include directories
@@ -157,7 +156,7 @@ include(InstallRequiredSystemLibraries)
 
 set(CPACK_PACKAGE_NAME "scaffoldBuilder")
 set(CPACK_PACKAGE_VENDOR "VVR")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Scaffold Builder with ImGui, GLFW, Voro++")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Trabecular bone scaffold generator (ImGui + GLFW + OpenGL)")
 set(CPACK_PACKAGE_VERSION "0.8")
 set(CPACK_PACKAGE_CONTACT "krisvas@ece.upatras.gr")
 

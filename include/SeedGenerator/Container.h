@@ -257,6 +257,14 @@ public:
 	//@brief constructor to load an stl mesh using opensstl
 	AbstractContainer(const std::string& fileName, bool renderMode = true);
 
+	//@brief constructor to rebuild a mesh container from embedded geometry
+	// (deduplicated vertices + faces), used when loading a .sbproj project where
+	// the mesh is stored inside the project file rather than referenced by path.
+	AbstractContainer(std::vector<openstl::Vec3> verts,
+		std::vector<openstl::Face> faces,
+		float scale = 1.0f,
+		bool renderMode = true);
+
 	void gui_setup() override;
 
 	ObjectType get_type() const override {
@@ -326,6 +334,10 @@ public:
 		return scaleFactor;
 	}
 
+	// Deduplicated geometry accessors, used to embed the mesh into a .sbproj
+	const std::vector<openstl::Vec3>& get_mesh_verts() const { return meshVerts; }
+	const std::vector<openstl::Face>&  get_mesh_faces() const { return meshFaces; }
+
 private:
 	std::array<float, 6> bounds = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
@@ -347,6 +359,11 @@ private:
 
 	// functions
 	void generate();
+
+	// Shared construction tail: builds GL buffers, pseudonormals and the mesh
+	// SDF from meshVerts/meshFaces. Called by both the file-path and the
+	// embedded-geometry constructors.
+	void init_from_geometry(bool renderMode);
 
 	void create() override {
 
@@ -384,6 +401,7 @@ public:
 	void render_model();
 	std::array<float, 6> get_bounds();
 	Vec3 get_center();
+	Vec3 get_size() const { return size; }
 	void render_properties();
 
 	ObjectType get_type() const {

@@ -1066,6 +1066,24 @@ void myGUI::_render_settings_panel() {
 		ImGuiFileDialog::Instance()->Close();
 	}
 
+	if (ImGuiFileDialog::Instance()->Display("Save Project", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) {
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			std::filesystem::path p = filePath;
+			if (p.extension() != ".sbproj") p.replace_extension(".sbproj");
+			save_project(p.string());
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
+	if (ImGuiFileDialog::Instance()->Display("Open Project", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
+		if (ImGuiFileDialog::Instance()->IsOk()) {
+			std::string filePath = ImGuiFileDialog::Instance()->GetFilePathName();
+			load_project(filePath);
+		}
+		ImGuiFileDialog::Instance()->Close();
+	}
+
 	if (ImGuiFileDialog::Instance()->Display("Export Mesh Scaffold", ImGuiWindowFlags_NoCollapse, minSize, maxSize)) {
 		if (ImGuiFileDialog::Instance()->IsOk()) { // action if OK
 			scaffoldFilePath = ImGuiFileDialog::Instance()->GetFilePathName();
@@ -1311,6 +1329,313 @@ void myGUI::_finalize_scaffold_load() {
 	selectedPanelObj.type = ObjectType::ScaffoldType;
 
 	loadTask.reset();
+}
+
+// ===========================================================================
+// Project (.sbproj) scene serialization
+// ===========================================================================
+// The .sbproj file is a manifest that stores the shared scene entities once
+// (containers, generators, anisotropy sources, ROIs). Each scaffold is written
+// as its own full-fidelity .scaf next to the project (guaranteeing a byte
+// identical scalar field on reload) and referenced by filename + indices into
+// the shared entity lists. Mesh containers embed their geometry so the project
+// is self-contained and portable.
+
+void myGUI::save_project(const std::string& path) {
+	namespace fs = std::filesystem;
+
+	std::ofstream out(path, std::ios::out | std::ios::binary);
+	if (!out.is_open()) {
+		logger.log(LogPriority::ERROR, "Failed to open project file for writing: " + path);
+		return;
+	}
+
+	auto writeU32 = [&](uint32_t v) { out.write(reinterpret_cast<const char*>(&v), sizeof(v)); };
+	auto writeI32 = [&](int32_t v) { out.write(reinterpret_cast<const char*>(&v), sizeof(v)); };
+	auto writeU64 = [&](uint64_t v) { out.write(reinterpret_cast<const char*>(&v), sizeof(v)); };
+	auto writeF   = [&](float v) { out.write(reinterpret_cast<const char*>(&v), sizeof(v)); };
+	auto writeStr = [&](const std::string& s) { writeU32((uint32_t)s.size()); if (!s.empty()) out.write(s.data(), s.size()); };
+	auto writeVec3 = [&](const Vec3& v) { writeF(v.x); writeF(v.y); writeF(v.z); };
+
+	// Header
+	const char magic[4] = { 'S', 'B', 'P', 'J' };
+	out.write(magic, 4);
+	writeU32(1); // format version
+
+	// Block 1: containers
+	writeU32((uint32_t)containers.size());
+	for (auto& c : containers) {
+		ObjectType t = c->get_type();
+		if (t == ObjectType::BoxContainerType) {
+			writeI32(1);
+			auto* box = static_cast<BoxContainer*>(c.get());
+			writeVec3(box->size);
+			writeVec3(box->origin);
+		}
+		else if (t == ObjectType::CylinderContainerType) {
+			writeI32(2);
+			auto* cyl = static_cast<CylinderContainer*>(c.get());
+			writeF(cyl->cylinderRadius);
+			writeF(cyl->cylinderHeight);
+		}
+		else if (t == ObjectType::AbstractContainerType) {
+			writeI32(3);
+			auto* mesh = static_cast<AbstractContainer*>(c.get());
+			writeF(mesh->get_scale());
+			const auto& verts = mesh->get_mesh_verts();
+			const auto& faces = mesh->get_mesh_faces();
+			writeU64((uint64_t)verts.size());
+			if (!verts.empty()) out.write(reinterpret_cast<const char*>(verts.data()), sizeof(openstl::Vec3) * verts.size());
+			writeU64((uint64_t)faces.size());
+			if (!faces.empty()) out.write(reinterpret_cast<const char*>(faces.data()), sizeof(openstl::Face) * faces.size());
+		}
+		else {
+			writeI32(0); // unknown type placeholder (keeps indices aligned)
+		}
+		writeStr(c->name);
+	}
+
+	// Block 2: generators
+	writeU32((uint32_t)seedGenerators.size());
+	for (auto& g : seedGenerators) {
+		if (g->get_type() == ObjectType::RandomGeneratorType) {
+			writeI32(0);
+			auto* r = static_cast<Random*>(g.get());
+			writeI32((int32_t)r->seedNr);
+		}
+		else { // Poisson / Uniform / Varied all reconstruct as Poisson3D
+			writeI32(1);
+			auto* p = static_cast<Poisson3D*>(g.get());
+			writeF(p->get_min_radius());
+			writeF(p->get_max_radius());
+		}
+		writeStr(g->name);
+	}
+
+	// Block 3: anisotropy sources
+	writeU32((uint32_t)anisoSources.size());
+	for (auto& s : anisoSources) {
+		writeVec3(s->origin);
+		writeVec3(s->direction);
+		writeVec3(s->stretch);
+		writeF(s->sigma);
+		writeF(s->angle);
+		writeStr(s->name);
+	}
+
+	// Block 4: ROIs
+	writeU32((uint32_t)rois.size());
+	for (auto& r : rois) {
+		writeVec3(r->get_size());
+		writeVec3(r->get_center());
+		for (int i = 0; i < 4; i++) writeF(r->color[i]);
+		writeStr(r->name);
+		writeStr(r->relatedMeshName);
+	}
+
+	// Block 5: scaffolds (each written as its own .scaf next to the project)
+	fs::path folder = fs::path(path).parent_path();
+
+	auto indexOf = [](const auto& list, const auto& item) -> int32_t {
+		for (size_t i = 0; i < list.size(); ++i) if (list[i] == item) return (int32_t)i;
+		return -1;
+	};
+
+	writeU32((uint32_t)scaffolds.size());
+	std::vector<std::string> usedNames;
+	for (auto& gen : scaffolds) {
+		// derive a unique, filesystem-safe .scaf filename from the scaffold name
+		std::string base = gen->name.empty() ? "scaffold" : gen->name;
+		for (auto& ch : base)
+			if (ch == '/' || ch == '\\' || ch == ':' || ch == '*' || ch == '?' ||
+				ch == '"' || ch == '<' || ch == '>' || ch == '|') ch = '_';
+		std::string fname = base + ".scaf";
+		int dup = 1;
+		while (std::find(usedNames.begin(), usedNames.end(), fname) != usedNames.end())
+			fname = base + "_" + std::to_string(dup++) + ".scaf";
+		usedNames.push_back(fname);
+
+		writeStr(fname);
+		writeI32(indexOf(containers, gen->container.lock()));
+		writeI32(indexOf(seedGenerators, gen->generator.lock()));
+		writeU32((uint32_t)gen->anisotropySources.size());
+		for (auto& s : gen->anisotropySources) writeI32(indexOf(anisoSources, s));
+
+		gen->set_logger(&logger);
+		gen->export_scaf((folder / fname).string());
+	}
+
+	out.close();
+	logger.log(LogPriority::SUCCESS, "Project saved to " + path);
+}
+
+bool myGUI::load_project(const std::string& path) {
+	namespace fs = std::filesystem;
+
+	std::ifstream in(path, std::ios::in | std::ios::binary);
+	if (!in.is_open()) {
+		logger.log(LogPriority::ERROR, "Failed to open project file: " + path);
+		return false;
+	}
+
+	auto readU32 = [&]() { uint32_t v = 0; in.read(reinterpret_cast<char*>(&v), sizeof(v)); return v; };
+	auto readI32 = [&]() { int32_t v = 0; in.read(reinterpret_cast<char*>(&v), sizeof(v)); return v; };
+	auto readU64 = [&]() { uint64_t v = 0; in.read(reinterpret_cast<char*>(&v), sizeof(v)); return v; };
+	auto readF   = [&]() { float v = 0.0f; in.read(reinterpret_cast<char*>(&v), sizeof(v)); return v; };
+	auto readStr = [&]() { uint32_t n = readU32(); std::string s; if (n) { s.resize(n); in.read(&s[0], n); } return s; };
+	auto readVec3 = [&]() { Vec3 v; v.x = readF(); v.y = readF(); v.z = readF(); return v; };
+
+	char magic[4] = { 0 };
+	in.read(magic, 4);
+	if (magic[0] != 'S' || magic[1] != 'B' || magic[2] != 'P' || magic[3] != 'J') {
+		logger.log(LogPriority::ERROR, "Invalid file format! Not a .sbproj project.");
+		return false;
+	}
+	uint32_t version = readU32();
+	if (version != 1) {
+		logger.log(LogPriority::ERROR, "Unsupported .sbproj version.");
+		return false;
+	}
+
+	// Block 1: containers  (null entries keep index alignment for scaffold refs)
+	std::vector<std::shared_ptr<IContainer>> loadedContainers;
+	uint32_t nc = readU32();
+	for (uint32_t i = 0; i < nc; i++) {
+		int32_t tid = readI32();
+		std::shared_ptr<IContainer> con;
+		if (tid == 1) {
+			Vec3 size = readVec3(); Vec3 origin = readVec3();
+			con = std::make_shared<BoxContainer>(size, origin);
+		}
+		else if (tid == 2) {
+			float radius = readF(); float height = readF();
+			con = std::make_shared<CylinderContainer>(radius, height);
+		}
+		else if (tid == 3) {
+			float scale = readF();
+			uint64_t vc = readU64();
+			std::vector<openstl::Vec3> verts(vc);
+			if (vc) in.read(reinterpret_cast<char*>(verts.data()), sizeof(openstl::Vec3) * vc);
+			uint64_t fc = readU64();
+			std::vector<openstl::Face> faces(fc);
+			if (fc) in.read(reinterpret_cast<char*>(faces.data()), sizeof(openstl::Face) * fc);
+			con = std::make_shared<AbstractContainer>(std::move(verts), std::move(faces), scale);
+		}
+		std::string name = readStr();
+		if (con) {
+			con->name = name;
+			con->hidden = false;
+			containers.push_back(con);
+		}
+		loadedContainers.push_back(con);
+	}
+
+	// Block 2: generators
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>> loadedGenerators;
+	uint32_t ng = readU32();
+	for (uint32_t i = 0; i < ng; i++) {
+		int32_t tid = readI32();
+		std::shared_ptr<InterfaceSeedGenerator> gen;
+		if (tid == 0) {
+			int32_t seedNr = readI32();
+			gen = std::make_shared<Random>(seedNr);
+		}
+		else {
+			float rmin = readF(); float rmax = readF();
+			gen = std::make_shared<Poisson3D>((double)rmin, (double)rmax, 30);
+		}
+		std::string name = readStr();
+		if (gen) {
+			gen->name = name;
+			gen->update_model();
+			seedGenerators.push_back(gen);
+		}
+		loadedGenerators.push_back(gen);
+	}
+
+	// Block 3: anisotropy sources
+	std::vector<std::shared_ptr<AnisotropySource>> loadedSources;
+	uint32_t ns = readU32();
+	for (uint32_t i = 0; i < ns; i++) {
+		auto s = std::make_shared<AnisotropySource>();
+		s->origin = readVec3();
+		s->direction = readVec3();
+		s->stretch = readVec3();
+		s->sigma = readF();
+		s->angle = readF();
+		s->name = readStr();
+		s->update_metric();
+		s->update_model();
+		loadedSources.push_back(s);
+		anisoSources.push_back(s);
+	}
+
+	// Block 4: ROIs
+	uint32_t nr = readU32();
+	for (uint32_t i = 0; i < nr; i++) {
+		Vec3 size = readVec3(); Vec3 origin = readVec3();
+		auto roi = std::make_shared<ROI>(size, origin, true);
+		for (int k = 0; k < 4; k++) roi->color[k] = readF();
+		roi->name = readStr();
+		roi->relatedMeshName = readStr();
+		rois.push_back(roi);
+	}
+
+	// Block 5: scaffolds
+	fs::path folder = fs::path(path).parent_path();
+	uint32_t nsc = readU32();
+	for (uint32_t i = 0; i < nsc; i++) {
+		std::string fname = readStr();
+		int32_t ci = readI32();
+		int32_t gi = readI32();
+		uint32_t anc = readU32();
+		std::vector<int32_t> anis(anc);
+		for (uint32_t a = 0; a < anc; a++) anis[a] = readI32();
+
+		auto scaffold = std::make_unique<GeneratorLewiner>();
+		scaffold->set_logger(&logger);
+		scaffold->name = fs::path(fname).stem().string();
+
+		// load_scaf rebuilds its own container/generator/sources into throwaway
+		// lists; we discard those and relink to the shared project entities.
+		std::vector<std::shared_ptr<IContainer>> tmpCon;
+		std::vector<std::shared_ptr<InterfaceSeedGenerator>> tmpGen;
+		std::vector<std::shared_ptr<AnisotropySource>> tmpSrc;
+		if (!scaffold->load_scaf((folder / fname).string(), tmpCon, tmpGen, tmpSrc)) {
+			logger.log(LogPriority::ERROR, "Failed to load scaffold file: " + fname);
+			continue;
+		}
+
+		if (ci >= 0 && ci < (int)loadedContainers.size() && loadedContainers[ci])
+			scaffold->container = loadedContainers[ci];
+		else
+			scaffold->container.reset();
+
+		if (gi >= 0 && gi < (int)loadedGenerators.size() && loadedGenerators[gi])
+			scaffold->generator = loadedGenerators[gi];
+		else
+			scaffold->generator.reset();
+
+		scaffold->anisotropySources.clear();
+		for (int32_t a : anis)
+			if (a >= 0 && a < (int)loadedSources.size() && loadedSources[a])
+				scaffold->anisotropySources.push_back(loadedSources[a]);
+
+		scaffold->update_render();
+		scaffolds.push_back(std::move(scaffold));
+	}
+
+	in.close();
+
+	if (!scaffolds.empty()) {
+		_update_cameras(*scaffolds.back());
+		selectedSceneObj = scaffolds.back().get();
+		selectedPanelObj.ptr = scaffolds.back().get();
+		selectedPanelObj.type = ObjectType::ScaffoldType;
+	}
+
+	logger.log(LogPriority::SUCCESS, "Project loaded from " + path);
+	return true;
 }
 
 void myGUI::_render_object_list() {
@@ -2089,6 +2414,23 @@ void myGUI::_render_main_menu_bar() {
 				logger.log(LogPriority::INFO, "Settings saved.");
 			}
 
+			ImGui::Separator();
+
+			if (ImGui::MenuItem("Save Project", "Save the whole scene as .sbproj")) {
+				IGFD::FileDialogConfig config;
+				config.path = "../data";
+				config.flags = ImGuiFileDialogFlags_ConfirmOverwrite;
+				ImGuiFileDialog::Instance()->OpenDialog("Save Project", "Save Project as .sbproj", ".sbproj", config);
+			}
+
+			if (ImGui::MenuItem("Open Project", "Load a scene from .sbproj")) {
+				IGFD::FileDialogConfig config;
+				config.path = "../data";
+				ImGuiFileDialog::Instance()->OpenDialog("Open Project", "Open Project", ".sbproj", config);
+			}
+
+			ImGui::Separator();
+
 			if (ImGui::MenuItem("Load Scaffold", "Load Scaffold from .scaf file")) {
 				// Call your function to load a model mesh here
 				IGFD::FileDialogConfig config;
@@ -2415,7 +2757,24 @@ void myGUI::_render_display_settings() {
 				else if (pickedItem == 1) {
 					ImGui::Text("Seed Settings");
 					ImGui::ColorEdit3("Seed Color", (float*)&seedColor);
-					ImGui::InputFloat("Point Size", &seedSize, 0.001f, 1.0f, "%.3f");
+
+					// The point size the renderer actually uses is the selected
+					// generator's per-object modelSeedSize (the render loop copies
+					// it into seedSize every frame). Bind the control to that so the
+					// edit takes effect instead of being overwritten.
+					InterfaceSeedGenerator* selGen = nullptr;
+					for (auto& g : seedGenerators) {
+						if (g.get() == selectedPanelObj.ptr) { selGen = g.get(); break; }
+					}
+					if (selGen) {
+						ImGui::InputFloat("Point Size", &selGen->modelSeedSize, 0.001f, 1.0f, "%.3f");
+					}
+					else {
+						ImGui::BeginDisabled();
+						ImGui::InputFloat("Point Size", &seedSize, 0.001f, 1.0f, "%.3f");
+						ImGui::EndDisabled();
+						ImGui::TextDisabled("Select a seed generator to adjust its point size.");
+					}
 				}
 				else if (pickedItem == 2) {
 					ImGui::Text("Grid Settings");
@@ -3611,7 +3970,7 @@ void myGUI::_action_estimate_anisotropy() {
 	
 	if (ImGui::BeginPopupModal("Anisotropy Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 
-		static float tempVoxelSize = 0.05f;
+		static float tempVoxelSize = scaffold->measurementVoxelSize;
 		static int analysisScope = 0;
 		static ROI* selectedROI = nullptr;
 

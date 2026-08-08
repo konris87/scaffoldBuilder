@@ -8,3 +8,17 @@ install_commands.txt
 /*.zip
 .vscode/
 /doc/paper/
+doc/Methodology.md
+doc/RELEASE_REVIEW.md
+doc/GeneratorLewiner_REVIEW.md
+
+# CMake-generated artifacts (anywhere, incl. vendored libs)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.stamp
+*.stamp.depend
+
+# runtime-generated / dev scratch
+imgui.ini
+profile_repro_*.txt
