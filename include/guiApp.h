@@ -214,6 +214,7 @@ public:
 	bool translateScaffold = { false };
 	bool scaleScaffold = { false };
 	bool taubinSmooth = { false };
+	bool simplify = {false};
 
 	// flags for tool panel
 	bool showCutPlane{ false };
@@ -359,6 +360,7 @@ private:
 	GLuint translateTexture = 0;
 	GLuint scaleTexture = 0;
 	GLuint taubinSmoothTexture = 0;
+	GLuint simplifyMeshTexture = 0;
 	GLuint trabecularNumberTexture = 0;
 	GLuint connectivityDensityTexture = 0;
 
@@ -482,6 +484,8 @@ private:
 	void _render_scale_panel(const char* popupName, bool& showPopup);
 
 	void _render_taubin_smooth_panel(const char* popupName, bool& showPopup);
+
+	void _render_simplify_mesh_panel(const char* popupName, bool& showPopup);
 
 	void _render_translate_panel(const char* popupName, bool& showPopup);
 

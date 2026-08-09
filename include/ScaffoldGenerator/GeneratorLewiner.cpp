@@ -3063,7 +3063,13 @@ void GeneratorLewiner::update_render() {
 		add_edge(tri.v1, tri.v2, tri.v3);
 	}
 
-	glBindVertexArray(VAO); 
+	update_buffers();
+
+};
+
+void GeneratorLewiner::update_buffers(){
+
+glBindVertexArray(VAO); 
 
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
 	glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
@@ -7223,6 +7229,34 @@ void GeneratorLewiner::apply_taubin_smooth(int iter, float lambda, float mu) {
 
 	logger->log(LogPriority::SUCCESS, "Applied Taubin Smoothing!");
 
+};
+
+void GeneratorLewiner::apply_mesh_simplification(
+	const mesh_simplify::Options& options){
+
+	mesh_simplify::Info information = mesh_simplify::simplify(
+		vertices,
+		indices,
+		normals,
+		options
+	);
+
+	edgeSet.clear();
+	edgeIndices.clear();
+	// update edges from indices
+	
+	for(size_t i{0}; i < indices.size() / 3; i++){
+		add_edge(
+			indices[3 * i],
+			indices[3 * i + 1],
+			indices[3 * i + 2]
+		);
+	}
+
+	_setup_edges();
+
+	// rebuild the mesh 
+	update_buffers();
 };
 
 void GeneratorLewiner::smooth_scalar_field_taubin(int iterations, float lambda, float mu) {

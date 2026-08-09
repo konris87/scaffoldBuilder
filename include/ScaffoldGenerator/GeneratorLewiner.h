@@ -17,6 +17,7 @@
 #include <SeedGenerator/RadiusCalculator.h>
 #include <ScaffoldGenerator/GenerationTask.h>
 #include "Math/Vec.h"
+#include "Math/QuadricSimplifier.h"
 #include "Utils/Utils.h"
 #include "Anisotropy.h"
 #include "Logger/Logger.h"
@@ -386,6 +387,8 @@ public:
 
 	void apply_taubin_smooth(int iter, float lambda, float mu);
 
+	void apply_mesh_simplification(const mesh_simplify::Options& options);
+
 	void export_metrics(std::string fileName);
 	
 	void read_metrics(const std::string fileName);
@@ -432,6 +435,7 @@ public:
 	void render_metrics();
 	void draw_tortuosity_path();
 	void apply_scale();
+	void update_buffers();
 	void update_render();
 
 private:

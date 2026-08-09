@@ -21,6 +21,7 @@
 #include "OpenGlRender/Model.h"
 #include "OpenGlSetup/stb_image.h"
 #include "Misc/Imgui_Stdlib.h"
+#include "Math/QuadricSimplifier.h"
 
 //#include "SeedGenerator/Random.h"
 //#include "SeedGenerator/Poisson3D.h"
@@ -297,6 +298,7 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/translate.png", &translateTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/scale.png", &scaleTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/tsmooth.png", &taubinSmoothTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/simplification.png", &simplifyMeshTexture, &dummyW, &dummyH);
 };
 
 void myGUI::_init_imgui() {
@@ -1015,6 +1017,11 @@ void myGUI::_render_toolbar() {
 		ImGui::SameLine();
 
 		create_single_button_textured("Taubin Mesh", taubinSmooth, "Smooth With Taubin", taubinSmoothTexture);
+
+		ImGui::SameLine();
+		create_single_button_textured(
+			"Simplify Mesh", simplify,
+			 "Simplify mesh with QEM", simplifyMeshTexture);
 
 		ImGui::EndTable();
 
@@ -1774,6 +1781,10 @@ void myGUI::_render_tool_panel() {
 
 	if (taubinSmooth) {
 		_render_taubin_smooth_panel("Taubin Smoothing", taubinSmooth);
+	}
+
+	if (simplify){
+		_render_simplify_mesh_panel("Simplify Mesh", simplify);
 	}
 
 };
@@ -4572,6 +4583,54 @@ void myGUI::_render_taubin_smooth_panel(const char* popupName, bool& showPopup) 
 
 		ImGui::End();
 	}
+};
+
+void myGUI::_render_simplify_mesh_panel(const char* popupName, bool& showPopup){
+	
+	if (!selectedSceneObj) {
+		showPopup = false;
+		return;
+	}
+
+	// apply to the vertices of the selected object
+	auto model = static_cast<GeneratorLewiner*>(selectedSceneObj);
+
+	if (ImGui::Begin(popupName, &showPopup, ImGuiWindowFlags_AlwaysAutoResize)) {
+		static float targetRatio = 0.25;
+		static float maxError = 10.0;
+		static int targetTris = 5000;
+		static bool preventFlip = true;
+		static bool  recomputeNormals = true;
+		static bool lockBoundary = true;
+
+		ImGui::InputInt("Target Triangles", &targetTris, 1);
+		ImGui::InputFloat("Percentage", &targetRatio);
+		ImGui::Checkbox("Prevent Flipping Triangles", &preventFlip);
+		ImGui::Checkbox("Lock Boundary Vertices", &lockBoundary);
+		ImGui::Checkbox("Recompute Normals", &recomputeNormals);
+
+		if (ImGui::Button("Apply")) {
+
+			mesh_simplify::Options options;
+			options.targetTriangles  = targetTris > 0 ? (size_t)targetTris : 0;
+			options.targetRatio      = targetRatio;
+			options.maxError         = maxError;
+			options.preventFlips     = preventFlip;
+			options.recomputeNormals = recomputeNormals;
+			options.lockBoundary     = lockBoundary;
+			model->apply_mesh_simplification(options);
+
+			showPopup = false;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			showPopup = false;
+		}
+
+		ImGui::End();
+
+	}
+	
 };
 
 

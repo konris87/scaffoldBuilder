@@ -46,6 +46,8 @@ set(CORE_SOURCES
 	include/Math/AabbTree.cpp
 	include/Math/Matrix.cpp
 	include/Math/Bfgs.cpp
+	include/Math/QuadricSimplifier.cpp
+	include/Math/QuadricSimplifier.cpp
 	#src/Visualize/visualize.cpp
 	#src/Visualize/loadMesh.cpp
 	src/OpenGlSetup/simpleCamera.cpp
