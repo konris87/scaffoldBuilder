@@ -165,12 +165,15 @@ void myGUI::_init_opengl() {
 	gridShader = Shader(
 		"./share/shaders/gridVShader.vs",
 		"./share/shaders/gridFShader.fs",
-		"./share/shaders/gridGShader.gs"
+		// "./share/shaders/gridGShader.gs"
+		NULL
 	);
 	uniManager.add_uniform(gridShader, "view");
-	uniManager.add_uniform(gridShader, "model");
 	uniManager.add_uniform(gridShader, "projection");
-	uniManager.add_uniform(gridShader, "gridColor");
+	uniManager.add_uniform(gridShader, "camWorldPos");
+	uniManager.add_uniform(gridShader, "gGridSize");
+	uniManager.add_uniform(gridShader, "gGridCellSize");
+	uniManager.add_uniform(gridShader, "gGridLineWidth");
 
 	seedShader = Shader(
 		"./share/shaders/seedVShader.vertexshader",
@@ -246,13 +249,6 @@ void myGUI::_init_opengl() {
 	uniManager.setUniform(lineShader, "view", view);
 	uniManager.setUniform(lineShader, "projection", projection);
 
-	// axe lines
-	lineX = std::make_unique<LineModel>(Vec3(-1.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f));
-	lineY = std::make_unique<LineModel>(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f));
-	lineZ = std::make_unique<LineModel>(Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, 0.0f, 1.0f));
-
-	//_draw_axes_lines();
-
 	frameShader.use();
 	uniManager.add_uniform(frameShader, "projection");
 	uniManager.add_uniform(frameShader, "view");
@@ -265,12 +261,24 @@ void myGUI::_init_opengl() {
 	else
 		sphereRadius = width * 0.5f;
 
-	defCamera = new defaultCamera(window, 0.3f, glm::vec3(0.0f, 0.0f, 10.0f), cameraTarget, 2.0f);
+	defCamera = new defaultCamera(window, 0.3f, glm::vec3(0.0f, 5.0f, 10.0f), cameraTarget, 2.0f);
 	trackCamera = std::make_unique<TrackBall>(window, sphereRadius, framebuffer.width, framebuffer.height, 0, 0);
 	
+	cameraUpdate = true;
+	trackCamera->update();
+
 	scaffoldShader.use();
 	Vec3 cameraPos = trackCamera->get_position();
 	uniManager.setUniform(scaffoldShader, "lightPosWorld", cameraPos.x, cameraPos.y, cameraPos.z);
+
+	gridShader.use();
+	uniManager.setUniform(gridShader, "camWorldPos",
+		cameraPos.x, cameraPos.y, cameraPos.z);
+	projection = trackCamera->get_projection_matrix();
+	view = trackCamera->get_view_matrix();
+	projection = trackCamera->get_projection_matrix();
+	uniManager.setUniform(gridShader, "view", view);
+	uniManager.setUniform(gridShader, "projection", projection);
 
 	// create frame buffer
 	create_frame_buffer(framebuffer);
@@ -511,7 +519,7 @@ void myGUI::run() {
 					uniManager.setUniform(edgeShader, "cutPlane", 0);
 				}
 				glDepthFunc(GL_LEQUAL);
-				glLineWidth(0.05);
+				glLineWidth(0.05f);
 				uniManager.setUniform(edgeShader, "projection", projection);
 				uniManager.setUniform(edgeShader, "view", view);
 				uniManager.setUniform(edgeShader, "model", glm::translate(
@@ -685,15 +693,6 @@ void myGUI::run() {
 			}
 		}
 
-		if (showGrid) {
-			gridShader.use();
-			uniManager.setUniform(gridShader, "projection", projection);
-			uniManager.setUniform(gridShader, "view", view);
-			uniManager.setUniform(gridShader, "model", model);
-			uniManager.setUniform(gridShader, "gridColor", gridColor[0], gridColor[1], gridColor[2]);
-			grid->draw();
-		}
-
 		for (const auto& seedGen : seedGenerators) {
 
 			if (showSeeds && !seedGen->hidden && (seedGen.get() == selectedPanelObj.ptr)) {
@@ -725,10 +724,6 @@ void myGUI::run() {
 			glDisable(GL_CULL_FACE);
 			cutPlane->draw();
 			glEnable(GL_CULL_FACE);
-		}
-
-		if (showAxesLines) {
-			_draw_axes_lines();
 		}
 
 		if (box && showBbox) {
@@ -832,6 +827,20 @@ void myGUI::run() {
 				);
 				source->render_line_model();
 			}
+		}
+
+		if (showGrid) {
+			gridShader.use();
+			uniManager.setUniform(gridShader, "projection", projection);
+			uniManager.setUniform(gridShader, "view", view);
+			uniManager.setUniform(gridShader, "camWorldPos",
+				trackCamera->get_position().x,
+				trackCamera->get_position().y,
+				trackCamera->get_position().z);
+			uniManager.setUniform(gridShader, "gGridSize", gridSize);
+			uniManager.setUniform(gridShader, "gGridCellSize", gridCellSize);
+			uniManager.setUniform(gridShader, "gGridLineWidth", gridLineWidth);
+			grid->draw();
 		}
 
 		io = ImGui::GetIO();
@@ -2533,10 +2542,6 @@ void myGUI::_render_main_menu_bar() {
 				showBbox = !showBbox;
 			}
 
-			if (ImGui::MenuItem("Show Axes Lines", NULL, showAxesLines)) {
-				showAxesLines = !showAxesLines;
-			}
-
 			if (ImGui::MenuItem("Reset Scene")){
 				_reset_scene();
 			}
@@ -2617,6 +2622,7 @@ void myGUI::_render_main_menu_bar() {
 
 			if (ImGui::MenuItem("Add Anisotropy Source")) {
 				showAnisotropySourceCreator = true;
+				anisoFactory->launch();
 			}
 
 			ImGui::EndMenu();
@@ -2763,7 +2769,11 @@ void myGUI::_render_main_menu_bar() {
 	}
 
 	if (showAnisotropySourceCreator) {
-		_render_aniso_source_creator("Create Anisotropy Source", showAnisotropySourceCreator);
+		// _render_aniso_source_creator("Create Anisotropy Source", showAnisotropySourceCreator);
+		anisoFactory->render(
+			&logger, "Create Anisotropy Source", showAnisotropySourceCreator,
+			anisoSources
+		);
 	}
 
 	if (showROICutter) {
@@ -2831,6 +2841,10 @@ void myGUI::_render_display_settings() {
 				else if (pickedItem == 2) {
 					ImGui::Text("Grid Settings");
 					ImGui::ColorEdit3("Grid Color", (float*)&gridColor);
+					ImGui::InputFloat("Grid Size", &gridSize);
+					ImGui::InputFloat("Grid Cell Size", &gridCellSize);
+					ImGui::InputFloat("Grid Line Thickness",
+						 &gridLineWidth);
 					ImGui::Checkbox("Use Grid", &showGrid);
 				}
 				else if (pickedItem == 3) {
@@ -3818,6 +3832,21 @@ void myGUI::_render_aniso_source_creator(
 	{
 		static int selected = -1;
 		static std::vector<std::shared_ptr<AnisotropySource>> tempSources;
+		static std::string name = "";
+		// set the source name
+		ImGui::InputText("Name", &name);
+
+		ImGui::SeparatorText("Properties");
+
+
+		if(ImGui::Button("Create")){
+
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")){
+
+		}
+		
 		for (int i{ 0 }; i < tempSources.size(); i++) {
 			std::string name = "Anisotropy Source" + std::to_string(i + 1);
 			if (ImGui::TreeNode(name.c_str())){
@@ -4073,50 +4102,7 @@ void myGUI::_draw_selected_box() {
 	box->draw();
 };
 
-void myGUI::_draw_axes_lines() {
-
-	float infinity = 10000.0f;
-
-	glDisable(GL_DEPTH_CLAMP);
-	glDepthFunc(GL_LEQUAL);
-	glLineWidth(0.5f);
-	lineShader.use();
-	uniManager.setUniform(lineShader, "projection", projection);
-	uniManager.setUniform(lineShader, "view", view);
-	uniManager.setUniform(lineShader, "model", glm::mat4(1.0f));
-	uniManager.setUniform(
-		lineShader,
-		"lineColor",
-		1.0f, 0.0f, 0.0f, 1.0f
-	);
-	glm::mat4 modelX = glm::scale(glm::mat4(1.0f), glm::vec3(infinity, 1.0f, 1.0f));
-	uniManager.setUniform(lineShader, "model", modelX);
-	lineX->draw();
-
-	// ---------------------
-	glm::mat4 modelY = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, infinity, 1.0f));
-	uniManager.setUniform(lineShader, "model", modelY);
-	uniManager.setUniform(
-		lineShader,
-		"lineColor",
-		0.0f, 1.0f, 0.0f, 1.0f
-	);
-	lineY->draw();
-
-	// ------------------
-	glm::mat4 modelZ = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, 1.0f, infinity));
-	uniManager.setUniform(
-		lineShader,
-		"lineColor",
-		0.0f, 0.0f, 1.0f, 1.0f
-	);
-	uniManager.setUniform(lineShader, "model", modelZ);
-	lineZ->draw();
-	glEnable(GL_DEPTH_CLAMP);
-
-};
-
-// ---------------------------------------------------------------------------------------------------------------
+// =============================================================================
 
 bool create_single_button_textured(const char* name, bool& flag, const std::string& tooltip, const GLuint textureId, bool enabled) {
 

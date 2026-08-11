@@ -64,6 +64,7 @@ set(CORE_SOURCES
 	include/SeedGenerator/DistanceCalculator.cpp
 	# include/ScaffoldGenerator/Generator.cpp
 	include/ScaffoldGenerator/GeneratorLewiner.cpp
+	include/ScaffoldGenerator/Anisotropy.cpp
 	include/OpenGlRender/Model.cpp
 	include/SeedGenerator/SeedGenerator.cpp
 	include/MonteSimulation/MonteSimulation.cpp

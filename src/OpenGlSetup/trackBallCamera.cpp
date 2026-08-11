@@ -49,6 +49,14 @@ TrackBall::TrackBall(GLFWwindow* window, float radius, int viewportWidth, int vi
     rotMatrix[0][2] = direction.x; // First column, third row
     rotMatrix[1][2] = direction.y;
     rotMatrix[2][2] = direction.z;
+
+    // Initial 3/4 view: pitch the camera down ~35 deg about the right (X) axis so
+    // the y=0 ground grid is seen from above instead of edge-on (a straight -z
+    // elevation is parallel to it and shows nothing). The orbit derives from
+    // 'quat', so seed both it and prevQuat. If it tilts UP instead of down, flip
+    // the sign of the angle.
+    quat     = Quaternion(Vec3(1.0f, 0.0f, 0.0f), glm::radians(35.0f));
+    prevQuat = quat;
 };
 
 void TrackBall::reset() {
@@ -59,8 +67,10 @@ void TrackBall::reset() {
 
     lastZoomY = 0.0;
 
-    prevQuat = Quaternion();
-    quat = Quaternion();
+    // Match the constructor's initial 3/4 tilt so "reset view" also shows the
+    // ground grid rather than an edge-on -z elevation (flip the sign to invert).
+    quat     = Quaternion(Vec3(1.0f, 0.0f, 0.0f), glm::radians(35.0f));
+    prevQuat = quat;
     mouseRotX = 0.0; mouseRotY = 0.0;
     lastRotX = 0.0; lastRotY = 0.0;
     rotMatrix = glm::mat4(1.0f);

@@ -13,6 +13,7 @@ Implement anisotropy enforcement
 #include "Utils/Utils.h"
 #include "OpenGlRender/Model.h"
 #include "Misc/Imgui_Stdlib.h"
+#include "Logger/Logger.h"
 
 // ===================================================================
 // Anisotropy Source Class definition
@@ -252,4 +253,26 @@ inline Vec3 aniso_distance_grad(
     Eigen::Vector3f g = (M * delta) / d;
     return Vec3(g.x(), g.y(), g.z());
 }
+
+// =============================================================================
+// Anisotropy Factory
+// =============================================================================
+
+class AnisotropyFactory{
+public:
+    AnisotropyFactory(){};
+    ~AnisotropyFactory(){};
+
+    void launch();
+    void render(
+        Logger* logger,
+        const char* popupName, bool& showPopup,
+        std::vector<std::shared_ptr<AnisotropySource>>& globalSources
+    );
+
+private:
+    std::shared_ptr<AnisotropySource> pendingSrc = nullptr;
+    std::string name = "";
+};
+
 #endif

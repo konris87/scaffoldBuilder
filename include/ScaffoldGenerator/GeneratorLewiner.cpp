@@ -3666,8 +3666,7 @@ void GeneratorLewiner::render_properties(
                 switch (selectedFunc) {
                     case 0: thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);    break;
                     case 1: thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance); break;
-                    case 2: thicknessFunction = std::make_shared<SmoothStep>(); break;
-                    case 3: thicknessFunction = std::make_shared<ConstantRadiusFunction>();              break;
+                    case 2: thicknessFunction = std::make_shared<SmoothStep>(transitionDistance); break;
                 }
                 switch (selectedDist) {
                     case 0: thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal); break;
@@ -3863,8 +3862,7 @@ void GeneratorLewiner::thickness_properties(){
 			ImGui::SeparatorText("Select Radius Function");
 			ImGui::RadioButton("Linear", &selectedFunc, 0);
 			ImGui::RadioButton("Quadratic", &selectedFunc, 1);
-			ImGui::RadioButton("Constant", &selectedFunc, 2);
-			ImGui::RadioButton("Random", &selectedFunc, 3);
+			ImGui::RadioButton("Sigmoid", &selectedFunc, 2);
 		}
 
 		ImGui::SliderFloat("Openess", &threshold, 0.0f, 1.0f);
@@ -3877,7 +3875,6 @@ void GeneratorLewiner::anisotropy_properties(
 	std::vector<std::shared_ptr<AnisotropySource>>& globalSources
 ){
 
-	static int selectedIdx = -1;
 	if(ImGui::BeginTabItem("Anisotropy")){
 
 		ImGui::Checkbox("Calibrate", &calibrateDA);
@@ -3906,43 +3903,43 @@ void GeneratorLewiner::anisotropy_properties(
 			}
 		}
 
-		for (int i{ 0 }; i < (int)anisotropySources.size(); i++) {
-			std::string label = anisotropySources[i]->name.empty()
-				? "Anisotropy Source " + std::to_string(i + 1)
-				: anisotropySources[i]->name;
-			if (ImGui::TreeNode(label.c_str())) {
-				anisotropySources[i]->render_properties();
-				selectedIdx = i;
-				ImGui::TreePop();
+		ImGui::SeparatorText("Anisotropy Sources");
+		
+		if (ImGui::BeginChild("##Basket", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY))
+		{
+			for (int i{ 0 }; i < (int)globalSources.size(); i++) {
+
+				std::string label = globalSources[i]->name.empty()
+				 ? "Anisotropy Source " + std::to_string(i + 1):
+				 globalSources[i]->name;
+
+				 auto it = std::find(
+					anisotropySources.begin(), 
+					anisotropySources.end(),
+					globalSources[i]
+				);
+
+				bool isSelected = (it != anisotropySources.end());
+
+				if (ImGui::Checkbox(label.c_str(), &isSelected)){
+					if(isSelected){
+						anisotropySources.push_back(globalSources[i]);
+					}
+					else{
+						anisotropySources.erase(
+							std::remove(
+								anisotropySources.begin(),
+								anisotropySources.end(),
+								globalSources[i]),
+								anisotropySources.end()
+						);
+					}
+				}
 			}
-		}
-
-		if (ImGui::Button("Add Anisotropy Source")){
-
-			std::shared_ptr<AnisotropySource> source = std::make_shared<AnisotropySource>();
-			source->stretch = Vec3(1.0f, 1.0f, 1.0f);
-			source->sigma = 5.0f;
-			source->update_metric();
-			source->update_model();
-			anisotropySources.push_back(source);
-			globalSources.push_back(source);
-		}
-
-		ImGui::SameLine();
-
-		if(ImGui::Button("Delete Selected")){
-			anisotropySources.erase(
-				anisotropySources.begin() + selectedIdx
-			);
-			globalSources.erase(
-				globalSources.begin() + selectedIdx
-			);
+			ImGui::EndChild();
 		}
 
 		ImGui::EndTabItem();
-	}
-	else{
-		selectedIdx = -1;
 	}
 }
 
@@ -7808,9 +7805,6 @@ void ScaffoldFactory::gui_draw(
 	std::vector<std::shared_ptr<AnisotropySource>>& anisoSources
 ) {
 	
-	// set to already created sources
-	anisotropySources = anisoSources;
-
 	if (showPopup) {
 		ImGui::OpenPopup(popupName);
 	}
@@ -7929,8 +7923,7 @@ void ScaffoldFactory::gui_draw(
                     switch (selectedFunc) {
                         case 0: thicknessRadFunc = std::make_shared<LinearFunction>(transitionDistance);    break;
                         case 1: thicknessRadFunc = std::make_shared<QuadraticFunction>(transitionDistance); break;
-						case 2: thicknessRadFunc = std::make_shared<SmoothStep>(); break;
-                        case 3: thicknessRadFunc = std::make_shared<ConstantRadiusFunction>();              break;
+						case 2: thicknessRadFunc = std::make_shared<SmoothStep>(transitionDistance); break;
                     }
                     switch (selectedDist) {
                         case 0:
@@ -8149,8 +8142,7 @@ void ScaffoldFactory::thickness_options(){
 			ImGui::SeparatorText("Select Radius Function");
 			ImGui::RadioButton("Linear", &selectedFunc, 0);
 			ImGui::RadioButton("Quadratic", &selectedFunc, 1);
-			ImGui::RadioButton("Constant", &selectedFunc, 2);
-			ImGui::RadioButton("Random", &selectedFunc, 3);
+			ImGui::RadioButton("Sigmoid", &selectedFunc, 2);
 		}
 
 		ImGui::SliderFloat("Openess", &openess, 0.0f, 1.0f);
@@ -8188,30 +8180,42 @@ void ScaffoldFactory::anisotropy_options(
 			}
 		}
 		
-		for (int i{ 0 }; i < (int)anisotropySources.size(); i++) {
-			std::string label = anisotropySources[i]->name.empty()
-				? "Anisotropy Source " + std::to_string(i + 1)
-				: anisotropySources[i]->name;
-			if (ImGui::TreeNode(label.c_str())) {
-				anisotropySources[i]->render_properties();
-				ImGui::TreePop();
-			}
-		}
+		ImGui::SeparatorText("Anisotropy Sources");
+		
+		if (ImGui::BeginChild("##Basket", ImVec2(-FLT_MIN, 0.0f), ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeY))
+		{
+			for (int i{ 0 }; i < (int)globalSources.size(); i++) {
 
-		if (ImGui::Button("Add Anisotropy Source")){
-			std::shared_ptr<AnisotropySource> source = std::make_shared<AnisotropySource>();
+				std::string label = globalSources[i]->name.empty()
+				 ? "Anisotropy Source " + std::to_string(i + 1):
+				 globalSources[i]->name;
 
-			if(source->name.empty()){
-				source->name = "Anisotropy Source" + std::to_string(
-					globalSources.size() + 1
+				 auto it = std::find(
+					anisotropySources.begin(), 
+					anisotropySources.end(),
+					globalSources[i]
 				);
-			}
 
-			source->update_metric();
-			source->update_model();
-			anisotropySources.push_back(source);
-			globalSources.push_back(source);
+				bool isSelected = (it != anisotropySources.end());
+
+				if (ImGui::Checkbox(label.c_str(), &isSelected)){
+					if(isSelected){
+						anisotropySources.push_back(globalSources[i]);
+					}
+					else{
+						anisotropySources.erase(
+							std::remove(
+								anisotropySources.begin(),
+								anisotropySources.end(),
+								globalSources[i]),
+								anisotropySources.end()
+						);
+					}
+				}
+			}
+			ImGui::EndChild();
 		}
+
 		ImGui::EndTabItem();
 	};
 };

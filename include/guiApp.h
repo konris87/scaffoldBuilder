@@ -98,6 +98,9 @@ public:
 	float containerColor[4] = { 1.0f, 0.5f, 0.5f, 0.5f };
 	float seedColor[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
 	float gridColor[4] = { 0.5f, 0.5f, 0.5f, 1.0f };
+	float gridSize = 1000.0f;
+	float gridCellSize = 0.025f;
+	float gridLineWidth = 4.0f;
 	float meshColor[3] = { 1.0f, 1.0f, 1.0f }; // RGB
 	float seedSize{ 1.0f };
 	float normalColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
@@ -126,6 +129,8 @@ public:
 	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>
 	();
 	
+	std::unique_ptr<AnisotropyFactory> anisoFactory = std::make_unique<AnisotropyFactory>();
+
 	std::vector<std::shared_ptr<AnisotropySource>> anisoSources;
 	
 	// create a generation task for the scaffold thread
@@ -139,10 +144,6 @@ public:
 
 	std::unique_ptr<BoundingBox> box;
 	bool showBbox = true;
-
-	std::unique_ptr<LineModel> lineX;
-	std::unique_ptr<LineModel> lineY;
-	std::unique_ptr<LineModel> lineZ;
 
 	std::unique_ptr<CutPlane> cutPlane;
 	std::unique_ptr<Grid> grid;
@@ -175,8 +176,7 @@ public:
 	bool showSeeds{ true };
 	bool showNormals{ false };
 	bool showEdges{ false };
-	bool showGrid{ false };
-	bool showAxesLines{ true };
+	bool showGrid{ true };
 	bool showScaffold{ true };
 	bool showContainer{ false };
 	bool showPoreNetwork{ true };
@@ -502,8 +502,6 @@ private:
 	void _render_roi_cutter(const char* popupName, bool& showPopup);
 
 	void _draw_selected_box();
-
-	void _draw_axes_lines();
 
 	void _create_dockspace();
 

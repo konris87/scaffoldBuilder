@@ -15,34 +15,13 @@ public:
 	enum gridMode { XY };
 
 	Grid(gridMode mode) : mode(mode) {
-		
-		if (mode == XY) {
 
-			// top left corner
-			vertices.push_back(0.0f);
-			vertices.push_back(0.0f);
-			vertices.push_back(0.0f);
-			
-			//// 
-			//vertices.push_back(1.0f);
-			//vertices.push_back(1.0f);
-			//vertices.push_back(0.0f);
-			//// third
-			//vertices.push_back(1.0f);
-			//vertices.push_back(-1.0f);
-			//vertices.push_back(0.0f);
-			//// fourth
-			//vertices.push_back(-1.0f);
-			//vertices.push_back(-1.0f);
-			//vertices.push_back(0.0f);
-
-			_setup();
-		}	
+		_setup();
 	} ;
 
 	void draw() {
 		glBindVertexArray(VAO);
-		glDrawArrays(GL_POINTS, 0, 1);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
 		glBindVertexArray(0);
 	};
 
@@ -57,19 +36,12 @@ private:
 	unsigned int VAO{ 0 }, VBO{ 0 };
 
 	void _setup() {
-		
-		// create VAO
+		// Attribute-less draw: the vertex shader generates the quad positions
+		// from gl_VertexID (its own Pos[]/Indices[] arrays), so we only need a
+		// valid, non-zero VAO bound at draw time - no VBO, no attribute pointers.
+		// (Enabling an attribute bound to an empty VBO would fetch out of bounds
+		// the moment the VS declares a matching input, so we deliberately omit it.)
 		glGenVertexArrays(1, &VAO);
-		glBindVertexArray(VAO);
-
-		glGenBuffers(1, &VBO);
-		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-		glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
-
-		// position attribute for grid shader program
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-		glEnableVertexAttribArray(0);
-		glBindVertexArray(0);
 	};
 };
 
