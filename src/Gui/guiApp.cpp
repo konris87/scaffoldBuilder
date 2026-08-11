@@ -307,6 +307,8 @@ void myGUI::_init_opengl() {
 	load_texture_from_file("./share/textures/scale.png", &scaleTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/tsmooth.png", &taubinSmoothTexture, &dummyW, &dummyH);
 	load_texture_from_file("./share/textures/simplification.png", &simplifyMeshTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/undo.png", &undoActionTexture, &dummyW, &dummyH);
+	load_texture_from_file("./share/textures/redo.png", &redoActionTexture, &dummyW, &dummyH);
 };
 
 void myGUI::_init_imgui() {
@@ -691,6 +693,20 @@ void myGUI::run() {
 			if (ImGui::IsKeyPressed(ImGuiKey_N)) {
 				showNormals = !showNormals;
 			}
+
+			// undo / redo of mesh processing (Ctrl+Z / Ctrl+Y or Ctrl+Shift+Z)
+			if (io.KeyCtrl) {
+				if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
+					if (io.KeyShift) {
+						actionManager.redo();
+					} else {
+						actionManager.undo();
+					}
+				}
+				if (ImGui::IsKeyPressed(ImGuiKey_Y)) {
+					actionManager.redo();
+				}
+			}
 		}
 
 		for (const auto& seedGen : seedGenerators) {
@@ -849,6 +865,10 @@ void myGUI::run() {
 			
 			logger.log(LogPriority::INFO, "Deleting everything!");
 
+			// commands hold raw pointers into `scaffolds`; drop them before
+			// the models are destroyed so undo/redo can't dangle.
+			actionManager.clear();
+
 			scaffolds.clear();
 			containers.clear();
 			seedGenerators.clear();
@@ -919,7 +939,7 @@ void myGUI::_render_toolbar() {
 
 		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(20.0f, 4.0f));
 
-		ImGui::BeginTable("", 5, tableFlags, ImVec2(0.0f, ImGui::GetFrameHeight()));
+		ImGui::BeginTable("", 6, tableFlags, ImVec2(0.0f, ImGui::GetFrameHeight()));
 
 		ImGui::TableNextColumn();
 
@@ -1041,13 +1061,25 @@ void myGUI::_render_toolbar() {
 			"Simplify Mesh", simplify,
 			 "Simplify mesh with QEM", simplifyMeshTexture);
 
+		ImGui::SameLine();
+		ImGui::TableNextColumn();
+
+		if(create_single_button_textured("Undo", undoAction, "Undo Action", undoActionTexture)){
+			actionManager.undo();
+			logger.log(LogPriority::INFO, "Undo Action");
+		};
+
+		ImGui::SameLine();
+
+		if(create_single_button_textured(
+			"Redo", redoAction, "Redo Action", redoActionTexture)){
+				actionManager.redo();
+				logger.log(LogPriority::INFO, "Redo Action");
+			};
+
 		ImGui::EndTable();
-
+		
 		ImGui::PopStyleVar();
-		//if (ImGui::Button("Estimate Connectivity")) {
-		//	_action_estimate_connectivity();
-		//}
-
 	}
 
 	ImGui::End();
@@ -1740,6 +1772,8 @@ void myGUI::_render_object_list() {
 				}
 
 				if (doDelete) {
+					// undo/redo commands may reference this model; drop them
+					actionManager.clear();
 					auto it = scaffolds.erase(scaffolds.begin() + i);
 					selectedSceneObj = nullptr;
 					selectedPanelObj.ptr = nullptr;
@@ -2259,6 +2293,7 @@ void myGUI::_reset_camera() {
 };
 
 void myGUI::_reset_scene(){
+	actionManager.clear();
 	seedGenerators.clear();
 	containers.clear();
 	scaffolds.clear();
@@ -4003,7 +4038,19 @@ void myGUI::_render_taubin_smooth_panel(const char* popupName, bool& showPopup) 
 		ImGui::InputFloat("Mu", &mu, 0.01f, 10.0f);
 	
 		if (ImGui::Button("Apply")) {
+			// copy the static panel params into locals so the redo lambda can
+			// capture them (statics can't be captured by value).
+			const int   redoIter   = iter;
+			const float redoLambda = lambda;
+			const float redoMu     = mu;
+			// snapshot before the op so we can undo back to it; redo simply
+			// re-runs the (deterministic) smoothing from that restored state.
+			auto before = model->capture_mesh_state();
 			model->apply_taubin_smooth(iter, lambda, mu);
+			actionManager.add_command(std::make_unique<LambdaCommand>(
+				[model, before]() { model->restore_mesh_state(before); },
+				[model, redoIter, redoLambda, redoMu]() { model->apply_taubin_smooth(redoIter, redoLambda, redoMu); }
+			));
 			// model->smooth_scalar_field_taubin(iter, lambda, mu);
 			// std::shared_ptr<IContainer> parentCon = model->container.lock();
 			// model->marching_cubes();
@@ -4052,7 +4099,15 @@ void myGUI::_render_simplify_mesh_panel(const char* popupName, bool& showPopup){
 			options.preventFlips     = preventFlip;
 			options.recomputeNormals = recomputeNormals;
 			options.lockBoundary     = lockBoundary;
+
+			// snapshot before the op so we can undo back to it; redo re-runs
+			// the (deterministic) simplification from that restored state.
+			auto before = model->capture_mesh_state();
 			model->apply_mesh_simplification(options);
+			actionManager.add_command(std::make_unique<LambdaCommand>(
+				[model, before]() { model->restore_mesh_state(before); },
+				[model, options]() { model->apply_mesh_simplification(options); }
+			));
 
 			showPopup = false;
 		}

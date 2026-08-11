@@ -389,6 +389,26 @@ public:
 
 	void apply_mesh_simplification(const mesh_simplify::Options& options);
 
+	// -----------------------------------------------------------------
+	// undo/redo memento: a full snapshot of every mesh array that a mesh
+	// processing op (Taubin smoothing, QEM simplification) can touch.
+	struct MeshState {
+		std::vector<LVertex> meshVertices;
+		std::vector<LTriangle> meshTriangles;
+		std::vector<float> vertices;
+		std::vector<float> normals;
+		std::vector<unsigned int> indices;
+		std::set<std::pair<unsigned int, unsigned int>> edgeSet;
+		std::vector<unsigned int> edgeIndices;
+		std::vector<std::vector<unsigned int>> adjacency;
+	};
+
+	// grab / restore the current mesh state. restore_mesh_state also
+	// refreshes the bounding box and re-uploads the GPU buffers, so it must
+	// be called on the GL thread (as undo/redo are, from the render loop).
+	MeshState capture_mesh_state() const;
+	void restore_mesh_state(const MeshState& state);
+
 	void export_metrics(std::string fileName);
 	
 	void read_metrics(const std::string fileName);

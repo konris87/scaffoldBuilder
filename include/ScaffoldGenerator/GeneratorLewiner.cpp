@@ -3599,6 +3599,19 @@ void GeneratorLewiner::render_properties(
 		}
 	} 	
 
+	ImGui::SeparatorText("Mesh Properties");
+	if (ImGui::BeginTable("", 2)) {
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Total Vertices"); 
+		ImGui::TableNextColumn(); ImGui::Text("%d", (int)meshVertices.size());
+
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn(); ImGui::Text("Total Faces");
+		ImGui::TableNextColumn(); ImGui::Text("%d", (int)meshTriangles.size());
+		
+		ImGui::EndTable();
+	}
+
 	ImGui::SeparatorText("Settings");
 
     // ---- editable parameters: locked while this scaffold is regenerating ----
@@ -7238,21 +7251,82 @@ void GeneratorLewiner::apply_mesh_simplification(
 		options
 	);
 
-	edgeSet.clear();
-	edgeIndices.clear();
-	// update edges from indices
-	
-	for(size_t i{0}; i < indices.size() / 3; i++){
-		add_edge(
-			indices[3 * i],
-			indices[3 * i + 1],
-			indices[3 * i + 2]
-		);
+	// The simplifier only rewrites the flat GPU arrays (vertices/normals/
+	// indices). Rebuild the source-of-truth mesh (meshVertices/meshTriangles)
+	// from them so downstream consumers - export_stl(), estimate_metrics(),
+	// etc. - see the simplified geometry instead of the stale full-res mesh.
+	const size_t vertNr = vertices.size() / 3;
+	const bool haveNormals = normals.size() == vertices.size();
+
+	meshVertices.assign(vertNr, LVertex{});
+	for (size_t i = 0; i < vertNr; ++i) {
+		LVertex& v = meshVertices[i];
+		v.x = vertices[3 * i];
+		v.y = vertices[3 * i + 1];
+		v.z = vertices[3 * i + 2];
+		if (haveNormals) {
+			v.nx = normals[3 * i];
+			v.ny = normals[3 * i + 1];
+			v.nz = normals[3 * i + 2];
+		}
 	}
 
-	_setup_edges();
+	const size_t triNr = indices.size() / 3;
+	meshTriangles.assign(triNr, LTriangle{});
+	for (size_t i = 0; i < triNr; ++i) {
+		LTriangle& tri = meshTriangles[i];
+		tri.v1 = static_cast<int>(indices[3 * i]);
+		tri.v2 = static_cast<int>(indices[3 * i + 1]);
+		tri.v3 = static_cast<int>(indices[3 * i + 2]);
+	}
 
-	// rebuild the mesh 
+	// keep the reported counts consistent with the simplified mesh
+	vertexCount   = vertNr;
+	triangleCount = triNr;
+
+	// adjacency is indexed by meshVertices; rebuild it so a subsequent
+	// Taubin smooth operates on the simplified topology (not stale indices).
+	build_topology();
+
+	// bounds may shrink after collapsing; keep the AABB in sync
+	_update_bounding_box();
+
+	// regenerate the flat GPU arrays + edges from the rebuilt source mesh
+	// and re-upload the buffers (mirrors apply_taubin_smooth).
+	update_render();
+};
+
+GeneratorLewiner::MeshState GeneratorLewiner::capture_mesh_state() const {
+
+	MeshState state;
+
+	state.meshVertices  = meshVertices;
+	state.meshTriangles = meshTriangles;
+	state.vertices      = vertices;
+	state.normals       = normals;
+	state.indices       = indices;
+	state.edgeSet       = edgeSet;
+	state.edgeIndices   = edgeIndices;
+	state.adjacency     = adjacency;
+
+	return state;
+};
+
+void GeneratorLewiner::restore_mesh_state(const MeshState& state) {
+
+	meshVertices  = state.meshVertices;
+	meshTriangles = state.meshTriangles;
+	vertices      = state.vertices;
+	normals       = state.normals;
+	indices       = state.indices;
+	edgeSet       = state.edgeSet;
+	edgeIndices   = state.edgeIndices;
+	adjacency     = state.adjacency;
+
+	// keep the bounding box consistent with the restored geometry
+	_update_bounding_box();
+
+	// push the restored arrays to the GPU (must run on the GL thread)
 	update_buffers();
 };
 

@@ -55,6 +55,7 @@ set(CORE_SOURCES
 	src/OpenGlSetup/defaultCamera.cpp
 	src/OpenGlSetup/Misc.cpp
 	include/Utils/Utils.cpp
+	include/Utils/ActionManagement.cpp
 	# include/Wall/Wall.cpp
 	include/Misc/Imgui_Stdlib.cpp
 	# include/SeedGenerator/Random.cpp
@@ -131,6 +132,18 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_directory
 		${CMAKE_SOURCE_DIR}/share
 		$<TARGET_FILE_DIR:${PROJECT_NAME}>/share
+)
+
+# Convenience target to refresh the copied share/ (shaders, textures, fonts) in
+# the build tree WITHOUT relinking the executable - editing only a shader does
+# not trigger the POST_BUILD step above, so run this instead:
+#     cmake --build . --target copy_shaders
+add_custom_target(copy_shaders
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+		${CMAKE_SOURCE_DIR}/share
+		$<TARGET_FILE_DIR:${PROJECT_NAME}>/share
+	COMMENT "Copying share/ (shaders, textures, fonts) into the build tree"
+	VERBATIM
 )
 
 # vtk_module_autoinit is needed

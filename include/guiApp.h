@@ -30,6 +30,7 @@
 #include "ScaffoldGenerator/GenerationTask.h"
 #include "Shader.h"
 #include "Utils/Utils.h"
+#include "Utils/ActionManagement.h"
 //#include "SeedGenerator/Poisson3D.h"
 #include "Logger/Logger.h"
 #include "OpenGlSetup/Misc.h"
@@ -114,6 +115,9 @@ public:
 	// selection objects
 	SelectedObject selectedPanelObj;
 	void* selectedSceneObj = nullptr;
+
+	// undo/redo for mesh processing (Taubin smoothing, QEM simplification)
+	IActionManager actionManager;
 
 	// mesh objects
 	std::vector<std::unique_ptr<GeneratorLewiner>> scaffolds;
@@ -204,6 +208,9 @@ public:
 	bool showROICutter{ false };
 	bool measureThickness{ false };
 	bool measureSeparation{ false };
+
+	bool undoAction{false};
+	bool redoAction{false};
 	
 	bool estimatePoreNetwork = { false };
 	bool estimateTortuosity = { false };
@@ -365,6 +372,8 @@ private:
 	GLuint simplifyMeshTexture = 0;
 	GLuint trabecularNumberTexture = 0;
 	GLuint connectivityDensityTexture = 0;
+	GLuint undoActionTexture = 0;
+	GLuint redoActionTexture = 0;
 
 	// algorithms
 	int daMinLines = 2000;
