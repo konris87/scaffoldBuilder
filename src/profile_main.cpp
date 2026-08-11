@@ -719,8 +719,11 @@ int main(int argc, char** argv) {
 				poisson.radiusMean = 0.0;              // 0 -> range midpoint
 				poisson.radiusStd = rstd;
 				poisson.set_rng_seed(static_cast<uint32_t>(r));
-				RunConfig cfg;                          // null dist/rad: handled in run()
-				poisson.run(*container, cfg);
+				RunConfig cfg;                          // null dist/rad: stochastic draw in varied_run()
+				// Explicit-config entry: honours the stochasticRadius member set
+				// above. The single-arg run() would dispatch on type (NoneType ->
+				// uniform_run) and ignore stochastic spacing entirely.
+				poisson.varied_run(*container, cfg);
 				std::vector<Vec3> s = poisson.get_seeds();
 				if (s.size() < 3) continue;
 
