@@ -1,4 +1,5 @@
 #include "SeedGenerator.h"
+#include "Misc/Imgui_Stdlib.h"
 #include <random>
 
 // =============================================================================
@@ -55,7 +56,18 @@ void Random::update_model() {
 // =============================================================================
 // Poisson 3D Generator Class Implementation
 // =============================================================================
-void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
+void Poisson3D::run(const IContainer& adapter) {
+
+	if (type == ObjectType::VariedGeneratorType){
+		rebuild_config(adapter);
+		varied_run(adapter, config);
+	}
+	else{
+		uniform_run(adapter);
+	}
+};
+
+void Poisson3D::varied_run(const IContainer& adapter, const RunConfig& cfg) {
 
 	containerType = adapter.get_type();
 
@@ -325,7 +337,7 @@ void Poisson3D::run(const IContainer& adapter, const RunConfig& cfg) {
 	version++;
 };
 
-void Poisson3D::run(const IContainer& adapter) {
+void Poisson3D::uniform_run(const IContainer& adapter) {
 
 	containerType = adapter.get_type();
 
@@ -544,20 +556,20 @@ void Poisson3D::render_gui() {
 		ImGui::SetNextItemWidth(200);
 		ImGui::InputDouble("Radius", &rMin, 0.001, 1.0, "%.3f");
 
-		ImGui::Checkbox("Fit", &fit);
-		if (fit){
-			ImGui::InputDouble("Tb.Sp.", &targetSp);
-			ImGui::InputDouble("Tb.Th.", &targetTh);
-			ImGui::InputDouble("Offset", &offset);
+		// ImGui::Checkbox("Fit", &fit);
+		// if (fit){
+		// 	ImGui::InputDouble("Tb.Sp.", &targetSp);
+		// 	ImGui::InputDouble("Tb.Th.", &targetTh);
+		// 	ImGui::InputDouble("Offset", &offset);
 
-			// check the container
-			if (containerType == ObjectType::BoxContainerType){
-				rMin = (targetSp + targetTh + offset) / 1.61;
-			}
-			else if (containerType == ObjectType::CylinderContainerType){
-				rMin = (targetSp + targetTh + offset) / 1.084;
-			}
-		}
+		// 	// check the container
+		// 	if (containerType == ObjectType::BoxContainerType){
+		// 		rMin = (targetSp + targetTh + offset) / 1.61;
+		// 	}
+		// 	else if (containerType == ObjectType::CylinderContainerType){
+		// 		rMin = (targetSp + targetTh + offset) / 1.084;
+		// 	}
+		// }
 	}
 
 	else if (type == ObjectType::VariedGeneratorType) {
@@ -567,29 +579,42 @@ void Poisson3D::render_gui() {
 
 		ImGui::Separator();
 
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputDouble("Minimum Radius", &rMin, 0.001, 1.0, "%.3f");
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputDouble("Maximum Radius", &rMax, 0.001, 1.0, "%.3f");
-
-		ImGui::Checkbox("Fit", &fit);
-		if (fit){
-			ImGui::InputDouble("Tb.Sp.", &targetSp);
-			ImGui::InputDouble("Tb.Th.", &targetTh);
-			ImGui::InputDouble("Offset", &offset);
-
-			// check the container
-			if (containerType == ObjectType::BoxContainerType){
-				double rt = (targetSp - 0.35) / 1.61;
-				double c0 = rt / (0.5 * (rMin + rMax));
-
-				rMin = c0 * rMin;
-				rMax = c0 * rMax;
-			}
-			else if (containerType == ObjectType::CylinderContainerType){
-
-			}
+		ImGui::SeparatorText("Select Distance Function");
+		ImGui::RadioButton("Distance From Plane", &distIdx, 0);
+		if (distIdx== 0) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat3("Normal", planeNormal);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat3("Center", planeCenter);
+		};
+		ImGui::RadioButton("Distance From Point", &distIdx, 1);
+		if (distIdx == 1) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputFloat3("Point", point);
 		}
+		ImGui::RadioButton("Distance From Container", &distIdx, 2);
+
+		ImGui::SeparatorText("Select Radius Function");
+		ImGui::RadioButton("Linear", &radiusIdx, 0);
+		ImGui::RadioButton("Quadratic", &radiusIdx, 1);
+		ImGui::RadioButton("Sigmoid", &radiusIdx, 2);
+		ImGui::RadioButton("Random (Normal)", &radiusIdx, 3);
+		if (radiusIdx == 3) {
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputDouble("Mean Radius (0 = midpoint)", &radiusMean);
+			ImGui::SetNextItemWidth(200);
+			ImGui::InputDouble("Radius Std", &radiusStd);
+			ImGui::TextDisabled("Each seed draws r ~ N(mean, std) clamped to [rMin, rMax].");
+		}
+
+		ImGui::SeparatorText("Parameters");
+
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputDouble("Start Radius", &rMin);
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputDouble("End Radius", &rMax);
+		ImGui::SetNextItemWidth(200);
+		ImGui::InputDouble("Transition Distance", &transitionDist);
 	}
 };
 
@@ -606,4 +631,211 @@ void Poisson3D::update_model() {
 		model = std::make_unique<VisualizeSeeds>(seeds, tempBounds);
 		modelSeedSize = model->initialCalculatedSize;
 	}
+};
+
+void Poisson3D::rebuild_config(const IContainer& con){
+	switch (radiusIdx) {
+		// linear radius function
+		case 0: {
+			config.rad = std::make_shared<LinearFunction>();
+			break;
+		}
+		case 1: {
+			config.rad = std::make_shared<QuadraticFunction>(transitionDist);
+			break;
+		}
+		case 2: {
+			config.rad = std::make_shared<SmoothStep>(transitionDist);
+			break;
+		}
+		case 3: {
+			// stochastic: no radius function, handled inside run()
+			break;
+		}
+	}
+
+	stochasticRadius = (radiusIdx == 3);
+
+	if (!stochasticRadius)
+	switch (distIdx) {
+		// distance from plane
+		case 0: {
+			config.dist = std::make_shared<PlaneSDF>(planeCenter, planeNormal);
+			break;
+		}
+		// distance from point
+		case 1: {
+			config.dist = std::make_shared<PointSDF>(point);
+			break;
+		}
+		// distance from container surface
+		case 2: {
+			config.dist = con.get_distance_estimator();
+			break;
+		}
+	}
+
+	//ensure distance func is nullptr for random
+	if (radiusIdx == 3) {
+		config.dist = nullptr;
+	}	
+};
+
+// =============================================================================
+// Seed Generator Factory
+// =============================================================================
+
+void SeedGeneratorFactory::launch(){
+
+	selectedCon = nullptr;
+	name = "";
+	warningFlashTimer = 0.0f;
+};
+
+IContainer* SeedGeneratorFactory::gui_draw(
+	Logger* logger,
+    const char* popupName, bool& showPopup,
+	SelectedObject* selectedPanelObj,
+	std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators,
+	const std::vector<std::shared_ptr<IContainer>>& containers
+){
+
+	if (showPopup) {
+		ImGui::OpenPopup(popupName);
+	}
+	else return nullptr;
+
+	// showPopup is only ever set true alongside a set_type() call that builds
+	// pendingGenerator; guard anyway so a stray flag can never dereference null.
+	if (!pendingGenerator) return nullptr;
+
+	// always centered
+	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_Appearing);
+
+	if (ImGui::BeginPopupModal(popupName, NULL))
+	{
+
+		ImGui::InputText("Name", &name);
+
+		ImGui::SeparatorText("Select Container");
+
+		if (warningFlashTimer > 0.0f) {
+			warningFlashTimer -= ImGui::GetIO().DeltaTime;
+		}
+
+		bool isFlashing = (warningFlashTimer > 0.0f);
+		if (isFlashing) {
+			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
+			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
+			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
+		}
+
+		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
+
+		for (const auto& md : containers) {
+
+			IContainer* cptr = dynamic_cast<IContainer*>(md.get());
+
+			if (cptr) {
+				bool isSelected = (selectedCon && selectedCon == cptr);
+
+				if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+					selectedCon = md.get();
+				};
+			}
+		}
+		if (isFlashing) {
+			ImGui::PopStyleColor();
+			ImGui::PopStyleVar();
+		}
+		
+		ImGui::EndChild();
+
+		// The pending generator renders its own type-specific controls, editing
+		// its members in place (same render_gui() the properties panel uses).
+		pendingGenerator->render_gui();
+
+		ImGui::Separator();
+		ImGui::NewLine();
+		if (ImGui::Button("Create")){
+
+			if(selectedCon){
+
+				std::string msg =
+					(genType == ObjectType::RandomGeneratorType)  ? " random "  :
+					(genType == ObjectType::UniformGeneratorType) ? " uniform " :
+					(genType == ObjectType::VariedGeneratorType)  ? " varied "  : " ";
+
+				pendingGenerator->container = selectedCon;
+				pendingGenerator->run(*selectedCon);
+
+				if (!name.empty()) {
+					pendingGenerator->name = name;
+				}
+				else {
+					pendingGenerator->name = "Generator" + std::to_string(generators.size() + 1);
+				}
+
+				size_t nr = pendingGenerator->get_seeds().size();
+				generators.push_back(std::move(pendingGenerator));
+				selectedPanelObj->ptr = generators.back().get();
+				selectedPanelObj->type = genType;
+				
+				logger->log(
+					LogPriority::SUCCESS,
+					std::to_string(nr) + msg + " seeds created inside " + selectedCon->name + "!" 
+				);
+
+				IContainer* con = selectedCon;
+
+				ImGui::CloseCurrentPopup();
+				showPopup = false;
+				ImGui::EndPopup();
+				return con;
+			}
+			else{
+				warningFlashTimer = 1.5f;
+			}
+		}
+
+		ImGui::SameLine();
+
+		if (ImGui::Button("Cancel")){
+			showPopup = false;
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return nullptr;
+		}
+
+		ImGui::EndPopup();
+	}
+	return nullptr;
+};
+
+void SeedGeneratorFactory::set_type(const ObjectType& newType){
+	genType = newType;
+
+	// Build the pending generator up front, with its type set, so gui_draw can
+	// render its controls (render_gui) and run it (run) polymorphically. The
+	// generator's own members hold the parameters - the factory keeps no copy.
+	switch (genType)
+	{
+	case ObjectType::RandomGeneratorType:
+		pendingGenerator = std::make_shared<Random>(100);
+		break;
+	case ObjectType::UniformGeneratorType:
+		pendingGenerator = std::make_shared<Poisson3D>(1.0, 1.0, 30, true);
+		break;
+	case ObjectType::VariedGeneratorType:
+		pendingGenerator = std::make_shared<Poisson3D>(1.0, 1.2, 30, true);
+		break;
+	default:
+		pendingGenerator = nullptr;
+		return;
+	}
+
+	pendingGenerator->type = genType;
 };

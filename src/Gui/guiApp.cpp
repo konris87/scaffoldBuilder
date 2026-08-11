@@ -929,16 +929,25 @@ void myGUI::_render_toolbar() {
 		ImGui::SameLine();
 		
 		ImGui::TableNextColumn();
-		create_single_button_textured(
-			"Create Random Seed Generator", showRandomSeedCreator, "create random seeds inside a container", randomSeedTexture);
+		if(create_single_button_textured(
+			"Create Random Seed Generator", showRandomSeedCreator, "create random seeds inside a container", randomSeedTexture)){
+				seedFactory->set_type(ObjectType::RandomGeneratorType);
+				seedFactory->launch();
+			};
 		ImGui::SameLine();
 
-		create_single_button_textured(
-			"Create Uniform Seed Generator", showUniformSeedCreator, "Create seeds inside a container using uniform Poisson sampling", uniformSeedTexture);
+		if(create_single_button_textured(
+			"Create Uniform Seed Generator", showUniformSeedCreator, "Create seeds inside a container using uniform Poisson sampling", uniformSeedTexture)){
+				seedFactory->set_type(ObjectType::UniformGeneratorType);
+				seedFactory->launch();
+			};
 		ImGui::SameLine();
 
-		create_single_button_textured(
-			"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture);
+		if(create_single_button_textured(
+			"Create Varied Seed Generator", showVariedSeedCreator, "Create seeds inside a container using varied Poisson sampling", variedSeedTexture)){
+				seedFactory->set_type(ObjectType::VariedGeneratorType);
+				seedFactory->launch();
+			};
 		ImGui::SameLine();
 
 		ImGui::TableNextColumn();
@@ -1813,18 +1822,20 @@ void myGUI::_render_properties_panel() {
 				}
 				break;
 			}
-			case ObjectType::RandomGeneratorType:{
-				_render_random_seed_generator_properties();
+			case ObjectType::RandomGeneratorType:
+			case ObjectType::UniformGeneratorType:
+			case ObjectType::VariedGeneratorType:{
+				_render_seed_generator_properties();
 				break;
 			}
-			case ObjectType::UniformGeneratorType: {
-				_render_uniform_seed_generator_properties();
-				break;
-			}
-			case ObjectType::VariedGeneratorType: {
-				_render_varied_seed_generator_properties();
-				break;
-			}
+			// case ObjectType::UniformGeneratorType: {
+			// 	_render_uniform_seed_generator_properties();
+			// 	break;
+			// }
+			// case ObjectType::VariedGeneratorType: {
+			// 	_render_varied_seed_generator_properties();
+			// 	break;
+			// }
 			case ObjectType::ScaffoldType: {
 				GeneratorLewiner* scaffold = static_cast<GeneratorLewiner*>(selectedPanelObj.ptr);
 				scaffold->render_properties(
@@ -2663,17 +2674,47 @@ void myGUI::_render_main_menu_bar() {
 		ImGuiFileDialog::Instance()->OpenDialog("Load Container", "Load Container Geometry", ".stl", config);
 	}
 
-	if (showRandomSeedCreator) {
-		_render_random_seed_creator("Random Seed Creator", showRandomSeedCreator);
-	}
+	// if (showRandomSeedCreator) {
+	// 	_render_random_seed_creator("Random Seed Creator", showRandomSeedCreator);
+	// }
 
-	if (showUniformSeedCreator) {
-		_render_uniform_seed_creator("Uniform Seed Creator", showUniformSeedCreator);
-	}
+	// if (showUniformSeedCreator) {
+	// 	_render_uniform_seed_creator("Uniform Seed Creator", showUniformSeedCreator);
+	// }
 
-	if (showVariedSeedCreator) {
-		_render_varied_seed_creator("Varied Seed Creator", showVariedSeedCreator);
+	// if (showVariedSeedCreator) {
+	// 	_render_varied_seed_creator("Varied Seed Creator", showVariedSeedCreator);
+	// }
+
+	if (showRandomSeedCreator){
+		IContainer* con = nullptr;
+		con = seedFactory->gui_draw(
+			&logger,
+			"Random Seed Generator", showRandomSeedCreator,
+			&selectedPanelObj, seedGenerators, containers
+		);
+		if(con) _update_cameras(*con);
 	}
+	
+	if(showUniformSeedCreator){
+		IContainer* con = nullptr;
+		con = seedFactory->gui_draw(
+			&logger,
+			"Uniform Seed Generator", showUniformSeedCreator,
+			&selectedPanelObj, seedGenerators, containers
+		);
+		if(con) _update_cameras(*con);
+	}
+	
+	if(showVariedSeedCreator){
+		IContainer* con = nullptr;
+		con = seedFactory->gui_draw(
+			&logger,
+			"Varied Seed Generator", showVariedSeedCreator,
+			&selectedPanelObj, seedGenerators, containers
+		);
+		if(con) _update_cameras(*con);
+	} 
 
 	if (showScaffoldCreator) {
 		//_render_scaffold_creator("Scaffold Creator", showScaffoldCreator);
@@ -2881,6 +2922,9 @@ void myGUI::_render_cutting_plane_settings(const char* popupName, bool& showPopu
 			ImGui::End();
 		}
 	}
+
+	if (!showPopup) showCutPlane = false;
+
 	ImGui::End();
 
 };
@@ -3030,693 +3074,54 @@ void myGUI::_render_abstract_container_creator(const char* popupName, bool& show
 	showPopup = false;
 };
 
-void myGUI::_render_random_seed_creator(const char* popupName, bool& showPopup) {
+void myGUI::_render_container_picker(IContainer*& container){
 
-	if (showPopup) {
-		ImGui::OpenPopup(popupName);
-	}
-
-	// always centered
-	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-
-	static IContainer* selectedCon = nullptr;
-	static int tempSeedNr = { 100 };
-
-	if (ImGui::BeginPopupModal("Random Seed Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize))
-	{
-
-		ImGui::SeparatorText("Select Container");
-
-		static float warningFlashTimer = 0.0f;
-
-		if (warningFlashTimer > 0.0f) {
-			warningFlashTimer -= ImGui::GetIO().DeltaTime;
-		}
-
-		bool isFlashing = (warningFlashTimer > 0.0f);
-		if (isFlashing) {
-			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-		}
-
-		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
-
-		for (const auto& md : containers) {
-
-			IContainer* con = dynamic_cast<IContainer*>(md.get());
-
-			if (con) {
-				ImGui::PushID(con);
-				bool isSelected = (selectedCon && selectedCon == con);
-
-				if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-					selectedCon = md.get();
-				};
-				ImGui::PopID();
-			}
-		}
-
-		if (isFlashing) {
-			ImGui::PopStyleColor();
-			ImGui::PopStyleVar();   
-		}
-
-		ImGui::EndChild();
-
-		ImGui::SeparatorText("Parameters");
-
-		static char buffer[256] = "";
-		ImGui::InputText("Name", buffer, sizeof(buffer));
-
-		ImGui::InputInt("Number of seeds", &tempSeedNr);
-		
-		ImGui::Separator();
-		ImGui::NewLine();
-
-		if (ImGui::Button("Generate")) {
-
-			if (!selectedCon) {
-				warningFlashTimer = 1.5f;
-			}
-
-			if (selectedCon) {
-				// create the generator
-				std::shared_ptr<Random> rnd = std::make_shared<Random>(tempSeedNr);
-				std::string name = std::string(buffer);
-
-				if (!name.empty()) {
-					rnd->name = name;
-				}
-				else {
-					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
-				}
-
-				rnd->container = selectedCon;
-				rnd->run(*selectedCon);
-				rnd->type = ObjectType::RandomGeneratorType;
-
-				size_t nr = rnd->get_seeds().size();
-
-				// push to the list
-				seedGenerators.push_back(std::move(rnd));
-				selectedPanelObj.ptr = seedGenerators.back().get();
-				selectedPanelObj.type = ObjectType::RandomGeneratorType;
-				buffer[0] = '\0';
-
-				logger.log(
-					LogPriority::SUCCESS,
-					std::to_string(nr) + " seeds created randomly inside " + selectedCon->name + "!");
-
-				_update_cameras(*selectedCon);
-				
-				selectedCon = nullptr;
-				showPopup = false;
-			}
-		}
-
-		ImGui::SameLine();
-
-		if (ImGui::Button("Cancel")) {
-			buffer[0] = '\0';
-			selectedCon = nullptr;
-			showPopup = false;
-		};
-		ImGui::EndPopup();
-	}
-};
-
-void myGUI::_render_random_seed_generator_properties() {
-
-	// get selected object
-	Random* random = static_cast<Random*>(selectedPanelObj.ptr);
-	
-	// display the available containers and set the container to the internal pointer
 	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
 
-	static IContainer* selectedContainer = random->container;
-
 	for (const auto& md : containers) {
 
-		IContainer* con = static_cast<IContainer*>(md.get());
+		IContainer* con = md.get();
 
-		if (con) {
-			if (selectedContainer == nullptr) {
-				selectedContainer = md.get();
-			}
+		if(!con) continue;
 
-			bool isSelected = (selectedContainer && selectedContainer == con);
+		if(container == nullptr) container = con;
 
-			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-				selectedContainer = md.get();
-			};
+		bool isSelected = container == con;
 
-			if (isSelected) ImGui::SetItemDefaultFocus();
-		}
+		if (ImGui::Selectable(md->name.c_str(), isSelected)) {
+			container = con;
+		};
+
+		if (isSelected) ImGui::SetItemDefaultFocus();
 	}
 
 	ImGui::EndChild();
+};
+
+
+void myGUI::_render_seed_generator_properties(){
+
+	// get the object
+	auto* gen = static_cast<InterfaceSeedGenerator*>(selectedPanelObj.ptr);
+
+	// render the container selection panel
 	
-	random->render_gui();
+	IContainer* con = gen->container;
+	_render_container_picker(con);
 
-	if (ImGui::Button("Update")) {
-		if (selectedContainer) {
-			//ContainerAdapter adapter = { *selectedContainer, xDim, yDim, zDim };
-			random->container = selectedContainer;
-			random->run(*selectedContainer);
-			logger.log(LogPriority::SUCCESS, "Seeds Updated");
+	// render the properties
+	gen->render_gui();
+
+	// update
+	if (ImGui::Button("Update")){
+		if(con){
+			gen->container = con;
+			gen->run(*con);
+			logger.log(LogPriority::SUCCESS, "Seeds Updated!");
 		}
 	}
 };
 
-
-void myGUI::_render_uniform_seed_creator(const char* popupName, bool& showPopup) {
-
-	if (showPopup) {
-		ImGui::OpenPopup(popupName);
-	}
-	// always centered
-	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-	if (ImGui::BeginPopupModal("Uniform Seed Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize)){
-		ImGui::SameLine();
-
-		static IContainer* selectedCon = nullptr;
-		static float tempRadius = { 1.0f };
-
-		ImGui::SeparatorText("Select Container");
-		
-		static float warningFlashTimer = 0.0f;
-
-		if (warningFlashTimer > 0.0f) {
-			warningFlashTimer -= ImGui::GetIO().DeltaTime;
-		}
-
-		bool isFlashing = (warningFlashTimer > 0.0f);
-		if (isFlashing) {
-			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-		}
-
-		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
-
-		for (const auto& md : containers) {
-
-			IContainer* con = static_cast<IContainer*>(md.get());
-
-			if (con) {
-				bool isSelected = (selectedCon && selectedCon == con);
-
-				if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-					selectedCon = md.get();
-				};
-			}
-		}
-
-		if (isFlashing) {
-			ImGui::PopStyleColor();
-			ImGui::PopStyleVar();
-		}
-
-		ImGui::EndChild();
-
-		ImGui::SeparatorText("Parameters");
-
-		static char buffer[256] = "";
-		ImGui::InputText("Name", buffer, sizeof(buffer));
-
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Radius", &tempRadius);
-
-		ImGui::Separator();
-		ImGui::NewLine();
-		if (ImGui::Button("Generate")) {
-
-			if (!selectedCon) {
-				warningFlashTimer = 1.5f;
-			}
-
-			if (selectedCon) {
-
-				std::shared_ptr<Poisson3D> rnd = std::make_shared<Poisson3D>(
-					tempRadius, tempRadius, 30);
-				std::string name = std::string(buffer);
-
-				if (!name.empty()) {
-					rnd->name = name;
-				}
-				else {
-					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
-				}
-				rnd->type = ObjectType::UniformGeneratorType;
-				rnd->container = selectedCon;
-				rnd->run(*selectedCon);
-
-				size_t nr = rnd->get_seeds().size();
-
-				// push to the list
-				seedGenerators.push_back(std::move(rnd));
-				selectedPanelObj.ptr = seedGenerators.back().get();
-				selectedPanelObj.type = ObjectType::UniformGeneratorType;
-				buffer[0] = '\0';
-
-				logger.log(LogPriority::SUCCESS, std::to_string(nr) + " uniform seeds created inside " + selectedCon->name + "!");
-
-				_update_cameras(*selectedCon);
-				selectedCon = nullptr;
-				buffer[0] = '\0';
-				tempRadius = 1.0f;
-				showPopup = false;
-			}
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel")) {
-			buffer[0] = '\0';
-			tempRadius = 1.0f;
-			selectedCon = nullptr;
-			showPopup = false;
-		};
-		ImGui::EndPopup();
-	}
-};
-
-void myGUI::_render_uniform_seed_generator_properties() {
-
-	// get selected object
-	Poisson3D* poisson = static_cast<Poisson3D*>(selectedPanelObj.ptr);
-
-	// display the available containers and set the container to the internal pointer
-	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 100), ImGuiChildFlags_Borders);
-
-	static IContainer* selectedContainer = poisson->container;
-
-	for (const auto& md : containers) {
-
-		IContainer* con = static_cast<IContainer*>(md.get());
-
-		if (con) {
-			if (selectedContainer == nullptr) {
-				selectedContainer = md.get();
-			}
-
-			bool isSelected = (selectedContainer && selectedContainer == con);
-
-			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-				selectedContainer = md.get();
-			};
-
-			if (isSelected) ImGui::SetItemDefaultFocus();
-		}
-	}
-
-	ImGui::EndChild();
-
-	poisson->render_gui();
-
-	if (ImGui::Button("Update")) {
-		if (selectedContainer) {
-			poisson->container = selectedContainer;
-			poisson->run(*selectedContainer);
-			logger.log(LogPriority::SUCCESS, "Seeds Updated");
-		}
-	}
-};
-
-void myGUI::_render_varied_seed_creator(const char* popupName, bool& showPopup) {
-
-	if (showPopup) {
-		ImGui::OpenPopup(popupName);
-	}
-	// always centered
-	ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-	ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-	static IContainer* selectedCon = nullptr;
-	static float minRadius = { 0.8f };
-	static float maxRadius = { 1.2f };
-	static int distanceFunc = 0;
-	static int radiusFunc = 0;
-	static double radiusMean = 0.0;   // 0 -> range midpoint
-	static double radiusStd = 0.1;
-	static Vec3 normal{ 0.0f, 0.0f, 1.0f };
-	static Vec3 planeCenter{ 0.0f, 0.0f, 1.0f };
-	static Vec3 point{ 0.0f, 0.0f, 0.0f };
-
-	if (ImGui::BeginPopupModal("Varied Seed Creator", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-		ImGui::SameLine();
-
-		static char buffer[256] = "";
-		ImGui::InputText("Name", buffer, sizeof(buffer));
-
-		ImGui::SeparatorText("Select Container");
-
-		static float warningFlashTimer = 0.0f;
-
-		if (warningFlashTimer > 0.0f) {
-			warningFlashTimer -= ImGui::GetIO().DeltaTime;
-		}
-
-		bool isFlashing = (warningFlashTimer > 0.0f);
-		if (isFlashing) {
-			float pulseAlpha = (float)(std::sin(ImGui::GetTime() * 15.0f) * 0.5f + 0.5f);
-			ImVec4 flashColor = ImVec4(1.0f, 0.0f, 0.0f, pulseAlpha);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 5.0f);
-			ImGui::PushStyleColor(ImGuiCol_Border, flashColor);
-		}
-
-		ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 80), ImGuiChildFlags_Borders);
-
-		for (const auto& md : containers) {
-
-			IContainer* con = dynamic_cast<IContainer*>(md.get());
-
-			if (con) {
-				bool isSelected = (selectedCon && selectedCon == con);
-
-				if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-					selectedCon = md.get();
-				};
-			}
-		}
-		if (isFlashing) {
-			ImGui::PopStyleColor();
-			ImGui::PopStyleVar();
-		}
-		
-		ImGui::EndChild();
-		
-		ImGui::SeparatorText("Select Distance Function");
-		ImGui::RadioButton("Distance From Plane", &distanceFunc, 0);
-		if (distanceFunc == 0) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat3("Normal", normal);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat3("Center", planeCenter);
-		};
-		ImGui::RadioButton("Distance From Point", &distanceFunc, 1);
-		if (distanceFunc == 1) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputFloat3("Point", point);
-		}
-		ImGui::RadioButton("Distance From Container", &distanceFunc, 2);
-
-		ImGui::SeparatorText("Select Radius Function");
-		ImGui::RadioButton("Linear", &radiusFunc, 0);
-		ImGui::RadioButton("Quadratic", &radiusFunc, 1);
-		ImGui::RadioButton("Sigmoid", &radiusFunc, 2);
-		ImGui::RadioButton("Constant", &radiusFunc, 3);
-		ImGui::RadioButton("Random (Normal)", &radiusFunc, 4);
-		if (radiusFunc == 4) {
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputDouble("Mean Radius (0 = midpoint)", &radiusMean);
-			ImGui::SetNextItemWidth(200);
-			ImGui::InputDouble("Radius Std", &radiusStd);
-			ImGui::TextDisabled("Each seed draws r ~ N(mean, std) clamped to [rMin, rMax].");
-		}
-
-		ImGui::SeparatorText("Parameters");
-
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Minimum Radius", &minRadius);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat("Maximum Radius", &maxRadius);
-
-		ImGui::Separator();
-		ImGui::NewLine();
-		if (ImGui::Button("Generate")) {
-
-			if (selectedCon) {
-
-				RunConfig cfg;
-
-				switch (radiusFunc) {
-					// linear radius function
-					case 0: {
-						cfg.rad = std::make_shared<LinearFunction>();
-						break;
-					}
-					case 1: {
-						cfg.rad = std::make_shared<QuadraticFunction>(minRadius);
-						break;
-					}
-					case 2: {
-						cfg.rad = std::make_shared<SmoothStep>();
-						break;
-					}
-					case 3: {
-						cfg.rad = std::make_shared<ConstantRadiusFunction>();
-						break;
-					}
-					case 4: {
-						// stochastic: no radius function, handled inside run()
-						break;
-					}
-				}
-
-				const bool stochastic = (radiusFunc == 4);
-
-				if (!stochastic)
-				switch (distanceFunc) {
-					// distance from plane
-					case 0: {
-						//std::array<double, 3> center = { planeCenter.x, planeCenter.y, planeCenter.z };
-						//std::array<double, 3> norm = { normal.x, normal.y, normal.z};
-						cfg.dist = std::make_shared<PlaneSDF>(planeCenter, normal);
-						break;
-					}
-						  // distance from point
-					case 1: {
-						cfg.dist = std::make_shared<PointSDF>(point);
-						break;
-					}
-					// distance from container surface
-					case 2: {
-						cfg.dist = selectedCon->get_distance_estimator();
-						break;
-					}
-				}
-
-				// from the container get the center
-				Bounds bnds = selectedCon->compute_bounds();
-
-				std::shared_ptr<Poisson3D> rnd = std::make_shared<Poisson3D>(
-					minRadius, maxRadius, 30);
-				std::string name = std::string(buffer);
-
-				if (!name.empty()) {
-					rnd->name = name;
-				}
-				else {
-					rnd->name = "Generator" + std::to_string(seedGenerators.size() + 1);
-				}
-				rnd->type = ObjectType::VariedGeneratorType;
-				//ensure distance func is nullptr for random
-				if (radiusFunc == 3) {
-					cfg.dist = nullptr;
-				}
-				rnd->distIdx = distanceFunc;
-				rnd->radiusIdx = radiusFunc;
-				rnd->rMin = minRadius;
-				rnd->rMax = maxRadius;
-				rnd->stochasticRadius = stochastic;
-				rnd->radiusMean = radiusMean;
-				rnd->radiusStd = radiusStd;
-				rnd->run(*selectedCon, cfg);
-
-				size_t nr = (int)rnd->get_seeds().size();
-
-				// push to the list
-				seedGenerators.push_back(std::move(rnd));
-				selectedPanelObj.ptr = seedGenerators.back().get();
-				selectedPanelObj.type = ObjectType::VariedGeneratorType;
-				buffer[0] = '\0';
-
-				logger.log(
-					LogPriority::SUCCESS,
-					std::to_string(nr) + " varied seeds created inside " + selectedCon->name + "!");
-
-				_update_cameras(*selectedCon);
-				selectedCon = nullptr;
-
-				showPopup = false;
-			}
-			else {
-				warningFlashTimer = 1.5f;
-			}
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel")) {
-			buffer[0] = '\0';
-			selectedCon = nullptr;
-			showPopup = false;
-		};
-		ImGui::EndPopup();
-	}
-};
-
-void myGUI::_render_varied_seed_generator_properties() {
-	// get selected object
-	Poisson3D* poisson = static_cast<Poisson3D*>(selectedPanelObj.ptr);
-
-	// display the available containers and set the container to the internal pointer
-	ImGui::BeginChild("Containers", ImVec2(ImGui::GetContentRegionAvail().x, 100), ImGuiChildFlags_Borders);
-
-	static IContainer* selectedContainer = poisson->container;
-	// static float minRadius = poisson->get_min_radius();
-	// static float maxRadius = poisson->get_max_radius();
-	// static int distanceFunc = poisson->distIdx;
-	// static int radiusFunc = poisson->radiusIdx;
-
-	static Vec3 normal{ 0.0f, 0.0f, 1.0f };
-	static Vec3 planeCenter{ 0.0f, 0.0f, 1.0f };
-	static Vec3 point{ 0.0f, 0.0f, 0.0f };
-
-	static bool firstLoad = true;
-
-	RunConfig cfg = poisson->get_config();
-
-	if (cfg.dist && firstLoad) {
-		if (poisson->distIdx == 0){
-			const PlaneSDF* pd = dynamic_cast<const PlaneSDF*>(cfg.dist.get());
-			if (pd) {
-				normal = pd->get_normal();
-				planeCenter = pd->get_point();
-			}
-		}
-		else if (poisson->distIdx == 1) {
-			const PointSDF* pd = dynamic_cast<const PointSDF*>(cfg.dist.get());
-			if (pd) {
-				point = pd->get_point();
-			}
-		}
-		firstLoad = false;
-	}
-
-	for (const auto& md : containers) {
-
-		IContainer* con = static_cast<IContainer*>(md.get());
-
-		if (con) {
-			if (selectedContainer == nullptr) {
-				selectedContainer = md.get();
-			}
-
-			bool isSelected = (selectedContainer && selectedContainer == con);
-
-			if (ImGui::Selectable(md->name.c_str(), isSelected)) {
-				selectedContainer = md.get();
-			};
-
-			if (isSelected) ImGui::SetItemDefaultFocus();
-		}
-	}
-
-	ImGui::EndChild();
-
-	ImGui::SeparatorText("Select Distance Function");
-	ImGui::RadioButton("Distance From Plane", &poisson->distIdx, 0);
-	if (poisson->distIdx == 0) {
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat3("Normal", normal);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat3("Center", planeCenter);
-	};
-	ImGui::RadioButton("Distance From Point", &poisson->distIdx, 1);
-	if (poisson->distIdx == 1) {
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputFloat3("Point", point);
-	}
-	ImGui::RadioButton("Distance From Container", &poisson->distIdx, 2);
-
-	ImGui::SeparatorText("Select Radius Function");
-	ImGui::RadioButton("Linear", &poisson->radiusIdx, 0);
-	ImGui::RadioButton("Quadratic", &poisson->radiusIdx, 1);
-	ImGui::RadioButton("Sigmoid", &poisson->radiusIdx, 2);
-	ImGui::RadioButton("Constant", &poisson->radiusIdx, 3);
-	ImGui::RadioButton("Random (Normal)", &poisson->radiusIdx, 4);
-	if (poisson->radiusIdx == 4) {
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputDouble("Mean Radius (0 = midpoint)", &poisson->radiusMean);
-		ImGui::SetNextItemWidth(200);
-		ImGui::InputDouble("Radius Std", &poisson->radiusStd);
-		ImGui::TextDisabled("Each seed draws r ~ N(mean, std) clamped to [rMin, rMax].");
-	}
-
-	ImGui::SeparatorText("Parameters");
-	ImGui::InputDouble("Minimum Distance", &poisson->rMin);
-	ImGui::InputDouble("Maximum Distance", &poisson->rMax);
-	//poisson->render_gui();
-
-	if (ImGui::Button("Update")) {
-		if (selectedContainer) {
-
-			RunConfig cfg;
-
-			// stochastic radius is a distance-field-free mode; the run() draws
-			// each seed's radius directly, so cfg.rad/cfg.dist stay null.
-			poisson->stochasticRadius = (poisson->radiusIdx == 4);
-
-			switch (poisson->radiusIdx) {
-				// linear radius function
-				case 0: {
-					cfg.rad = std::make_shared<LinearFunction>();
-					break;
-				}
-				case 1: {
-					cfg.rad = std::make_shared<QuadraticFunction>(
-						poisson->rMin);
-					break;
-				}
-				case 2: {
-					cfg.rad = std::make_shared<SmoothStep>();
-					break;
-				}
-				case 3: {
-					cfg.rad = std::make_shared<ConstantRadiusFunction>();
-					break;
-				}
-				case 4: {
-					// stochastic: no radius function, handled inside run()
-					break;
-				}
-				}
-
-				if (!poisson->stochasticRadius)
-				switch (poisson->distIdx) {
-					// distance from plane
-				case 0: {
-					cfg.dist = std::make_shared<PlaneSDF>(planeCenter, normal);
-					break;
-				}
-					  // distance from container surface
-				case 2: {
-					cfg.dist = selectedContainer->get_distance_estimator();
-					break;
-				}
-					  // distance from point
-				case 1: {
-
-					cfg.dist = std::make_shared<PointSDF>(point);
-					break;
-				}
-			}
-
-			// from the container get the center
-			Bounds bnds = selectedContainer->compute_bounds();
-
-			// poisson->set_min_radius(minRadius);
-			// poisson->set_max_radius(maxRadius);
-			poisson->run(*selectedContainer, cfg);
-			logger.log(LogPriority::SUCCESS, "Seeds Updated");
-		}
-	}
-};
 
 void myGUI::_create_dockspace() {
 

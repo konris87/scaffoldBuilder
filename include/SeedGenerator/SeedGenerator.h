@@ -10,6 +10,7 @@
 #include <Visualize/VisualizeSeeds.h>
 #include "Container.h"
 #include "Math/Vec.h"
+#include "Logger/Logger.h"
 
 using DistFunc = std::function<double(const Pt&)>;
 using RadFunc = std::function<double(double, double, double)>;
@@ -22,8 +23,6 @@ struct RunConfig {
 class InterfaceSeedGenerator {
 public:
 	virtual ~InterfaceSeedGenerator() = default;
-	virtual void run(
-		const IContainer& adapter, const RunConfig& cfg) = 0;
 
 	virtual void run(const IContainer& adapter) = 0;
 
@@ -53,8 +52,7 @@ public:
 	//
 	// The default is a FIXED seed (not 0) so the GUI - which does not expose this -
 	// is reproducible by default: a deterministic modelling tool should map
-	// identical inputs to identical output. For a distribution of realizations use
-	// the profiler (--replicates / --seed), which sets this explicitly.
+	// identical inputs to identical output. For a distribution of realizations use the profiler (--replicates / --seed), which sets this explicitly.
 	uint32_t rngSeed = 1;
 
 	void set_rng_seed(uint32_t s) { rngSeed = s; };
@@ -96,8 +94,6 @@ public:
 
 	explicit Random(int n, const bool render = true) : seedNr(n) { renderMode = render; };
 	
-	void run(const IContainer& adapter, const RunConfig& cfg) override {};
-
 	void run(const IContainer& adapter) override;
 
 	void render_gui() override;
@@ -106,7 +102,7 @@ public:
 
 	void set_seeds(const std::vector<Vec3>& newSeeds) override {
 		seeds = newSeeds;
-		seedNr = seeds.size();
+		seedNr = (int)seeds.size();
 	};
 
 	ObjectType get_type() override { return ObjectType::RandomGeneratorType; };
@@ -145,7 +141,9 @@ public:
 		renderMode = render;
 	};
 
-	void run(const IContainer& adapter, const RunConfig& cfg) override;
+	void varied_run(const IContainer& adapter, const RunConfig& cfg);
+
+	void uniform_run(const IContainer& adapter);
 
 	void run(const IContainer& adapter) override;
 
@@ -169,10 +167,18 @@ public:
 
 	bool is_uniform() const { return isUniform; };
 
+	void rebuild_config(const IContainer& con);
+
 	// keep here the indices for distance and radius function
 	int radiusIdx = 0;
 	int distIdx = 0;
 	double rMin{ 0.0 }, rMax{ 0.0 };
+
+	// distance references
+	double transitionDist = 1.0;
+	Vec3 planeNormal{ 0.0f, 0.0f, 1.0f };
+	Vec3 planeCenter{ 0.0f, 0.0f, 0.0f };
+	Vec3 point{ 0.0f, 0.0f, 0.0f };
 
 	// Stochastic-radius mode (a third varied-Poisson option, no distance field):
 	// each seed draws its own minimum-distance constraint from a truncated normal
@@ -220,5 +226,40 @@ private:
 	};
 };
 
+// =============================================================================
+// Seed Generator Factory
+// =============================================================================
+
+class SeedGeneratorFactory{
+public:
+	SeedGeneratorFactory(){};
+	~SeedGeneratorFactory(){};
+
+	void launch();
+
+	IContainer* gui_draw(
+		Logger* logger,
+        const char* popupName, bool& showPopup,
+        SelectedObject* selectedPanelObj,
+		std::vector<std::shared_ptr<InterfaceSeedGenerator>>& generators,
+		const std::vector<std::shared_ptr<IContainer>>& containers
+	);
+
+	void set_type(const ObjectType& newType);
+private:
+
+	// The generator being built. Created (with its type) in set_type(), edited
+	// in-place through pendingGenerator->render_gui(), and moved into the scene
+	// list on "Create". This is the single source of truth for the new
+	// generator's parameters - there is no parallel copy of them on the factory.
+	std::shared_ptr<InterfaceSeedGenerator> pendingGenerator = nullptr;
+
+	ObjectType genType = ObjectType::NoneType;
+	IContainer* selectedCon = nullptr;
+
+	// rendering gui
+	std::string name = "";
+	float warningFlashTimer = 0.0f;
+};
 
 #endif

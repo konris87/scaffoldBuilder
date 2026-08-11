@@ -121,6 +121,8 @@ public:
 
 	std::vector<std::shared_ptr<ROI>> rois;
 
+	std::unique_ptr<SeedGeneratorFactory> seedFactory = std::make_unique<SeedGeneratorFactory>();
+
 	std::unique_ptr<ScaffoldFactory> factory = std::make_unique<ScaffoldFactory>
 	();
 	
@@ -451,17 +453,21 @@ private:
 
 	void _render_abstract_container_creator(const char* popupName, bool& showPopup);
 
-	void _render_random_seed_creator(const char* popupName, bool& showPopup);
+	void _render_container_picker(IContainer*& container);
 
-	void _render_random_seed_generator_properties();
+	void _render_seed_generator_properties();
 
-	void _render_uniform_seed_creator(const char* popupName, bool& showPopup);
+	// void _render_random_seed_creator(const char* popupName, bool& showPopup);
+
+	// void _render_random_seed_generator_properties();
+
+	// void _render_uniform_seed_creator(const char* popupName, bool& showPopup);
 	
-	void _render_uniform_seed_generator_properties();
+	// void _render_uniform_seed_generator_properties();
 
-	void _render_varied_seed_creator(const char* popupName, bool& showPopup);
+	// void _render_varied_seed_creator(const char* popupName, bool& showPopup);
 
-	void _render_varied_seed_generator_properties();
+	// void _render_varied_seed_generator_properties();
 
 	void _render_binary_image_window(const char* popupName, bool& showPopup);
 
