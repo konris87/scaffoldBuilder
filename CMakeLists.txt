@@ -173,7 +173,7 @@ include(InstallRequiredSystemLibraries)
 set(CPACK_PACKAGE_NAME "scaffoldBuilder")
 set(CPACK_PACKAGE_VENDOR "VVR")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Trabecular bone scaffold generator (ImGui + GLFW + OpenGL)")
-set(CPACK_PACKAGE_VERSION "0.8")
+set(CPACK_PACKAGE_VERSION "1.0")
 set(CPACK_PACKAGE_CONTACT "krisvas@ece.upatras.gr")
 
 # Choose package formats depending on platform
