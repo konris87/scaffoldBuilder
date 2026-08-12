@@ -14,5 +14,7 @@
 # Compiled guide (shipped as a Release asset, not in git history)
 *.pdf
 
-# Oversized screenshot figures (not tracked)
-Figures/
+# Oversized screenshot figures (not tracked) - except the README hero image,
+# which is small (682K) and needs to be in-repo to render on GitHub.
+Figures/*
+!Figures/GUI_wallpaper.png

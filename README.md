@@ -1,5 +1,7 @@
 # 🚀 ScaffoldBuilder: An Open-Source Tool for Creating Trabecular Bone Scaffolds
 
+![My Image](doc/user_guide/Figures/GUI_wallpaper.png)
+
 ScaffoldBuilder is a free, open-source (GPL v3) software tool that provides a user-friendly **Graphical User Interface (GUI)** for creating customizable scaffold meshes. Designed for researchers and engineers, it enables precise control over scaffold generation, making it ideal for biomechanical and tissue engineering applications.
 
 ---
@@ -16,6 +18,18 @@ ScaffoldBuilder is a free, open-source (GPL v3) software tool that provides a us
 ## 🛠️ Installation and Build Instructions
 
 ScaffoldBuilder is tested on **Windows 11** with **Visual Studio 2022**. Support for **Ubuntu** is planned.
+
+### Download the Prebuilt Release (Recommended)
+
+Most users do not need to build from source. Grab the latest Windows build from the [**Releases** page](https://github.com/konris87/scaffoldBuilder/releases/latest):
+
+1. Download `scaffoldBuilder-<version>-win64.zip`.
+2. Extract it anywhere.
+3. Run `bin\scaffoldBuilder.exe`.
+
+The archive is self-contained — no separate Visual C++ redistributable is required. A `User_Guide.pdf` with tutorials is attached to each release.
+
+### Build from Source
 
 ### Prerequisites
 
@@ -72,7 +86,22 @@ This project is licensed under the **GNU GPL v3 License** - see the [LICENSE](LI
 
 ---
 
+## 📚 Citation
+
+If you use ScaffoldBuilder in your research, **please cite:**
+
+1. _[Citation placeholder — Authors, "Paper title", Journal/Conference, Year. DOI]_
+
+Each release is archived on Zenodo with a citable DOI:
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
+
+> Replace the placeholder DOI once the repository is linked to Zenodo (Zenodo → GitHub → enable the `scaffoldBuilder` repo, then publish a release; Zenodo mints the DOI and badge automatically).
+
+---
+
 ## 🙌 Acknowledgements
 
-Special thanks to contributors and the open-source community for their support and inspiration.
+This work has been developed as part of the OSTEONET project, funded by the European Union’s Horizon Europe research and innovation program under the Marie Sklodowska-Curie-RISE Grant Agreement No. 101086329
+
 
