@@ -168,6 +168,10 @@ install(DIRECTORY ${CMAKE_SOURCE_DIR}/share/ DESTINATION bin/share)
 # -----------------------------
 # CPack setup (packaging)
 # -----------------------------
+# Bundle the MSVC OpenMP runtime (vcomp140.dll) alongside the CRT - the app uses
+# OpenMP, so without this the packaged exe fails to launch on machines that don't
+# already have the VC++ redistributable installed.
+set(CMAKE_INSTALL_OPENMP_LIBRARIES TRUE)
 include(InstallRequiredSystemLibraries)
 
 set(CPACK_PACKAGE_NAME "scaffoldBuilder")
