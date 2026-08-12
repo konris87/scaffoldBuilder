@@ -1,0 +1,18 @@
+# Only the LaTeX source (User_Guide.tex) is tracked here.
+# The compiled PDF ships as a GitHub Release asset, and the figures are kept
+# out of git (oversized screenshots). Everything below is intentionally ignored.
+
+# LaTeX build artifacts
+*.aux
+*.fls
+*.fdb_latexmk
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Compiled guide (shipped as a Release asset, not in git history)
+*.pdf
+
+# Oversized screenshot figures (not tracked)
+Figures/
