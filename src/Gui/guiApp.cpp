@@ -318,12 +318,14 @@ void myGUI::_init_imgui() {
 	ImGui::CreateContext();
 
 	io = ImGui::GetIO(); (void)io;
-	// Persist the window layout to the curated file under share/ (loaded relative
-	// to the working dir, like the fonts/textures) instead of the ImGui default
-	// "imgui.ini" in the CWD - keeps a single canonical layout and stops a stray
-	// imgui.ini being written next to the executable. (Literal has static storage;
-	// ImGui keeps the pointer, so this must not be a temporary.)
-	io.IniFilename = "./share/imgui.ini";
+	// share/imgui.ini is the shipped DEFAULT layout: load it once at startup and
+	// never write it back. IniFilename = nullptr disables ImGui's automatic .ini
+	// save/load, so no stray imgui.ini is ever created and the tracked default
+	// under share/ stays pristine.
+	// NOTE: myGUI::io is a *copy* of ImGui's io (see guiApp.h), so this must be set
+	// on the real io via ImGui::GetIO(), not on the member - the latter is a no-op.
+	ImGui::GetIO().IniFilename = nullptr;
+	ImGui::LoadIniSettingsFromDisk("./share/imgui.ini");
 	io.Fonts->AddFontFromFileTTF("./share/fonts/DroidSans.ttf", fontSize);
 	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // Enable Docking
