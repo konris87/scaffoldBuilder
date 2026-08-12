@@ -341,8 +341,6 @@ void myGUI::_init_imgui() {
 		style.Colors[ImGuiCol_WindowBg].w = 1.0f;
 	}
 
-	ImGui::LoadIniSettingsFromDisk("./share/imgui.ini");
-
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init(glsl_version.c_str());
 }
@@ -401,8 +399,8 @@ void myGUI::run() {
 			ImGui::Text("Are you sure you want to quit?");
 
 			if (ImGui::Button("Yes")) {
-				// save imgui
-				ImGui::SaveIniSettingsToDisk("./share/imgui.ini");
+				// NOTE: intentionally do NOT save the layout here - share/imgui.ini
+				// is a read-only default, so exiting must not overwrite it.
 				_reset_scene();
 				glfwSetWindowShouldClose(window, GLFW_TRUE);
 				ImGui::CloseCurrentPopup();
