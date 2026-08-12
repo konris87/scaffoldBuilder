@@ -165,6 +165,20 @@ install(TARGETS scaffoldBuilder
 
 # Install the share/ folder (shaders, fonts, textures) alongside the executable
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/share/ DESTINATION bin/share)
+
+# License compliance: ship our GPL-3.0 LICENSE plus the third-party notices and
+# each dependency's license text in the package (MIT/Zlib/MPL-2.0 all require
+# the notice to accompany binary redistributions).
+install(FILES
+	${CMAKE_SOURCE_DIR}/LICENSE
+	${CMAKE_SOURCE_DIR}/THIRD_PARTY_LICENSES.md
+	DESTINATION bin)
+install(FILES ${CMAKE_SOURCE_DIR}/lib/imgui/LICENSE.txt        DESTINATION bin/licenses/imgui)
+install(FILES ${CMAKE_SOURCE_DIR}/lib/glfw/LICENSE.md          DESTINATION bin/licenses/glfw)
+install(FILES ${CMAKE_SOURCE_DIR}/lib/glm-1.0.1/copying.txt    DESTINATION bin/licenses/glm)
+install(FILES ${CMAKE_SOURCE_DIR}/lib/ImGuiFileDialog/LICENSE  DESTINATION bin/licenses/ImGuiFileDialog)
+install(FILES ${CMAKE_SOURCE_DIR}/lib/Eigen/COPYING.MPL2       DESTINATION bin/licenses/Eigen)
+
 # -----------------------------
 # CPack setup (packaging)
 # -----------------------------
@@ -179,6 +193,7 @@ set(CPACK_PACKAGE_VENDOR "VVR")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Trabecular bone scaffold generator (ImGui + GLFW + OpenGL)")
 set(CPACK_PACKAGE_VERSION "1.0")
 set(CPACK_PACKAGE_CONTACT "krisvas@ece.upatras.gr")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 
 # Choose package formats depending on platform
 if(WIN32)
