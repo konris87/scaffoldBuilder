@@ -3387,31 +3387,59 @@ void myGUI::_action_estimate_tortuosity() {
 		return;
 	}
 
-	if (scaffold) {
-		auto start = std::chrono::high_resolution_clock::now();
+	if(!scaffold) return;
 
-		flag = scaffold->estimate_tortuosity(tortuosityVoxelSize);
-		
-		auto end = std::chrono::high_resolution_clock::now();
-
-		auto duration_ms = std::chrono::duration_cast<std::chrono::seconds>(end - start);
-
-		std::ostringstream oss;
-		oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
-			<< duration_ms.count()   // Convert ms to seconds
-			<< " seconds!";
-		if (flag) {
-			logger.log(
-				LogPriority::SUCCESS, "Estimated tortuosity in " + oss.str());
+	if (estimateTortuosity) {
+		if (!ImGui::IsPopupOpen("Tortuosity Settings")) {
+			ImGui::OpenPopup("Tortuosity Settings");
 		}
-		else {
-			logger.log(
-				LogPriority::ERROR, "Error in estimating tortuosity!");
-		}
-		
 	}
-	
-	estimateTortuosity = false;
+
+	if (ImGui::BeginPopupModal("Tortuosity Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+		static float tempVoxelSize = scaffold->measurementVoxelSize;
+		static int analysisScope = 0;
+		static int trtFormula = 0;
+		static int trtAxis = 2; // x: 0, y: 1, z: 2
+		// static ROI* selectedROI = nullptr;
+
+		ImGui::SeparatorText("Parameters");
+
+		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
+		// ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
+		// ImGui::RadioButton("Analyze Inside ROI", &analysisScope, 1);
+
+		const char* formulaOptions[] = { 
+			"Permeability/Transport Formula",
+			"Geometric Formula"
+		};
+		ImGui::Combo("Algorithm", 
+			&trtFormula, formulaOptions, IM_ARRAYSIZE(formulaOptions)
+		);
+
+		const char* axisOptions[] = { 
+			"x Axis", "y Axis", "z Axis"
+		};
+		ImGui::Combo("Axis", 
+			&trtAxis, axisOptions, IM_ARRAYSIZE(axisOptions)
+		);
+		
+		ImGui::NewLine();
+		if (ImGui::Button("Estimate")) {
+			flag = scaffold->estimate_tortuosity(
+				tempVoxelSize, trtFormula, trtAxis);
+			estimateTortuosity = false;
+			// selectedROI = nullptr;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) {
+			estimateTortuosity = false;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
 };
 
 void myGUI::_action_estimate_anisotropy() {
@@ -3450,6 +3478,20 @@ void myGUI::_action_estimate_anisotropy() {
 		ImGui::InputFloat("Voxel Size (mm)", &tempVoxelSize, 0.001f, 1.0f);
 		ImGui::RadioButton("Analyze Entire Scaffold", &analysisScope, 0);
 		ImGui::RadioButton("Analyze Inside ROI", &analysisScope, 1);
+
+		const char* formulaOptions[] = { 
+			"MaxRadius/MinRadius",
+			"MinEigValue/MaxEigValue",
+			"1 - MinEigValue/MaxEigValue" 
+		};
+		ImGui::Combo("Algorithm", 
+			&daFormulaIdx, formulaOptions, IM_ARRAYSIZE(formulaOptions)
+		);
+
+		ImGui::InputInt("daMinVectors", &daMinLines);
+		ImGui::SetItemTooltip("Set the number of parallel lines along each dimension.");
+		ImGui::InputInt("Directions", &daMinDirections);
+		ImGui::SetItemTooltip("Set the number of tested directions.");
 
 		if (analysisScope == 1) {
 

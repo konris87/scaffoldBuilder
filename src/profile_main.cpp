@@ -50,6 +50,16 @@
 //   --phantom T v          local-thickness self-test on an analytic slab of
 //                          thickness T at voxel size v; prints measured vs true
 //                          and exits (no container/seeds needed)
+//   --tortuosity-phantom   tortuosity self-test: runs the shared A* core on
+//                          synthetic fields with known tortuosity (straight,
+//                          45-deg and 3D-diagonal channels), checks both modes,
+//                          and exits with non-zero status on any mismatch
+//   --phantom-export [dir] [voxel] [feature]
+//                          write the analytic phantoms (slab/cylinder/sphere/
+//                          torus) as .scaf projects: full metric suite +
+//                          tortuosity, meshed with vertex normals, for loading
+//                          and visualizing in the GUI (default data/phantoms,
+//                          voxel 0.1 mm, feature 1.0 mm), then exits
 //   --calibrate t0 t1 n v  sweep iso-level (thickness) over n steps in [t0,t1],
 //                          measuring Tb.Th at voxel size v; prints a CSV curve
 //                          of iso-level -> Tb.Th and exits (use with --box)
@@ -136,6 +146,19 @@ int main(int argc, char** argv) {
 
 	bool phantomSuite = false;
 	float phantomSuiteFeature = 0.3f, phantomSuiteVoxel = 0.0f;
+
+	// Analytic tortuosity self-test: runs the shared astar_axial_path() core on
+	// hand-built voxel fields whose tortuosity is known exactly, and checks both
+	// modes (axial vs geometric). Needs no container/seeds.
+	bool tortuosityPhantom = false;
+
+	// Export the analytic phantoms (slab / cylinder / sphere / torus) as .scaf
+	// projects: full metric suite + tortuosity, meshed with vertex normals, so
+	// their geometry can be loaded and visualized in the GUI.
+	bool phantomExport = false;
+	std::string phantomExportDir = "data/phantoms";
+	float phantomExportVoxel = 0.1f;
+	float phantomExportFeature = 1.0f;
 
 
 	bool calibrateMode = false;
@@ -246,6 +269,15 @@ int main(int argc, char** argv) {
 			phantomSuite = true;
 			phantomSuiteFeature = std::stof(args[++i]);
 			phantomSuiteVoxel = std::stof(args[++i]);
+		}
+		else if (a == "--tortuosity-phantom") {
+			tortuosityPhantom = true;
+		}
+		else if (a == "--phantom-export") {
+			phantomExport = true;
+			if (i + 1 < args.size() && args[i + 1][0] != '-') phantomExportDir = args[++i];
+			if (i + 1 < args.size() && args[i + 1][0] != '-') phantomExportVoxel = std::stof(args[++i]);
+			if (i + 1 < args.size() && args[i + 1][0] != '-') phantomExportFeature = std::stof(args[++i]);
 		}
 		else if (a == "--calibrate" && i + 4 < args.size()) {
 			calibrateMode = true;
@@ -551,6 +583,212 @@ int main(int argc, char** argv) {
 	// thickness (up to the ~1-voxel distance-transform bias). This isolates
 	// measurement accuracy from the junction-bleeding that elevates Tb.Th on
 	// real foam/lattice structures.
+	// --- Tortuosity self-test: exact known values on synthetic fields ---------
+	// Runs the shared astar_axial_path() core directly (no mesh pipeline) on
+	// voxel fields whose tortuosity is analytic, and checks both denominators:
+	//   axial (mode 0) = pathLength / (targetZ - startZ)*v
+	//   geometric (mode 1) = pathLength / |outlet - inlet|
+	if (tortuosityPhantom) {
+		std::cout << "\n=== TORTUOSITY PHANTOM SELF-TEST ===" << std::endl;
+		const int N = 12;
+		const float v = 1.0f;
+		const Vec3 origin(0.0f, 0.0f, 0.0f);
+		const std::vector<uint8_t> noMask; // empty => traverse whole box
+		auto vid = [&](int x, int y, int z) {
+			return static_cast<size_t>(x) + static_cast<size_t>(y) * N +
+				static_cast<size_t>(z) * N * N;
+		};
+		auto run = [&](const std::vector<uint8_t>& f, int axis = 2) {
+			return astar_axial_path(f, noMask, N, N, N, v, origin, axis);
+		};
+		auto axial = [&](const AStarPathResult& r) {
+			return r.pathLength / ((r.targetAx - r.startAx) * v);
+		};
+		auto geom = [&](const AStarPathResult& r) {
+			return r.pathLength / (r.outlet - r.inlet).norm();
+		};
+
+		int fails = 0;
+		auto check = [&](const std::string& name, bool wantFound,
+			bool found, float got, float expect, float tol) {
+			bool ok = wantFound ? (found && std::fabs(got - expect) < tol) : !found;
+			std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << name;
+			if (wantFound) std::cout << "  got=" << got << " expect=" << expect;
+			else           std::cout << "  expected: no path (found=" << (found ? "yes" : "no") << ")";
+			std::cout << std::endl;
+			if (!ok) fails++;
+		};
+
+		// 1. Fully open box: straight vertical path -> 1.0 in both modes
+		{
+			std::vector<uint8_t> f(N * N * N, 0);
+			auto r = run(f);
+			check("open-box  axial", true, r.found, r.found ? axial(r) : 0.0f, 1.0f, 1e-3f);
+			check("open-box  geom",  true, r.found, r.found ? geom(r)  : 0.0f, 1.0f, 1e-3f);
+		}
+		// 2. Single straight vertical channel through solid -> 1.0
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int z = 0; z < N; z++) f[vid(5, 5, z)] = 0;
+			auto r = run(f);
+			check("vchannel  axial", true, r.found, r.found ? axial(r) : 0.0f, 1.0f, 1e-3f);
+			check("vchannel  geom",  true, r.found, r.found ? geom(r)  : 0.0f, 1.0f, 1e-3f);
+		}
+		// 3. 45-deg staircase in x-z (open where x==z) -> axial sqrt(2), geom 1
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int z = 0; z < N; z++) for (int y = 0; y < N; y++) f[vid(z, y, z)] = 0;
+			auto r = run(f);
+			check("stair45   axial", true, r.found, r.found ? axial(r) : 0.0f, std::sqrt(2.0f), 1e-3f);
+			check("stair45   geom",  true, r.found, r.found ? geom(r)  : 0.0f, 1.0f, 1e-3f);
+		}
+		// 4. Body-diagonal channel (open where x==z && y==z) -> axial sqrt(3), geom 1
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int z = 0; z < N; z++) f[vid(z, z, z)] = 0;
+			auto r = run(f);
+			check("diag3d    axial", true, r.found, r.found ? axial(r) : 0.0f, std::sqrt(3.0f), 1e-3f);
+			check("diag3d    geom",  true, r.found, r.found ? geom(r)  : 0.0f, 1.0f, 1e-3f);
+		}
+		// 5. Fully solid -> no connected path
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			auto r = run(f);
+			check("blocked   nopath", false, r.found, 0.0f, 0.0f, 0.0f);
+		}
+		// 6. Determinism: identical result across two runs
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int z = 0; z < N; z++) for (int y = 0; y < N; y++) f[vid(z, y, z)] = 0;
+			auto a = run(f); auto b = run(f);
+			bool ok = a.found && b.found && a.pathLength == b.pathLength;
+			std::cout << (ok ? "  [PASS] " : "  [FAIL] ") << "determinism" << std::endl;
+			if (!ok) fails++;
+		}
+		// 7. Axis = x (0): straight channel along x -> axial 1, geom 1
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int x = 0; x < N; x++) f[vid(x, 5, 5)] = 0;
+			auto r = run(f, 0);
+			check("x-channel axial", true, r.found, r.found ? axial(r) : 0.0f, 1.0f, 1e-3f);
+			check("x-channel geom",  true, r.found, r.found ? geom(r)  : 0.0f, 1.0f, 1e-3f);
+		}
+		// 8. Axis = x (0): 45-deg staircase in x-y (open where x==y) -> axial sqrt(2)
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int x = 0; x < N; x++) for (int z = 0; z < N; z++) f[vid(x, x, z)] = 0;
+			auto r = run(f, 0);
+			check("x-stair45 axial", true, r.found, r.found ? axial(r) : 0.0f, std::sqrt(2.0f), 1e-3f);
+			check("x-stair45 geom",  true, r.found, r.found ? geom(r)  : 0.0f, 1.0f, 1e-3f);
+		}
+		// 9. Axis = y (1): straight channel along y -> axial 1
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int y = 0; y < N; y++) f[vid(5, y, 5)] = 0;
+			auto r = run(f, 1);
+			check("y-channel axial", true, r.found, r.found ? axial(r) : 0.0f, 1.0f, 1e-3f);
+		}
+		// 10. Axis mismatch: an x-only channel has no path along z
+		{
+			std::vector<uint8_t> f(N * N * N, 255);
+			for (int x = 0; x < N; x++) f[vid(x, 5, 5)] = 0;
+			auto r = run(f, 2);   // measure along z
+			check("axis-mismatch nopath", false, r.found, 0.0f, 0.0f, 0.0f);
+		}
+
+		std::cout << (fails == 0
+			? "ALL TORTUOSITY PHANTOM TESTS PASSED"
+			: (std::to_string(fails) + " TORTUOSITY TEST(S) FAILED")) << std::endl;
+		return fails == 0 ? 0 : 1;
+	}
+
+	// --- Export analytic phantoms as .scaf (geometry + metrics for viz) --------
+	// Slab / cylinder / sphere / torus, each with a known feature size. For every
+	// shape we build the analytic scalar field, mesh it (marching cubes fills the
+	// per-vertex normals from the field gradient), run the full metric suite plus
+	// tortuosity, and export a .scaf. Because .scaf stores the scalar field, the
+	// GUI regenerates the mesh + normals on load and the metrics come back stored.
+	if (phantomExport) {
+		namespace fs = std::filesystem;
+		fs::create_directories(phantomExportDir);
+
+		const float f = phantomExportFeature;
+		const float v = phantomExportVoxel;
+		const float dom = std::max(1.0f, 6.0f * f);   // matches build_phantom_field default
+
+		std::cout << "\n=== ANALYTIC PHANTOM EXPORT ===" << std::endl;
+		std::cout << "feature = " << f << " mm, voxel = " << v << " mm ("
+			<< (f / v) << " voxels), domain = " << dom << " mm, out dir = "
+			<< phantomExportDir << std::endl;
+
+		struct Case { int shape; const char* name; };
+		const Case cases[] = {
+			{ GeneratorLewiner::PHANTOM_SLAB,     "slab" },
+			{ GeneratorLewiner::PHANTOM_CYLINDER, "cylinder" },
+			{ GeneratorLewiner::PHANTOM_SPHERE,   "sphere" },
+			{ GeneratorLewiner::PHANTOM_TORUS,    "torus" },
+		};
+
+		for (const Case& c : cases) {
+			GeneratorLewiner g(false);
+			g.set_logger(&logger);
+
+			// Analytic SDF field (+ aabb/dims spanning the cubic domain).
+			g.build_phantom_field(c.shape, f, v);
+
+			// A box container over the whole domain so estimate_metrics has a
+			// reference volume (porosity, BS/TV) and the container-masked metrics
+			// behave; it is serialized into the .scaf and shown in the GUI.
+			auto box = std::make_shared<BoxContainer>(
+				Vec3(dom, dom, dom), Vec3(0.5f * dom, 0.5f * dom, 0.5f * dom), false);
+			box->name = std::string(c.name) + "_domain";
+			g.container = box;
+
+			// The domain AABB, before marching cubes shrinks it to the mesh box.
+			const Aabb domainAabb = g.get_aabb();
+			std::array<float, 6> bnds = {
+				domainAabb.pMin.x, domainAabb.pMax.x,
+				domainAabb.pMin.y, domainAabb.pMax.y,
+				domainAabb.pMin.z, domainAabb.pMax.z };
+
+			// Mesh (also fills per-vertex normals from the field gradient).
+			if (!g.marching_cubes(true)) {
+				std::cout << "  [SKIP] " << c.name << ": marching cubes failed" << std::endl;
+				continue;
+			}
+			// marching_cubes set aabb to the solid's bounding box; restore the full
+			// domain so the aabb-driven metrics (anisotropy, Tb.N, connectivity,
+			// tortuosity) measure the whole sample, not a tight all-solid box (which
+			// makes the slab's distance transform degenerate -> Tb.Th = 0, no path).
+			g.set_aabb(domainAabb);
+
+			// Full metric suite + tortuosity.
+			g.estimate_metrics(*box);                              // porosity, volume, BS/BV, BS/TV
+			g.estimate_local_thickness(v, bnds, false);            // Tb.Th
+			g.estimate_local_thickness(v, bnds, true);             // Tb.Sp
+			g.estimate_anisotropy(v, milDirections, milLines, 3);  // DA
+			g.estimate_trabecular_number(v, 0, milDirections, milLines);
+			g.estimate_connectivity_density_voxel(v, 6);
+			g.estimate_smi();
+			g.estimate_tortuosity(v, 0);                           // axial tortuosity
+
+			// Mark renderable so the GUI shows it (load_scaf restores this flag).
+			// After the headless compute, so no GL object is created here.
+			g.set_render_mode(true);
+
+			std::string path = (fs::path(phantomExportDir) /
+				(std::string(c.name) + ".scaf")).string();
+			g.export_scaf(path);
+
+			std::cout << "  " << c.name
+				<< ": Tb.Th=" << g.localThickness << " Tb.Sp=" << g.localSeparation
+				<< " SMI=" << g.smi << " DA=" << g.anisotropyDegree
+				<< " Conn.D=" << g.connectivityDensity << " tau=" << g.tortuosity
+				<< "  -> " << path << std::endl;
+		}
+		return 0;
+	}
+
 	if (phantomMode) {
 		GeneratorLewiner gen(false);
 		gen.set_logger(&logger);

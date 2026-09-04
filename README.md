@@ -94,9 +94,7 @@ If you use ScaffoldBuilder in your research, **please cite:**
 
 Each release is archived on Zenodo with a citable DOI:
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.XXXXXXX.svg)](https://doi.org/10.5281/zenodo.XXXXXXX)
-
-> Replace the placeholder DOI once the repository is linked to Zenodo (Zenodo → GitHub → enable the `scaffoldBuilder` repo, then publish a release; Zenodo mints the DOI and badge automatically).
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22303647.svg)](https://doi.org/10.5281/zenodo.22303647)
 
 ---
 

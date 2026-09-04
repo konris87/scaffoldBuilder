@@ -4,6 +4,9 @@
 #include <Eigen/Dense>
 #include <cmath>
 #include <math.h>
+#include <queue>
+#include <functional>
+#include <limits>
 
 // Isolated here (rather than in the Eigen/OpenMP-heavy generator TU) so the
 // Windows min/max macros never leak into std::min/max or Eigen.
@@ -32,6 +35,204 @@ bool is_inside_box(const std::array<double, 3>& p, const Bounds& b) {
 		(p[1] >= b.yMin && p[1] <= b.yMax) &&
 		(p[2] >= b.zMin && p[2] <= b.zMax);
 };
+
+AStarPathResult astar_axial_path(
+	const std::vector<uint8_t>& field,
+	const std::vector<uint8_t>& insideMask,
+	int nx, int ny, int nz,
+	float voxelSize,
+	const Vec3& origin,
+	int axis
+) {
+
+	AStarPathResult result;
+
+	const int dim[3] = {nx, ny, nz};
+	const int u = (axis + 1) % 3;   // first transverse axis
+	const int w = (axis + 2) % 3;   // second transverse axis
+
+	// need >= 4 voxels along the preferred axis so the inlet (coordAxis=1) and outlet (coordAxis=n_Axis-2) planes are distinct and the axial reference (target_Axis - start_Axis) is strictly positive
+	const size_t totalVoxels = static_cast<size_t>(nx) *
+		static_cast<size_t>(ny) * static_cast<size_t>(nz);
+	if (dim[u] < 1 || dim[w] < 1 || dim[axis] < 4 ||
+		field.size() != totalVoxels) {
+		result.status = AStarPathStatus::NoOpenPlanes;
+		return result;
+	}
+
+	auto get_idx = [&](int cx, int cy, int cz) -> size_t {
+		return static_cast<size_t>(cx) +
+			static_cast<size_t>(cy) * static_cast<size_t>(nx) +
+			static_cast<size_t>(cz) * static_cast<size_t>(nx) * static_cast<size_t>(ny);
+	};
+
+	auto idx_at = [&](int planeCoord, int uc, int wc) -> size_t {
+		int c[3];
+		c[axis] = planeCoord;
+		c[u]    = uc;
+		c[w]    = wc;
+		return get_idx(c[0], c[1], c[2]);
+	};
+
+	// A voxel is traversable iff it is an open pore (0) AND (if a mask is given) inside the domain. An empty mask means "traverse the whole box".
+	const bool useMask = !insideMask.empty();
+	auto is_open = [&](size_t idx) -> bool {
+		if (field[idx] != 0) return false;
+		if (useMask && insideMask[idx] == 0) return false;
+		return true;
+	};
+
+	auto slice_has_open = [&](int plane) -> bool {
+		for (int b = 0; b < dim[w]; b++)
+			for (int a = 0; a < dim[u]; a++)
+				if (is_open(idx_at(plane, a, b))) return true;
+		return false;
+	};
+
+	// Slide the inlet/outlet planes inward to the first/last slice that holds an
+	// open voxel, so a container that does not span the whole Z range still works.
+	int startAx = 1;
+	while (startAx < dim[axis] - 1 && !slice_has_open(startAx)) startAx++;
+	int targetAx = dim[axis] - 2;
+	while (targetAx > startAx && !slice_has_open(targetAx)) targetAx--;
+
+	if (startAx >= targetAx) {
+		result.status = AStarPathStatus::NoOpenPlanes;
+		return result;
+	}
+	result.startAx = startAx;
+	result.targetAx = targetAx;
+
+	std::vector<uint8_t> parentDir(totalVoxels, 255);
+	std::vector<float> gScore(totalVoxels, std::numeric_limits<float>::max());
+	std::vector<bool> visited(totalVoxels, false);
+
+	// 26-connected Moore neighborhood; cost is the geometric step length
+	struct Neighbor { int dx, dy, dz; float cost; };
+	std::vector<Neighbor> neighbors26;
+	for (int dz = -1; dz <= 1; dz++)
+		for (int dy = -1; dy <= 1; dy++)
+			for (int dx = -1; dx <= 1; dx++) {
+				if (dx == 0 && dy == 0 && dz == 0) continue;
+				// euclidean distance
+				neighbors26.push_back({ dx, dy, dz,
+					std::sqrt(static_cast<float>(dx * dx + dy * dy + dz * dz)) });
+			}
+
+	std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
+
+	// Seed the inlet plane as a multi-source front 
+	// (all inlets at gScore 0). Try central window first, then fall back to the whole slice if it is blocked.
+	int uSize = static_cast<int>(dim[u] * 0.15f); if (uSize == 0) uSize = 1;
+	int wSize = static_cast<int>(dim[w] * 0.15f); if (wSize == 0) wSize = 1;
+
+	bool foundStart = false;
+	auto add_inlets = [&](int marginU, int marginW) {
+    for (int a = marginU; a < dim[u] - marginU - 1; a++)
+        for (int b = marginW; b < dim[w] - marginW - 1; b++) {
+            size_t idx = idx_at(startAx, a, b);
+            if (is_open(idx) && gScore[idx] > 0.0f) {
+                gScore[idx] = 0.0f;
+                float h = (targetAx - startAx) * voxelSize;
+                openSet.push({ idx, h });
+                foundStart = true;
+            }
+        }
+	};
+	add_inlets(uSize, wSize);
+	if (!foundStart) add_inlets(1, 1);
+	if (!foundStart) {
+		result.status = AStarPathStatus::NoOpenPlanes;
+		return result;
+	}
+
+	float minPathLength = std::numeric_limits<float>::infinity();
+	size_t goalIndex = SIZE_MAX;
+
+	while (!openSet.empty()) {
+		AStarNode current = openSet.top();
+		openSet.pop();
+
+		size_t idx = current.idx;
+		if (visited[idx]) continue;
+		visited[idx] = true;
+
+		int x = static_cast<int>(idx % nx);
+		int y = static_cast<int>((idx / nx) % ny);
+		int z = static_cast<int>(idx / (static_cast<size_t>(nx) * ny));
+		int coord[3] = { x, y, z };
+
+		if (coord[axis] >= targetAx) { 
+			minPathLength = gScore[idx];
+			goalIndex = idx; break; 
+		}
+
+		for(int i{0}; i < neighbors26.size(); i++){
+			const auto& nb = neighbors26[i];
+			int nx_ = x + nb.dx, ny_ = y + nb.dy, nz_ = z + nb.dz;
+			if (nx_ >= 0 && nx_ < nx && ny_ >= 0 && ny_ < ny && nz_ >= 0 && nz_ < nz) {
+				size_t nbIdx = get_idx(nx_, ny_, nz_);
+				if (!visited[nbIdx] && is_open(nbIdx)) {
+					float g = gScore[idx] + nb.cost * voxelSize;
+					if (g < gScore[nbIdx]) {
+						gScore[nbIdx] = g;
+						int nc[3] = { nx_, ny_, nz_ };
+						float h = (targetAx - nc[axis]) * voxelSize; // along axis
+						openSet.push({ nbIdx, g + h });
+						parentDir[nbIdx] = i; // store the index of direction
+					}
+				}
+			}
+		}
+	}
+
+	if (goalIndex == SIZE_MAX) {
+		result.status = AStarPathStatus::NoPath;
+		return result;
+	}
+
+	// Reconstruct outlet-first .. inlet-last, in physical coordinates.
+	size_t currIdx = goalIndex;
+	unsigned int vertexCount = 0;
+	while (currIdx != SIZE_MAX) {
+		int cx = static_cast<int>(currIdx % nx);
+		int cy = static_cast<int>((currIdx / nx) % ny);
+		int cz = static_cast<int>(currIdx / (static_cast<size_t>(nx) * ny));
+
+		result.vertices.push_back(origin.x + cx * voxelSize);
+		result.vertices.push_back(origin.y + cy * voxelSize);
+		result.vertices.push_back(origin.z + cz * voxelSize);
+
+		if (vertexCount > 0) {
+			result.edges.push_back(vertexCount - 1);
+			result.edges.push_back(vertexCount);
+		}
+		vertexCount++;
+
+		uint8_t dirIndex = parentDir[currIdx];
+
+		// check if we reached the starting node
+		if (dirIndex == 255) {
+        	break; 
+    	}
+
+		// to get current idx we need to move back to the neighbor delta
+		int px = cx - neighbors26[dirIndex].dx;
+		int py = cy - neighbors26[dirIndex].dy;
+		int pz = cz - neighbors26[dirIndex].dz;
+		
+		currIdx = get_idx(px, py, pz);
+	}
+
+	const size_t n = result.vertices.size();
+	result.outlet = Vec3(result.vertices[0], result.vertices[1], result.vertices[2]);
+	result.inlet = Vec3(result.vertices[n - 3], result.vertices[n - 2], result.vertices[n - 1]);
+	result.pathLength = minPathLength;
+	result.found = true;
+	result.status = AStarPathStatus::Ok;
+	result.axis = axis;
+	return result;
+}
 
 Eigen::Vector3d unit_axis_from_dir(int dir) {
 	Eigen::Vector3d a(0, 0, 0);

@@ -101,7 +101,7 @@ public:
 	float gridColor[4] = { 0.5f, 0.5f, 0.5f, 1.0f };
 	float gridSize = 1000.0f;
 	float gridCellSize = 0.025f;
-	float gridLineWidth = 4.0f;
+	float gridLineWidth = 2.0f;
 	float meshColor[3] = { 1.0f, 1.0f, 1.0f }; // RGB
 	float seedSize{ 1.0f };
 	float normalColor[4] = { 0.0f, 1.0f, 0.0f, 1.0f };

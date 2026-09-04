@@ -171,13 +171,15 @@ GeneratorLewiner::GeneratorLewiner(
 std::vector<GeneratorLewiner::NarrowBandClass> GeneratorLewiner::classify_container_narrow_band(
 	const IContainer& con, float margin) {
 
-	size_t totalVoxels = static_cast<size_t>(blockDims[0]) *
+	size_t totalVoxels = static_cast<size_t>(
+		blockDims[0]) *
 		static_cast<size_t>(blockDims[1]) *
 		static_cast<size_t>(blockDims[2]);
 
 	// default to the safe fallback everywhere; only cells we can PROVE are
 	// far enough from the surface get reclassified below
-	std::vector<NarrowBandClass> classification(totalVoxels, NarrowBandClass::NeedsExact);
+	std::vector<NarrowBandClass> classification(
+		totalVoxels, NarrowBandClass::NeedsExact);
 
 	// coarse sampling stride, in fine voxels. Larger = cheaper coarse pass
 	// but a thicker band of "ambiguous" cells around the surface (since the
@@ -3326,246 +3328,6 @@ void GeneratorLewiner::validate_topology(bool supress) {
 	}
 }
 
-// void GeneratorLewiner::render_properties(bool& updateScaffold, GenerationTask* task) 
-// {
-// 	std::shared_ptr<IContainer> lockedCon = container.lock();
-// 	std::shared_ptr<InterfaceSeedGenerator> lockedGen = generator.lock();
-
-// 	ImGui::ColorEdit4("Appearance", (float*)&color);
-
-// 	// first render the applied generator and container
-// 	if (lockedCon) {
-// 		ImGui::Text("Container: %s", lockedCon->name.c_str());
-// 	}
-// 	if (lockedGen) {
-// 		ImGui::Text("Generator: %s", lockedGen->name.c_str());
-// 	}
-
-// 	// --------------------------------------------------------------------------------
-// 	ImGui::SeparatorText("Thickness");
-
-// 	ImGui::RadioButton("Apply Uniform Thickness", &selectedThicknessOption, 0);
-// 	ImGui::RadioButton("Apply Varied Thickness", &selectedThicknessOption, 1);
-
-// 	// this is the uniform case
-// 	if (selectedThicknessOption == 0) {
-// 		ImGui::SetNextItemWidth(200);
-// 		ImGui::InputFloat("Thickness", &isoLevel);
-// 	}
-// 	// this is the varied case
-// 	else {
-// 		ImGui::SetNextItemWidth(200);
-// 		ImGui::InputFloat("Start Thickness", &startThickness);
-// 		ImGui::SetNextItemWidth(200);
-// 		ImGui::InputFloat("End Thickness", &endThickness);
-// 		ImGui::SetNextItemWidth(200);
-// 		ImGui::InputFloat("Transition Distance", &transitionDistance);
-
-// 		ImGui::SeparatorText("Select Distance Function");
-// 		ImGui::RadioButton("Distance From Plane", &selectedDist, 0);
-// 		if (selectedDist == 0) {
-// 			ImGui::SetNextItemWidth(200);
-// 			ImGui::InputFloat3("Normal", distancePlaneNormal);
-// 			ImGui::SetNextItemWidth(200);
-// 			ImGui::InputFloat3("Center", distancePlaneCenter);
-// 		};
-// 		ImGui::RadioButton("Distance From Point", &selectedDist, 1);
-// 		if (selectedDist == 1) {
-// 			ImGui::SetNextItemWidth(200);
-// 			ImGui::InputFloat3("Point", distancePoint);
-// 		}
-// 		ImGui::RadioButton("Distance From Container", &selectedDist, 2);
-
-// 		ImGui::SeparatorText("Select Radius Function");
-// 		ImGui::RadioButton("Linear", &selectedFunc, 0);
-// 		ImGui::RadioButton("Quadratic", &selectedFunc, 1);
-// 		ImGui::RadioButton("Constant", &selectedFunc, 2);
-// 		ImGui::RadioButton("Random", &selectedFunc, 3);
-// 	}
-
-// 	ImGui::InputFloat("Voxel Size", &voxelSize);
-
-// 	// other parameters -----------------------------------------------------------
-// 	ImGui::SeparatorText("Parameters");
-	
-// 	ImGuiTableFlags flags = ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_BordersInnerV;
-// 	// create a table
-// 	if (ImGui::BeginTable("", 2, flags = flags)) {
-		
-// 		if (lockedGen) {
-// 			ImGui::TableNextRow();
-
-// 			if (lockedGen->get_type() == ObjectType::RandomGeneratorType) {
-// 				ImGui::TableNextColumn(); ImGui::Text("Random Seeds");
-// 				ImGui::TableNextColumn();
-// 				ImGui::Text("%d", lockedGen->get_seeds().size());
-// 			}
-// 			else if (lockedGen->get_type() == ObjectType::PoissonGeneratorType) {
-// 				ImGui::TableNextColumn(); ImGui::Text("Poisson 3D");
-// 				ImGui::TableNextColumn();
-
-// 				Poisson3D* dummy = static_cast<Poisson3D*>(lockedGen.get());
-// 				if (dummy->is_uniform()) {
-// 					ImGui::Text("Radius (Uniform) %.4f", dummy->get_min_radius());
-// 				}
-// 				else {
-// 					ImGui::BeginTable("##", 2);
-// 					ImGui::TableNextRow();
-// 					ImGui::TableNextColumn();
-// 					ImGui::Text("Rmin %4.f", dummy->get_min_radius());
-// 					ImGui::TableNextColumn();
-// 					ImGui::Text("Rmax %4.f", dummy->get_max_radius());
-// 					ImGui::EndTable();
-// 				}
-// 			}
-// 		}
-// 		else {
-// 			ImGui::TableNextRow();
-// 			ImGui::TableNextColumn(); ImGui::Text("Source");
-// 			ImGui::TableNextColumn(); ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Loaded from CSV");
-// 		}
-		
-// 		ImGui::TableNextRow();
-// 		ImGui::TableNextColumn(); ImGui::Text("Openess");
-// 		ImGui::TableNextColumn();
-// 		ImGui::SliderFloat("##Openess", &threshold, 0.0f, 1.0f, "%.3f");
-
-// 		ImGui::TableNextRow();
-// 		ImGui::TableNextColumn(); ImGui::Text("Stretch X");
-// 		ImGui::TableNextColumn();
-// 		ImGui::InputFloat("##Stretch X", &stretchX, 0.01f, 100.0f, "%.3f");
-
-// 		ImGui::TableNextRow();
-// 		ImGui::TableNextColumn(); ImGui::Text("Stretch Y");
-// 		ImGui::TableNextColumn();
-// 		ImGui::InputFloat("##Stretch Y", &stretchY, 0.01f, 100.0f, "%.3f");
-
-// 		ImGui::TableNextRow();
-// 		ImGui::TableNextColumn(); ImGui::Text("Stretch Z");
-// 		ImGui::TableNextColumn();
-// 		ImGui::InputFloat("##Stretch Z", &stretchZ, 0.01f, 100.0f, "%.3f");
-
-// 		ImGui::TableNextRow();
-// 		ImGui::TableNextColumn(); ImGui::Text("Material Direction");
-// 		ImGui::TableNextColumn();
-// 		ImGui::SetNextItemWidth(200.0f);
-// 		ImGui::InputFloat3("##Material Direction", anisotropyVec, "%.4f");
-
-// 		ImGui::TableNextRow();
-// 		ImGui::TableNextColumn(); ImGui::Text("Angle");
-// 		ImGui::TableNextColumn();
-// 		ImGui::InputFloat("##Angle", &anisotropyAngle, 0.01f, 10.0f, "%.4f");
-	
-// 		ImGui::EndTable();
-// 	}
-	
-// 	ImGui::SeparatorText("Metrics");
-
-// 	render_metrics();
-
-// 	// if the user pressed the update button from the gui
-// 	if (updateScaffold) {
-// 		if (isLoadedFromFile) {
-// 			logger->log(LogPriority::WARNING, "Cannot update a static mesh loaded from a file.");
-// 			updateScaffold = false;
-// 		}
-// 		if (lockedCon && lockedGen) {
-
-// 			auto startTime = std::chrono::steady_clock::now();
-
-// 			std::vector<Vec3> seeds = lockedGen->get_seeds();
-// 			Bounds bds = lockedCon->compute_bounds();
-
-// 			std::array<float, 6> bounds = {
-// 				bds.xMin,
-// 				bds.xMax,
-// 				bds.yMin,
-// 				bds.yMax,
-// 				bds.zMin,
-// 				bds.zMax
-// 			};
-
-// 			// check the resolution
-// 			blockDims = {
-// 				static_cast<int>(std::ceil((bds.xMax - bds.xMin) / voxelSize)) + 1,
-// 				static_cast<int>(std::ceil((bds.yMax - bds.yMin) / voxelSize)) + 1,
-// 				static_cast<int>(std::ceil((bds.zMax - bds.zMin) / voxelSize)) + 1
-// 			};
-
-// 			if (selectedThicknessOption == 1) {
-
-// 				switch (selectedFunc) {
-// 					// linear radius function
-// 					case 0: {
-// 						thicknessFunction = std::make_shared<LinearFunction>(transitionDistance);
-// 						break;
-// 					}
-// 					case 1: {
-// 						thicknessFunction = std::make_shared<QuadraticFunction>(transitionDistance);
-// 						break;
-// 					}
-// 					case 2: {
-// 						thicknessFunction = std::make_shared<ConstantRadiusFunction>();
-// 						break;
-// 					}
-// 					case 3: {
-// 						thicknessFunction = std::make_shared<RandomRadiusFunction>();
-// 					}
-// 				}
-
-// 				switch (selectedDist) {
-// 					// distance from plane
-// 					case 0: {
-// 						thicknessSDF = std::make_shared<PlaneSDF>(distancePlaneCenter, distancePlaneNormal);
-// 						break;
-// 					}
-// 						  // distance from point
-// 					case 1: {
-// 						thicknessSDF = std::make_shared<PointSDF>(distancePoint);
-// 						break;
-// 					}
-// 						  // distance from container surface
-// 					case 2: {
-// 						thicknessSDF = lockedCon->get_distance_estimator();
-// 						break;
-// 					}
-// 				}
-// 			}
-// 			else {
-// 				thicknessSDF.reset();
-// 				thicknessFunction.reset();
-// 			}
-
-// 			set_thickness_functions(thicknessSDF, thicknessFunction, startThickness, endThickness, transitionDistance);
-
-// 			tortuosityPathModel.reset();
-// 			set_bounds(bounds);
-// 			set_seeds(seeds);
-			
-// 			//std::cout << "uniform flag" << selectedThicknessOption << " minT: " << startThickness << " maxT: " << maxThickness << " tDist: " << transitionDistance << " resolution: " << resolution[0] << " " << resolution[1] << " " << resolution[2] << std::endl;
-			
-// 			compute_scalar_field(*lockedCon);
-// 			marching_cubes();
-// 			estimate_metrics(*lockedCon);
-
-// 			auto endTime = std::chrono::steady_clock::now();
-
-// 			// Calculate the duration in milliseconds
-// 			auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
-
-// 			std::ostringstream oss;
-// 			oss << std::fixed << std::setprecision(3) // Set precision to 3 decimal places
-// 				<< duration_ms.count() / 1000.0   // Convert ms to seconds
-// 				<< " seconds!";
-
-// 			logger->log(LogPriority::SUCCESS, "Updated Scaffold Successfully in " + oss.str());
-
-// 			// reset
-// 			updateScaffold = false;
-// 		}
-// 	}
-// };
-
 void GeneratorLewiner::render_properties(
 	bool& updateScaffold,
 	 GenerationTask* task,
@@ -6288,9 +6050,15 @@ bool GeneratorLewiner::load_scaf(const std::string& fileName,
 }
 
 //@brief function to estimate tortuosity of the porous structure, using the A* algorithm on the grid, we can estimate the shortest path between two points in the porous structure, and compare it to the straight line distance between those points to get an estimate of the tortuosity
-bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
+bool GeneratorLewiner::estimate_tortuosity(float voxelSize, int mode, int axis) {
+	auto start = std::chrono::high_resolution_clock::now();
 
-	if (isLoadedFromFile) return false;
+	if (isLoadedFromFile){
+		if(logger) logger->log(
+			LogPriority::ERROR, 
+			"Scaffold is loaded from a file that does not contain the scalar field.");
+		return false;
+	}
 
     tortuosityPathModel.reset();
     tortuosityPathVertices.clear();
@@ -6303,8 +6071,7 @@ bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
         aabb.pMin.z, aabb.pMax.z
     };
 
-    // FIX 1: Pass 'false' (0) instead of 1. 
-    // Now Bone = 255 and Air/Pores = 0, which perfectly matches A* logic.
+    // Bone = solidValue (255), Air/Pores = 0. A* traverses the 0 (pore) phase.
     std::vector<uint8_t> field = get_image_field(voxelSize, aabbBounds, false);
 
     // estimate new block dimensions
@@ -6314,7 +6081,15 @@ bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
 
     // Safety check: ensure the field size matches our expected dimensions
     if (field.size() != (size_t)nx * ny * nz) {
-        std::cerr << "Dimension mismatch in tortuosity estimation!" << std::endl;
+        if(logger) logger->log(LogPriority::ERROR, "Dimension mismatch in tortuosity estimation!");
+        return false;
+    }
+
+    // The inlet plane sits at z = 1 and the outlet plane at z = nz - 2, so we
+    // need at least 4 voxels along Z for a well-defined through-path. Below that the straight-line reference (targetZ - startZ) collapses to <= 0 and the ratio becomes a division by zero / negative. Bail out cleanly instead.
+    if (nx < 1 || ny < 1 || nz < 4) {
+        if(logger) logger->log(LogPriority::ERROR, "The grid is too thin along Z");
+        tortuosity = -1;
         return false;
     }
 
@@ -6325,163 +6100,80 @@ bool GeneratorLewiner::estimate_tortuosity(float voxelSize) {
     };
 
     size_t totalVoxels = field.size();
-    std::vector<size_t> parentMap(totalVoxels, SIZE_MAX);
-    std::vector<float> gScore(totalVoxels, std::numeric_limits<float>::max());
-    std::vector<bool> visited(totalVoxels, false);
 
-    // FIX 3: Define a 26-connected Moore Neighborhood for 3D diagonal traversal
-    struct Neighbor { int dx, dy, dz; float cost; };
-    std::vector<Neighbor> neighbors26;
-    for (int dz = -1; dz <= 1; dz++) {
-        for (int dy = -1; dy <= 1; dy++) {
-            for (int dx = -1; dx <= 1; dx++) {
-                if (dx == 0 && dy == 0 && dz == 0) continue;
-                // Cost is geometric distance: 1.0 for straight, 1.41 for 2D diag, 1.73 for 3D diag
-                float cost = std::sqrt(static_cast<float>(dx * dx + dy * dy + dz * dz));
-                neighbors26.push_back({ dx, dy, dz, cost });
-            }
-        }
-    }
-
-    std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
-
-    int startZ = 1;
-    int targetZ = nz - 2;
-
-    int xSize = static_cast<int>(nx * 0.15f);
-    int ySize = static_cast<int>(ny * 0.15f);
-    if (xSize == 0) xSize = 1;
-    if (ySize == 0) ySize = 1;
-
-    bool foundStart = false;
-
-    // Helper lambda to search for inlets
-    auto add_inlets = [&](int marginX, int marginY) {
-        for (int x = marginX; x < nx - marginX - 1; x++) {
-            for (int y = marginY; y < ny - marginY - 1; y++) {
-                size_t idx = get_idx(x, y, startZ);
-                float h = (targetZ - startZ) * voxelSize;
-
-                // field == 0 is now correctly mapped to Air
-                if (field[idx] == 0 && gScore[idx] > 0.0f) { 
-                    gScore[idx] = 0.0f;
-                    openSet.push({ idx, h });
-                    foundStart = true;
-                }
-            }
-        }
-    };
-
-    // Try central region first
-    add_inlets(xSize, ySize);
-
-    // FIX 2: Fallback to the entire Z slice if the center is blocked by bone
-    if (!foundStart) {
-        add_inlets(1, 1); 
-    }
-
-    if (!foundStart) {
-        std::cerr << "Inlet is completely blocked! No starting points found." << std::endl;
-        return false;
-    }
-
-    float minPathLength = std::numeric_limits<float>::infinity();
-    size_t goalIndex = SIZE_MAX;
-
-    while (!openSet.empty()) {
-        AStarNode current = openSet.top();
-        openSet.pop();
-
-        int idx = current.idx;
-
-        if (visited[idx]) continue;
-        visited[idx] = true;
-
-        int x = idx % nx;
-        int y = (idx / nx) % ny;
-        int z = idx / (nx * ny);
-
-        if (z >= targetZ) {
-            minPathLength = gScore[idx];
-            goalIndex = idx;
-            break;
-        }
-
-        // Use the newly defined 26-connected array
-        for (const auto& nb : neighbors26) { 
-            int nx_ = x + nb.dx;
-            int ny_ = y + nb.dy;
-            int nz_ = z + nb.dz;
-
-            if (nx_ >= 0 && nx_ < nx && ny_ >= 0 && ny_ < ny && nz_ >= 0 && nz_ < nz) {
-                size_t nbIdx = get_idx(nx_, ny_, nz_);
-
-                if (!visited[nbIdx] && field[nbIdx] == 0) {
-                    
-                    float g = gScore[idx] + (nb.cost * voxelSize);
-
-                    if (g < gScore[nbIdx]) {
-                        gScore[nbIdx] = g;
-
-                        // Target exact distance to end plane
-                        float h = (targetZ - nz_) * voxelSize; 
-                        openSet.push({ nbIdx, g + h});
-
-                        parentMap[nbIdx] = idx;
-                    }
+    // --- Container mask ------------------------------------------------------
+    // get_image_field only knows the LATTICE: any voxel whose interpolated
+    // scalar value is above isoLevel becomes 0 (air), including everything in
+    // the AABB that lies OUTSIDE the container wall. For a non-box container (a
+    // cylinder, a CAD mesh) those corners are free "air", so a raw A* would
+    // escape the pore network, hug the empty AABB shell and collapse tortuosity
+    // to ~1. Restrict traversal to voxels proven inside the container - matching the DA / Tb.N MIL masking. A box container fills its AABB, so its mask is all-inside and box results are unchanged.
+    std::vector<uint8_t> insideField;
+    if (auto lockedCon = container.lock()) {
+        insideField.assign(totalVoxels, 1);
+        #pragma omp parallel for collapse(3)
+        for (int z = 0; z < nz; z++) {
+            for (int y = 0; y < ny; y++) {
+                for (int x = 0; x < nx; x++) {
+                    float px = aabbBounds[0] + x * voxelSize;
+                    float py = aabbBounds[2] + y * voxelSize;
+                    float pz = aabbBounds[4] + z * voxelSize;
+                    insideField[get_idx(x, y, z)] =
+                        lockedCon->is_inside(Vec3(px, py, pz)) ? 1 : 0;
                 }
             }
         }
     }
 
-    if (goalIndex == SIZE_MAX) {
-        std::cerr << "No connected path found from inlet to outlet! Porosity is closed." << std::endl;
+    // Run the shared, unit-tested 26-connected axial A* search (Utils.cpp). It
+    // slides the inlet/outlet planes inward to the first/last open slice, seeds
+    // the inlet as a multi-source front, and returns the reconstructed path in
+    // physical coordinates (outlet-first .. inlet-last).
+    Vec3 origin(aabbBounds[0], aabbBounds[2], aabbBounds[4]);
+    AStarPathResult path =
+        astar_axial_path(field, insideField, nx, ny, nz, voxelSize, origin, axis);
+
+    if (!path.found) {
+        if (logger) logger->log(LogPriority::ERROR,
+            path.status == AStarPathStatus::NoPath
+                ? "Tortuosity: no connected path from inlet to outlet (pore network is closed along Z)."
+                : "Tortuosity: no open inlet/outlet planes inside the container (structure may be closed along Z).");
         tortuosity = -1;
         return false;
     }
 
-    // --- Path Reconstruction ---
-    size_t currIdx = goalIndex;
-    int vertexCount = 0;
-
-    while (currIdx != SIZE_MAX) {
-        int cx = static_cast<int>(currIdx % nx);
-        int cy = static_cast<int>((currIdx / nx) % ny);
-        int cz = static_cast<int>(currIdx / (nx * ny));
-
-        Vec3 pos(
-            aabbBounds[0] + cx * voxelSize,
-            aabbBounds[2] + cy * voxelSize,
-            aabbBounds[4] + cz * voxelSize);
-
-        tortuosityPathVertices.push_back(pos.x);
-        tortuosityPathVertices.push_back(pos.y);
-        tortuosityPathVertices.push_back(pos.z);
-
-        if (vertexCount > 0) { 
-            tortuosityPathEdges.push_back(vertexCount - 1);
-            tortuosityPathEdges.push_back(vertexCount);
-        }
-
-        currIdx = parentMap[currIdx];
-        vertexCount++;
+    tortuosityPathVertices = std::move(path.vertices);
+    tortuosityPathEdges = std::move(path.edges);
+    // The PoreNetwork is an OpenGL render object; only build it when rendering
+    // (a headless caller - the CLI profiler - has no GL context).
+    if (renderMode) {
+        tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
     }
 
-    // create a model
-    tortuosityPathModel = std::make_unique<PoreNetwork>(tortuosityPathVertices, tortuosityPathEdges);
-    
-    // tortuosity is the ratio of the actual path length to the straight line distance
-    float straightLineDist = (targetZ - startZ) * voxelSize;
-    tortuosity = minPathLength / straightLineDist; 
-    
-    if (tortuosity < 1.0f) {
-        tortuosity = 1.0f;
-    }
+    // Straight-line reference depends on the requested definition:
+    //   mode 0 (permeability / transport): axial span across the inlet/outlet planes
+    //   mode 1 (geometric): straight-line distance between the actual path endpoints
+    float straightLineDist = (mode == 0)
+        ? (path.targetAx - path.startAx) * voxelSize
+        : (path.outlet - path.inlet).norm();
+
+    tortuosity = path.pathLength / straightLineDist;
+    if (tortuosity < 1.0f) tortuosity = 1.0f;
 
     tortuosityVersion = meshVersion;
-	
-	logger->log(LogPriority::SUCCESS, "Estimated Tortuosity!");
 
+	auto end = std::chrono::high_resolution_clock::now();
+
+	auto duration_ms = std::chrono::duration_cast<std::chrono::seconds>(
+		end - start);
+
+	std::ostringstream oss;
+	oss << std::fixed << std::setprecision(3) << duration_ms.count() << " seconds!";
+
+	if(logger)
+	logger->log(LogPriority::SUCCESS,
+		"Estimated tortuosity in " + oss.str());
+	
     return true;
 };
 
@@ -6494,7 +6186,7 @@ void GeneratorLewiner::draw_tortuosity_path() {
 
 void GeneratorLewiner::apply_scale() {
 	
-	int vertNr = vertices.size() / 3;
+	size_t vertNr = vertices.size() / 3;
 
 	for (int i{ 0 }; i < vertNr; i++) {
 		vertices[i] *= scaleVec.x;

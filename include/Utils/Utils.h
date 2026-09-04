@@ -5,6 +5,7 @@
 
 #include "Eigen/Dense"
 #include <string.h>
+#include <cstdint>
 #include <array>
 #include <vector>
 #include <algorithm>
@@ -67,6 +68,48 @@ struct AStarNode {
 		return fScore > other.fScore; // we want the node with the lowest fScore to be at the top of the priority queue, so we use > instead of <
 	}
 };
+
+// Outcome of astar_axial_path(). Ok = a connected inlet->outlet path was found.
+enum class AStarPathStatus {
+	Ok = 0,
+	NoOpenPlanes,   // no inlet/outlet slice with a traversable voxel (or grid too thin)
+	NoPath          // inlet seeded but no connected path reached the outlet plane
+};
+
+// Result of an axial (low-Z -> high-Z) shortest-path search through the open
+// (pore) phase of a voxel field. `vertices` is a flat x,y,z list in PHYSICAL
+// units, ordered outlet-first .. inlet-last; `edges` are consecutive index
+// pairs into it (ready for PoreNetwork). See astar_axial_path().
+struct AStarPathResult {
+	bool found = false;
+	AStarPathStatus status = AStarPathStatus::NoOpenPlanes;
+	float pathLength = 0.0f; // geodesic length, same units as voxelSize
+	int startAx = 0, targetAx = 0; // inlet / outlet planes actually used
+	Vec3 inlet{}; // physical inlet endpoint (path start)
+	Vec3 outlet{}; // physical outlet endpoint (path end)
+	std::vector<float> vertices;
+	std::vector<unsigned int> edges;
+	int axis = 2; // axis 0:x, 1:y, 2:z
+};
+
+// 26-connected A* shortest path through the open (value == 0) phase of `field`,
+// travelling from the low-axis inlet plane to the high-axis outlet plane. 
+// axis is the direction along we travel, with x: 0, y: 1, z: 2(default)
+// `field` is
+// row-major x + y*nx + z*nx*ny with 0 = pore (traversable), non-zero = solid.
+// `insideMask` (same layout) restricts traversal to voxels marked 1; pass an
+// EMPTY vector to traverse the whole box. `origin` is the physical position of
+// voxel (0,0,0), so a reconstructed vertex is origin + index * voxelSize. The
+// inlet/outlet planes slide inward to the first/last slice that actually holds
+// an open voxel, so containers that do not span the full Z range still work.
+AStarPathResult astar_axial_path(
+	const std::vector<uint8_t>& field,
+	const std::vector<uint8_t>& insideMask,
+	int nx, int ny, int nz,
+	float voxelSize,
+	const Vec3& origin,
+	int axis=2
+);
 
 struct RenameState {
 	char buffer[128] = "";

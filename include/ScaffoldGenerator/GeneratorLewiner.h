@@ -345,7 +345,7 @@ public:
 		const std::function<void(float)>& onProgress = nullptr
 	);
 
-	bool estimate_tortuosity(float voxelSize);
+	bool estimate_tortuosity(float voxelSize, int mode = 0, int axis = 2);
 
 	//void estimate_anisotropy(int daDirectionNr, int daMinsteps, int daMaxsteps, float vcLimit, int mode = 0);
 
@@ -433,6 +433,17 @@ public:
 	std::unique_ptr<GeneratorLewiner> extract_from_ROI(ROI* roi);
 
 	void set_logger(Logger* newLogger) { logger = newLogger; };
+
+	// Set the render flag. Used by the headless CLI so an exported .scaf is marked
+	// renderable (load_scaf restores this flag, and a false value would load an
+	// invisible scaffold in the GUI). Only flips the flag - creates no GL objects.
+	void set_render_mode(bool r) { renderMode = r; };
+
+	// Overwrite the analysis AABB. marching_cubes() shrinks aabb to the mesh
+	// bounding box; for an analytic phantom whose solid is smaller than its domain
+	// the caller restores the full domain here so the voxel metrics (which read
+	// aabb) measure the whole sample rather than a tight, degenerate box.
+	void set_aabb(const Aabb& a) { aabb = a; };
 
 	// saving / loading
 	void export_scaf(const std::string& fileName);
