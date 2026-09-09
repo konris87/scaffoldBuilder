@@ -8,7 +8,7 @@ install_commands.txt
 /*.zip
 .vscode/
 /doc/paper/
-doc/Methodology.md
+doc/METHODOLOGY.md
 doc/RELEASE_REVIEW.md
 doc/GeneratorLewiner_REVIEW.md
 

@@ -86,6 +86,7 @@ set(CORE_SOURCES
 set(SOURCES
 	${CORE_SOURCES}
 	src/Gui/guiApp.cpp
+	src/OpenGlSetup/execPath.cpp
 	src/main.cpp
 )
 
@@ -165,6 +166,13 @@ install(TARGETS scaffoldBuilder
 
 # Install the share/ folder (shaders, fonts, textures) alongside the executable
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/share/ DESTINATION bin/share)
+
+# Ship the compiled user guide with the package. Only the PDF goes out - the
+# LaTeX sources, build artifacts and figures under doc/user_guide/ stay out of
+# the release. OPTIONAL so configuring/packaging still works on a fresh checkout
+# where the PDF (git-ignored, shipped as a Release asset) has not been built yet.
+install(FILES ${CMAKE_SOURCE_DIR}/doc/user_guide/User_Guide.pdf
+	DESTINATION doc/user_guide OPTIONAL)
 
 # License compliance: ship our GPL-3.0 LICENSE plus the third-party notices and
 # each dependency's license text in the package (MIT/Zlib/MPL-2.0 all require

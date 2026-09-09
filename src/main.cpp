@@ -28,8 +28,21 @@
 const unsigned int SCR_WIDTH = 1200;
 const unsigned int SCR_HEIGHT = 800;
 
+// All GUI resources (shaders, textures, fonts, imgui.ini) are loaded through
+// paths relative to "./share/...". Those resolve against the current working
+// directory, which is NOT necessarily the folder that holds the executable:
+// launching from a shortcut, from Explorer's Run box, or from another folder
+// leaves the cwd elsewhere, so the shaders/textures silently fail to load.
+// This pins the working directory to the executable's own directory at startup.
+// Implemented in src/OpenGlSetup/execPath.cpp so that <windows.h> (needed for
+// GetModuleFileNameW) stays out of this translation unit - its ERROR / min /
+// max / near / far macros otherwise clash with Logger.h, Eigen and the cameras.
+void set_cwd_to_executable_dir();
+
 int main(){
-    
+
+    set_cwd_to_executable_dir();
+
     bool simMode = false;
 
     if (!simMode) {
